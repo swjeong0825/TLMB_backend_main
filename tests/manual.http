@@ -1,0 +1,104 @@
+### Tennis League API — Manual Test Requests
+### Usage: fill in @baseUrl, @leagueId, @hostToken, @playerId, @teamId, @matchId
+###        before sending requests that depend on them.
+
+@baseUrl = http://localhost:8000
+
+# ─────────────────────────────────────────────
+# Copy values from the response of "Create League"
+# ─────────────────────────────────────────────
+@leagueId  = <paste league_id here>
+@hostToken = <paste host_token here>
+@playerId  = <paste player_id here>
+@teamId    = <paste team_id here>
+@matchId   = <paste match_id here>
+
+
+### ═══════════════════════════════════════════
+###  League — Public Endpoints
+### ═══════════════════════════════════════════
+
+### Create League (minimal)
+POST {{baseUrl}}/leagues
+Content-Type: application/json
+
+{
+  "title": "Summer Open 2026"
+}
+
+###
+
+### Create League (with description)
+POST {{baseUrl}}/leagues
+Content-Type: application/json
+
+{
+  "title": "Autumn Cup",
+  "description": "Annual autumn tournament"
+}
+
+###
+
+### Submit Match Result
+POST {{baseUrl}}/leagues/{{leagueId}}/matches
+Content-Type: application/json
+
+{
+  "team1_nicknames": ["alice", "bob"],
+  "team2_nicknames": ["charlie", "diana"],
+  "team1_score": "6",
+  "team2_score": "3"
+}
+
+###
+
+### Get Standings
+GET {{baseUrl}}/leagues/{{leagueId}}/standings
+
+###
+
+### Get Match History
+GET {{baseUrl}}/leagues/{{leagueId}}/matches
+
+###
+
+### Get Roster
+GET {{baseUrl}}/leagues/{{leagueId}}/roster
+
+
+### ═══════════════════════════════════════════
+###  Admin Endpoints  (require X-Host-Token)
+### ═══════════════════════════════════════════
+
+### Edit Player Nickname
+PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/players/{{playerId}}
+Content-Type: application/json
+X-Host-Token: {{hostToken}}
+
+{
+  "new_nickname": "Serena"
+}
+
+###
+
+### Edit Match Score
+PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/matches/{{matchId}}
+Content-Type: application/json
+X-Host-Token: {{hostToken}}
+
+{
+  "team1_score": "7",
+  "team2_score": "5"
+}
+
+###
+
+### Delete Match
+DELETE {{baseUrl}}/admin/leagues/{{leagueId}}/matches/{{matchId}}
+X-Host-Token: {{hostToken}}
+
+###
+
+### Delete Team  (delete its matches first)
+DELETE {{baseUrl}}/admin/leagues/{{leagueId}}/teams/{{teamId}}
+X-Host-Token: {{hostToken}}

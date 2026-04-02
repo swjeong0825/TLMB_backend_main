@@ -3,22 +3,23 @@ from __future__ import annotations
 import asyncio
 import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 
-config = context.config
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-HARDCODED_DATABASE_URL = "postgresql+asyncpg://@localhost:5432/tennis_league_integ"
+config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# DATABASE_URL = os.getenv(
-#     "DATABASE_URL",
-#     config.get_main_option("sqlalchemy.url"),
-# )
-DATABASE_URL = HARDCODED_DATABASE_URL
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://@localhost:5432/tennis_league_integ",
+)
 
 from app.infrastructure.config.database import Base
 from app.infrastructure.persistence.models.orm_models import (  # noqa: F401  # ensure models are imported
