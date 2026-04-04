@@ -24,9 +24,14 @@ from app.domain.exceptions import (
 
 app = FastAPI(title="Tennis League Manager", version="1.0.0")
 
+ALLOWED_ORIGINS = [
+    "https://tlmb.swjapps.com",
+    "https://www.tlmb.swjapps.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
