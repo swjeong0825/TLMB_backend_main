@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.schemas.league_schemas import (
     CreateLeagueRequest,
@@ -22,6 +22,10 @@ from app.application.use_cases.create_league_use_case import (
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterQuery, GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryQuery, GetMatchHistoryUseCase
 from app.application.use_cases.get_standings_use_case import GetStandingsQuery, GetStandingsUseCase
+from app.application.use_cases.get_match_history_by_player_use_case import (
+    GetMatchHistoryByPlayerQuery,
+    GetMatchHistoryByPlayerUseCase,
+)
 from app.application.use_cases.submit_match_result_use_case import (
     SubmitMatchResultCommand,
     SubmitMatchResultUseCase,
@@ -29,6 +33,7 @@ from app.application.use_cases.submit_match_result_use_case import (
 from app.dependencies import (
     get_create_league_use_case,
     get_get_league_roster_use_case,
+    get_get_match_history_by_player_use_case,
     get_get_match_history_use_case,
     get_get_standings_use_case,
     get_submit_match_result_use_case,
@@ -105,6 +110,36 @@ async def get_match_history(
     use_case: GetMatchHistoryUseCase = Depends(get_get_match_history_use_case),
 ) -> GetMatchHistoryResponse:
     records = await use_case.execute(GetMatchHistoryQuery(league_id=league_id))
+    return GetMatchHistoryResponse(
+        matches=[
+            MatchHistoryRecordSchema(
+                match_id=r.match_id,
+                team1_player1_nickname=r.team1_player1_nickname,
+                team1_player2_nickname=r.team1_player2_nickname,
+                team2_player1_nickname=r.team2_player1_nickname,
+                team2_player2_nickname=r.team2_player2_nickname,
+                team1_score=r.team1_score,
+                team2_score=r.team2_score,
+                created_at=r.created_at,
+            )
+            for r in records
+        ]
+    )
+
+
+@router.get(
+    "/leagues/{league_id}/matches/by-player",
+    status_code=status.HTTP_200_OK,
+    response_model=GetMatchHistoryResponse,
+)
+async def get_match_history_by_player(
+    league_id: str,
+    player_name: str = Query(..., description="Player nickname (case-insensitive)"),
+    use_case: GetMatchHistoryByPlayerUseCase = Depends(get_get_match_history_by_player_use_case),
+) -> GetMatchHistoryResponse:
+    records = await use_case.execute(
+        GetMatchHistoryByPlayerQuery(league_id=league_id, player_name=player_name)
+    )
     return GetMatchHistoryResponse(
         matches=[
             MatchHistoryRecordSchema(

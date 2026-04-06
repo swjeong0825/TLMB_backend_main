@@ -10,6 +10,7 @@ flowchart TD
         GS["GetStandings\n→ StandingsCalculator  (read-only)"]
         GMH["GetMatchHistory\n→ Match records + nickname resolution  (read-only)"]
         GLR["GetLeagueRoster\n→ League aggregate  (read-only)"]
+        GMBP["GetMatchHistoryByPlayer\n→ player lookup + match filter  (read-only)"]
     end
     subgraph ADMIN ["Admin  (X-Host-Token required)"]
         EPN["EditPlayerNickname\n→ League aggregate"]
@@ -156,6 +157,34 @@ flowchart TD
   2. Return player list and team list from loaded aggregate
 - Domain rules enforced where: none — pure projection
 - Errors: LeagueNotFoundError
+
+---
+
+## Use Case: GetMatchHistoryByPlayerUseCase
+
+- Business action: Get Match History By Player Name
+- Inputs: GetMatchHistoryByPlayerQuery(league_id: str, player_name: str)
+- Output: list[MatchHistoryRecord(match_id, team1_player_nicknames, team2_player_nicknames, team1_score, team2_score, created_at)] sorted by created_at descending
+- State-changing or calculation-only?: Calculation-only
+- Unit of Work needed?: No
+- Aggregate(s) loaded: League (for player lookup, team resolution, and nickname mapping), all Match records for the league
+- Aggregate(s) loaded through which repository?: LeagueRepository, MatchRepository
+- Domain service used?: No
+- Repository calls: LeagueRepository.get_by_id, MatchRepository.get_all_by_league
+- Port calls: none
+- Persistence required?: No
+- Transaction notes: read-only
+- Steps:
+  1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
+  2. Normalize player_name via PlayerNickname(player_name) — applies lowercase + strip
+  3. Find player by normalized nickname in league.players — raise PlayerNotFoundError if not found
+  4. Find the player's team in league.teams by matching player_id_1 or player_id_2 — return empty list if no team found (player's team was deleted)
+  5. Load all matches via MatchRepository.get_all_by_league(league_id) — filter to those where team1_id or team2_id equals the player's team_id
+  6. For each filtered match, resolve team player nicknames using league.teams and league.players
+  7. Return MatchHistoryRecord list sorted by created_at descending
+- Domain rules enforced where: none — pure projection; player existence enforced at application layer
+- Errors: LeagueNotFoundError, PlayerNotFoundError
+- Notes: Reuses the MatchHistoryRecord output type from GetMatchHistoryUseCase. An empty result (no matches) is a valid response when the player's team exists but has not yet played any matches.
 
 ---
 

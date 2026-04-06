@@ -501,3 +501,141 @@ async def test_get_league_roster_player_ids_are_valid_uuids(client: AsyncClient)
 
     for team in body["teams"]:
         uuid.UUID(team["team_id"])
+
+
+# ---------------------------------------------------------------------------
+# GET /leagues/{league_id}/matches/by-player
+# ---------------------------------------------------------------------------
+
+
+async def test_get_match_history_by_player_returns_players_matches(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    match = await submit_match(
+        client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"),
+        team1_score="6", team2_score="4",
+    )
+
+    resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
+
+    assert resp.status_code == 200
+    matches = resp.json()["matches"]
+    assert len(matches) == 1
+    record = matches[0]
+    assert record["match_id"] == match["match_id"]
+    assert record["team1_score"] == "6"
+    assert record["team2_score"] == "4"
+    assert set([record["team1_player1_nickname"], record["team1_player2_nickname"]]) == {"alice", "bob"}
+    assert set([record["team2_player1_nickname"], record["team2_player2_nickname"]]) == {"charlie", "diana"}
+    assert record["created_at"] is not None
+
+
+async def test_get_match_history_by_player_filters_out_other_matches(
+    client: AsyncClient,
+) -> None:
+    """Matches not involving alice's team must not appear in her history."""
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    alice_match = await submit_match(
+        client, league_id, team1=("alice", "bob"), team2=("charlie", "diana")
+    )
+    await submit_match(
+        client, league_id, team1=("edgar", "frank"), team2=("george", "henry")
+    )
+
+    resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
+
+    assert resp.status_code == 200
+    matches = resp.json()["matches"]
+    assert len(matches) == 1
+    assert matches[0]["match_id"] == alice_match["match_id"]
+
+
+async def test_get_match_history_by_player_returns_matches_as_team2(
+    client: AsyncClient,
+) -> None:
+    """alice+bob appearing as team2 should still show up in alice's history."""
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    match = await submit_match(
+        client, league_id, team1=("charlie", "diana"), team2=("alice", "bob"),
+        team1_score="3", team2_score="6",
+    )
+
+    resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
+
+    assert resp.status_code == 200
+    matches = resp.json()["matches"]
+    assert len(matches) == 1
+    assert matches[0]["match_id"] == match["match_id"]
+
+
+async def test_get_match_history_by_player_returns_all_matches(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"), team1_score="6", team2_score="3")
+    await submit_match(client, league_id, team1=("charlie", "diana"), team2=("alice", "bob"), team1_score="4", team2_score="6")
+
+    resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["matches"]) == 2
+
+
+async def test_get_match_history_by_player_case_insensitive(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    match = await submit_match(
+        client, league_id, team1=("alice", "bob"), team2=("charlie", "diana")
+    )
+
+    resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=ALICE")
+
+    assert resp.status_code == 200
+    matches = resp.json()["matches"]
+    assert len(matches) == 1
+    assert matches[0]["match_id"] == match["match_id"]
+
+
+async def test_get_match_history_by_player_player_not_found_returns_404(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    await submit_match(client, league_id)
+
+    resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=ghost")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "PlayerNotFoundError"
+
+
+async def test_get_match_history_by_player_league_not_found_returns_404(
+    client: AsyncClient,
+) -> None:
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    resp = await client.get(f"/leagues/{fake_id}/matches/by-player?player_name=alice")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "LeagueNotFoundError"
+
+
+async def test_get_match_history_by_player_missing_param_returns_422(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    resp = await client.get(f"/leagues/{league['league_id']}/matches/by-player")
+
+    assert resp.status_code == 422

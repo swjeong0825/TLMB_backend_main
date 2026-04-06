@@ -16,6 +16,7 @@ flowchart LR
         P3["GET /leagues/{league_id}/standings"]
         P4["GET /leagues/{league_id}/matches"]
         P5["GET /leagues/{league_id}/roster"]
+        P6["GET /leagues/{league_id}/matches/by-player?player_name=str"]
     end
     subgraph admin ["Admin — league_id + X-Host-Token header"]
         A1["PATCH /admin/leagues/{league_id}/players/{player_id}"]
@@ -162,6 +163,38 @@ flowchart LR
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
+
+---
+
+## Endpoint: Get Matches By Player Name
+
+- Method: GET
+- Path: `/leagues/{league_id}/matches/by-player`
+- Purpose: Get the match history for a specific player, identified by nickname; resolves the player's team and returns all matches involving that team
+- Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
+- Response shape: same as Get Match History
+  ```json
+  {
+    "matches": [
+      {
+        "match_id": "uuid",
+        "team1_player1_nickname": "str",
+        "team1_player2_nickname": "str",
+        "team2_player1_nickname": "str",
+        "team2_player2_nickname": "str",
+        "team1_score": "str",
+        "team2_score": "str",
+        "created_at": "ISO 8601 datetime (UTC)"
+      }
+    ]
+  }
+  ```
+- Use case called: GetMatchHistoryByPlayerUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 PlayerNotFoundError (no player with that nickname in this league)
+- Auth notes: `league_id` in URL path — possession is sufficient
+- Notes: Sorted by `created_at` descending. Returns an empty list if the player's team has been deleted. Nickname resolution at read time — admin nickname edits retroactively affect display.
 
 ---
 

@@ -73,6 +73,18 @@
 
 ---
 
+## Query: GetMatchHistoryByPlayer
+
+- Inputs: league_id (str), player_name (str — normalized to lowercase)
+- Auth: leagueId possession (player-level access) — possession is sufficient
+- Filters: scoped to the given league_id; further filtered to matches involving the resolved player's team
+- Sorting / pagination: sorted by created_at descending; no pagination in V1
+- Output: list[MatchHistoryRecord] ordered by created_at descending (empty list if player has no current team)
+- Domain service used?: No
+- Notes: Player is resolved by normalized nickname from the League aggregate. Team is identified from league.teams. Matches are loaded via MatchRepository.get_all_by_league and filtered in-memory. Nickname resolution uses current League state — same retroactive-edit behaviour as GetMatchHistory.
+
+---
+
 ## Query: GetLeagueRoster
 
 - Inputs: league_id (str)

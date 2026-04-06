@@ -18,6 +18,7 @@ from app.application.use_cases.submit_match_result_use_case import SubmitMatchRe
 from app.domain.exceptions import (
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
+    PlayerNotFoundError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
@@ -224,6 +225,75 @@ class TestGetMatchHistory:
     ) -> None:
         mock_get_match_history_uc.execute.return_value = []
         response = await client.get("/leagues/lid/matches")
+        assert response.status_code == 200
+        assert response.json()["matches"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /leagues/{league_id}/roster
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# GET /leagues/{league_id}/matches/by-player
+# ---------------------------------------------------------------------------
+
+
+class TestGetMatchHistoryByPlayer:
+    _MATCH_RECORD = MatchHistoryRecord(
+        match_id="m1",
+        team1_player1_nickname="alice",
+        team1_player2_nickname="bob",
+        team2_player1_nickname="charlie",
+        team2_player2_nickname="diana",
+        team1_score="6",
+        team2_score="3",
+        created_at=datetime(2025, 1, 1),
+    )
+
+    async def test_returns_200_with_matches_list(
+        self, client: AsyncClient, mock_get_match_history_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_by_player_uc.execute.return_value = [self._MATCH_RECORD]
+        response = await client.get("/leagues/lid/matches/by-player?player_name=alice")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["matches"]) == 1
+        assert data["matches"][0]["match_id"] == "m1"
+
+    async def test_passes_player_name_to_use_case(
+        self, client: AsyncClient, mock_get_match_history_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_by_player_uc.execute.return_value = []
+        await client.get("/leagues/lid/matches/by-player?player_name=alice")
+        call_args = mock_get_match_history_by_player_uc.execute.call_args[0][0]
+        assert call_args.player_name == "alice"
+        assert call_args.league_id == "lid"
+
+    async def test_missing_player_name_returns_422(self, client: AsyncClient) -> None:
+        response = await client.get("/leagues/lid/matches/by-player")
+        assert response.status_code == 422
+
+    async def test_league_not_found_returns_404(
+        self, client: AsyncClient, mock_get_match_history_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_by_player_uc.execute.side_effect = LeagueNotFoundError("not found")
+        response = await client.get("/leagues/bad-id/matches/by-player?player_name=alice")
+        assert response.status_code == 404
+
+    async def test_player_not_found_returns_404(
+        self, client: AsyncClient, mock_get_match_history_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_by_player_uc.execute.side_effect = PlayerNotFoundError("not found")
+        response = await client.get("/leagues/lid/matches/by-player?player_name=ghost")
+        assert response.status_code == 404
+        assert response.json()["error"] == "PlayerNotFoundError"
+
+    async def test_empty_result_returns_empty_matches_list(
+        self, client: AsyncClient, mock_get_match_history_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_by_player_uc.execute.return_value = []
+        response = await client.get("/leagues/lid/matches/by-player?player_name=alice")
         assert response.status_code == 200
         assert response.json()["matches"] == []
 
