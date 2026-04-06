@@ -85,9 +85,10 @@ class League:
                 f"Player '{nick2.value}' is already a member of a different team"
             )
 
-        pid1, pid2 = p1.player_id, p2.player_id
-        if str(pid1.value) > str(pid2.value):
-            pid1, pid2 = pid2, pid1
+        if nick1.value <= nick2.value:
+            pid1, pid2 = p1.player_id, p2.player_id
+        else:
+            pid1, pid2 = p2.player_id, p1.player_id
 
         new_team = Team(team_id=TeamId.generate(), player_id_1=pid1, player_id_2=pid2)
         self.teams.append(new_team)

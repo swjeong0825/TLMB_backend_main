@@ -144,12 +144,24 @@ class TestRegisterPlayersAndTeam:
         _, team2 = league.register_players_and_team("charlie", "diana")
         assert team1.team_id != team2.team_id
 
-    def test_player_ids_within_team_are_sorted_consistently(self) -> None:
+    def test_player1_in_team_is_alphabetically_first_by_nickname(self) -> None:
         league = _league()
         _, team = league.register_players_and_team("alice", "bob")
-        pid1_str = str(team.player_id_1.value)
-        pid2_str = str(team.player_id_2.value)
-        assert pid1_str <= pid2_str
+        p1 = next(p for p in league.players if p.player_id == team.player_id_1)
+        p2 = next(p for p in league.players if p.player_id == team.player_id_2)
+        assert p1.nickname.value <= p2.nickname.value
+
+    def test_player_order_is_alphabetical_regardless_of_input_order(self) -> None:
+        league1 = _league("L1")
+        _, team1 = league1.register_players_and_team("zed", "aime")
+
+        league2 = League.create("L2", None, "token")
+        _, team2 = league2.register_players_and_team("aime", "zed")
+
+        p1_league1 = next(p for p in league1.players if p.player_id == team1.player_id_1)
+        p1_league2 = next(p for p in league2.players if p.player_id == team2.player_id_1)
+        assert p1_league1.nickname.value == "aime"
+        assert p1_league2.nickname.value == "aime"
 
 
 # ---------------------------------------------------------------------------
