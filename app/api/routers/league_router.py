@@ -21,6 +21,10 @@ from app.application.use_cases.create_league_use_case import (
 )
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterQuery, GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryQuery, GetMatchHistoryUseCase
+from app.application.use_cases.get_standings_by_player_use_case import (
+    GetStandingsByPlayerQuery,
+    GetStandingsByPlayerUseCase,
+)
 from app.application.use_cases.get_standings_use_case import GetStandingsQuery, GetStandingsUseCase
 from app.application.use_cases.get_match_history_by_player_use_case import (
     GetMatchHistoryByPlayerQuery,
@@ -35,6 +39,7 @@ from app.dependencies import (
     get_get_league_roster_use_case,
     get_get_match_history_by_player_use_case,
     get_get_match_history_use_case,
+    get_get_standings_by_player_use_case,
     get_get_standings_use_case,
     get_submit_match_result_use_case,
 )
@@ -85,6 +90,34 @@ async def get_standings(
     use_case: GetStandingsUseCase = Depends(get_get_standings_use_case),
 ) -> GetStandingsResponse:
     entries = await use_case.execute(GetStandingsQuery(league_id=league_id))
+    return GetStandingsResponse(
+        standings=[
+            StandingsEntrySchema(
+                rank=e.rank,
+                team_id=e.team_id,
+                player1_nickname=e.player1_nickname,
+                player2_nickname=e.player2_nickname,
+                wins=e.wins,
+                losses=e.losses,
+            )
+            for e in entries
+        ]
+    )
+
+
+@router.get(
+    "/leagues/{league_id}/standings/by-player",
+    status_code=status.HTTP_200_OK,
+    response_model=GetStandingsResponse,
+)
+async def get_standings_by_player(
+    league_id: str,
+    player_name: str = Query(..., description="Player nickname (case-insensitive)"),
+    use_case: GetStandingsByPlayerUseCase = Depends(get_get_standings_by_player_use_case),
+) -> GetStandingsResponse:
+    entries = await use_case.execute(
+        GetStandingsByPlayerQuery(league_id=league_id, player_name=player_name)
+    )
     return GetStandingsResponse(
         standings=[
             StandingsEntrySchema(

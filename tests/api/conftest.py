@@ -26,6 +26,7 @@ from app.dependencies import (
     get_get_league_roster_use_case,
     get_get_match_history_use_case,
     get_get_match_history_by_player_use_case,
+    get_get_standings_by_player_use_case,
     get_get_standings_use_case,
     get_submit_match_result_use_case,
 )
@@ -82,6 +83,11 @@ def mock_get_match_history_by_player_uc() -> AsyncMock:
     return AsyncMock()
 
 
+@pytest.fixture
+def mock_get_standings_by_player_uc() -> AsyncMock:
+    return AsyncMock()
+
+
 @pytest_asyncio.fixture
 async def client(
     mock_create_league_uc: AsyncMock,
@@ -94,6 +100,7 @@ async def client(
     mock_edit_match_score_uc: AsyncMock,
     mock_delete_match_uc: AsyncMock,
     mock_get_match_history_by_player_uc: AsyncMock,
+    mock_get_standings_by_player_uc: AsyncMock,
 ) -> AsyncClient:
     app.dependency_overrides[get_create_league_use_case] = lambda: mock_create_league_uc
     app.dependency_overrides[get_submit_match_result_use_case] = lambda: mock_submit_match_uc
@@ -108,6 +115,9 @@ async def client(
     app.dependency_overrides[get_delete_match_use_case] = lambda: mock_delete_match_uc
     app.dependency_overrides[get_get_match_history_by_player_use_case] = (
         lambda: mock_get_match_history_by_player_uc
+    )
+    app.dependency_overrides[get_get_standings_by_player_use_case] = (
+        lambda: mock_get_standings_by_player_uc
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

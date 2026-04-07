@@ -187,6 +187,69 @@ class TestGetStandings:
 
 
 # ---------------------------------------------------------------------------
+# GET /leagues/{league_id}/standings/by-player
+# ---------------------------------------------------------------------------
+
+
+class TestGetStandingsByPlayer:
+    async def test_returns_200_with_standings_list(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.return_value = [
+            StandingsEntry(
+                team_id="t1",
+                player1_nickname="alice",
+                player2_nickname="bob",
+                wins=2,
+                losses=1,
+                rank=1,
+            )
+        ]
+        response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["standings"]) == 1
+        assert data["standings"][0]["rank"] == 1
+        assert data["standings"][0]["wins"] == 2
+
+    async def test_passes_params_to_use_case(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.return_value = []
+        await client.get("/leagues/lid/standings/by-player?player_name=alice")
+        call_args = mock_get_standings_by_player_uc.execute.call_args[0][0]
+        assert call_args.player_name == "alice"
+        assert call_args.league_id == "lid"
+
+    async def test_missing_player_name_returns_422(self, client: AsyncClient) -> None:
+        response = await client.get("/leagues/lid/standings/by-player")
+        assert response.status_code == 422
+
+    async def test_league_not_found_returns_404(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.side_effect = LeagueNotFoundError("not found")
+        response = await client.get("/leagues/bad-id/standings/by-player?player_name=alice")
+        assert response.status_code == 404
+
+    async def test_player_not_found_returns_404(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.side_effect = PlayerNotFoundError("not found")
+        response = await client.get("/leagues/lid/standings/by-player?player_name=ghost")
+        assert response.status_code == 404
+        assert response.json()["error"] == "PlayerNotFoundError"
+
+    async def test_empty_result_returns_empty_standings_list(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.return_value = []
+        response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
+        assert response.status_code == 200
+        assert response.json()["standings"] == []
+
+
+# ---------------------------------------------------------------------------
 # GET /leagues/{league_id}/matches
 # ---------------------------------------------------------------------------
 

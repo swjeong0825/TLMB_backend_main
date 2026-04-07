@@ -14,6 +14,7 @@ from app.application.use_cases.edit_player_nickname_use_case import EditPlayerNi
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryUseCase
 from app.application.use_cases.get_match_history_by_player_use_case import GetMatchHistoryByPlayerUseCase
+from app.application.use_cases.get_standings_by_player_use_case import GetStandingsByPlayerUseCase
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultUseCase
 from app.infrastructure.config.database import AsyncSessionFactory
@@ -62,6 +63,13 @@ def get_get_standings_use_case(
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
 ) -> GetStandingsUseCase:
     return GetStandingsUseCase(league_repo, match_repo)
+
+
+def get_get_standings_by_player_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+    match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
+) -> GetStandingsByPlayerUseCase:
+    return GetStandingsByPlayerUseCase(league_repo, match_repo)
 
 
 def get_get_match_history_use_case(

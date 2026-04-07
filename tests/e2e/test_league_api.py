@@ -370,6 +370,97 @@ async def test_get_standings_league_not_found(client: AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GET /leagues/{league_id}/standings/by-player
+# ---------------------------------------------------------------------------
+
+
+async def test_get_standings_by_player_returns_one_row_with_league_rank(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    await submit_match(
+        client,
+        league_id,
+        team1=("alice", "bob"),
+        team2=("charlie", "diana"),
+        team1_score="6",
+        team2_score="3",
+    )
+
+    resp = await client.get(f"/leagues/{league_id}/standings/by-player?player_name=charlie")
+
+    assert resp.status_code == 200
+    standings = resp.json()["standings"]
+    assert len(standings) == 1
+    assert standings[0]["rank"] == 2
+    assert standings[0]["wins"] == 0
+    assert standings[0]["losses"] == 1
+    assert set(
+        [standings[0]["player1_nickname"], standings[0]["player2_nickname"]]
+    ) == {"charlie", "diana"}
+
+
+async def test_get_standings_by_player_matches_full_standings_for_winner(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    await submit_match(
+        client,
+        league_id,
+        team1=("alice", "bob"),
+        team2=("charlie", "diana"),
+        team1_score="6",
+        team2_score="3",
+    )
+
+    full = (await client.get(f"/leagues/{league_id}/standings")).json()["standings"]
+    by_player = (
+        await client.get(f"/leagues/{league_id}/standings/by-player?player_name=alice")
+    ).json()["standings"]
+
+    assert len(by_player) == 1
+    winner_row = next(s for s in full if s["wins"] == 1)
+    assert by_player[0] == winner_row
+
+
+async def test_get_standings_by_player_player_not_found_returns_404(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    await submit_match(client, league_id)
+
+    resp = await client.get(f"/leagues/{league_id}/standings/by-player?player_name=ghost")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "PlayerNotFoundError"
+
+
+async def test_get_standings_by_player_league_not_found_returns_404(
+    client: AsyncClient,
+) -> None:
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    resp = await client.get(f"/leagues/{fake_id}/standings/by-player?player_name=alice")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "LeagueNotFoundError"
+
+
+async def test_get_standings_by_player_missing_param_returns_422(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    resp = await client.get(f"/leagues/{league['league_id']}/standings/by-player")
+
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # GET /leagues/{league_id}/matches
 # ---------------------------------------------------------------------------
 
