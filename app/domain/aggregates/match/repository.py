@@ -15,6 +15,9 @@ class MatchRepository(ABC):
     async def get_all_by_league(self, league_id: LeagueId) -> list[Match]: ...
 
     @abstractmethod
+    async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]: ...
+
+    @abstractmethod
     async def has_matches_for_team(self, team_id: TeamId, league_id: LeagueId) -> bool: ...
 
     @abstractmethod

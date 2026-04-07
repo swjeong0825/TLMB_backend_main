@@ -39,6 +39,17 @@ class SqlAlchemyMatchRepository(MatchRepository):
         )
         return [match_to_domain(row) for row in result.scalars().all()]
 
+    async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]:
+        result = await self._session.execute(
+            select(MatchORM)
+            .where(
+                MatchORM.league_id == league_id.value,
+                (MatchORM.team1_id == team_id.value) | (MatchORM.team2_id == team_id.value),
+            )
+            .order_by(MatchORM.created_at.desc())
+        )
+        return [match_to_domain(row) for row in result.scalars().all()]
+
     async def has_matches_for_team(self, team_id: TeamId, league_id: LeagueId) -> bool:
         result = await self._session.execute(
             select(MatchORM).where(

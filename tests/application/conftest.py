@@ -35,6 +35,7 @@ def mock_match_repo() -> AsyncMock:
     repo = AsyncMock()
     repo.get_by_id = AsyncMock(return_value=None)
     repo.get_all_by_league = AsyncMock(return_value=[])
+    repo.get_all_by_team = AsyncMock(return_value=[])
     repo.has_matches_for_team = AsyncMock(return_value=False)
     repo.save = AsyncMock(return_value=None)
     repo.delete = AsyncMock(return_value=None)

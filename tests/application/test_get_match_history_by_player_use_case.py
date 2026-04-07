@@ -57,7 +57,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         league = make_league()
         league.register_players_and_team("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_league.return_value = []
+        mock_match_repo.get_all_by_team.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -79,7 +79,7 @@ class TestGetMatchHistoryByPlayerUseCase:
             GetMatchHistoryByPlayerQuery(league_id=str(league.league_id), player_name="alice")
         )
         assert result == []
-        mock_match_repo.get_all_by_league.assert_not_called()
+        mock_match_repo.get_all_by_team.assert_not_called()
 
     async def test_returns_empty_list_when_player_has_no_matches(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -87,7 +87,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         league = make_league()
         league.register_players_and_team("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_league.return_value = []
+        mock_match_repo.get_all_by_team.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -110,7 +110,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         match_without_alice = make_match(league.league_id, team_charlie.team_id, team_edgar.team_id, "4", "6")
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_league.return_value = [match_with_alice, match_without_alice]
+        mock_match_repo.get_all_by_team.return_value = [match_with_alice]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -131,7 +131,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         match = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_league.return_value = [match]
+        mock_match_repo.get_all_by_team.return_value = [match]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -170,7 +170,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         newer_match.created_at = datetime(2025, 6, 1)
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_league.return_value = [older_match, newer_match]
+        mock_match_repo.get_all_by_team.return_value = [newer_match, older_match]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -192,7 +192,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         match = make_match(league.league_id, team_charlie.team_id, team_alice.team_id, "3", "6")
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_league.return_value = [match]
+        mock_match_repo.get_all_by_team.return_value = [match]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(

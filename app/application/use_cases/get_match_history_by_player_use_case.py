@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
 from app.domain.aggregates.league.entities import Team
@@ -53,11 +52,7 @@ class GetMatchHistoryByPlayerUseCase:
         if team is None:
             return []
 
-        all_matches = await self._match_repo.get_all_by_league(league_id)
-        player_matches = [
-            m for m in all_matches
-            if m.team1_id == team.team_id or m.team2_id == team.team_id
-        ]
+        player_matches = await self._match_repo.get_all_by_team(team.team_id, league_id)
 
         player_map = {p.player_id: p.nickname.value for p in league.players}
         team_map: dict[TeamId, Team] = {t.team_id: t for t in league.teams}
@@ -85,5 +80,4 @@ class GetMatchHistoryByPlayerUseCase:
                 )
             )
 
-        records.sort(key=lambda r: r.created_at or datetime.min, reverse=True)
         return records
