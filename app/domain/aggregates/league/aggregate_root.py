@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.domain.aggregates.league.entities import Player, Team
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.policies import NicknameUniquenessPolicy, OneTeamPerPlayerPolicy
 from app.domain.aggregates.league.value_objects import (
     HostToken,
@@ -26,19 +27,28 @@ class League:
     host_token: HostToken
     title: str
     description: str | None
+    rules: LeagueRules
     players: list[Player]
     teams: list[Team]
     pending_deleted_team_ids: list[TeamId] = field(default_factory=list)
 
     @classmethod
-    def create(cls, title: str, description: str | None, host_token: str) -> League:
+    def create(
+        cls,
+        title: str,
+        description: str | None,
+        host_token: str,
+        rules: LeagueRules | None = None,
+    ) -> League:
         if not title or not title.strip():
             raise ValueError("League title cannot be blank")
+        resolved_rules = rules if rules is not None else LeagueRules.default_for_new_league()
         return cls(
             league_id=LeagueId.generate(),
             host_token=HostToken(value=host_token),
             title=title,
             description=description,
+            rules=resolved_rules,
             players=[],
             teams=[],
             pending_deleted_team_ids=[],
@@ -56,6 +66,7 @@ class League:
             )
 
         team_policy = OneTeamPerPlayerPolicy()
+        enforce_one_team = self.rules.one_team_per_player
 
         p1 = self._find_player_by_nickname(nick1)
         p2 = self._find_player_by_nickname(nick2)
@@ -76,14 +87,15 @@ class League:
         if existing_team is not None:
             return new_players, existing_team
 
-        if not team_policy.can_join_team(p1.player_id, self.teams):
-            raise TeamConflictError(
-                f"Player '{nick1.value}' is already a member of a different team"
-            )
-        if not team_policy.can_join_team(p2.player_id, self.teams):
-            raise TeamConflictError(
-                f"Player '{nick2.value}' is already a member of a different team"
-            )
+        if enforce_one_team:
+            if not team_policy.can_join_team(p1.player_id, self.teams):
+                raise TeamConflictError(
+                    f"Player '{nick1.value}' is already a member of a different team"
+                )
+            if not team_policy.can_join_team(p2.player_id, self.teams):
+                raise TeamConflictError(
+                    f"Player '{nick2.value}' is already a member of a different team"
+                )
 
         if nick1.value <= nick2.value:
             pid1, pid2 = p1.player_id, p2.player_id

@@ -40,6 +40,7 @@ flowchart LR
 | NicknameAlreadyInUseError | 409 |
 | TeamHasMatchesError | 409 |
 | SameTeamOnBothSidesError | 409 |
+| DuplicateTeamPairMatchError (match pair idempotency) | 409 |
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
@@ -51,10 +52,11 @@ flowchart LR
 - Method: POST
 - Path: `/leagues`
 - Purpose: Create a new league and receive access credentials
-- Request shape: `{ "title": "str", "description": "str | null" }`
+- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null }` — **`rules` optional**. When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). Rules are **not** mutable after creation in this API version.
+- Example `rules` (v1): `{ "version": 1, "match_pair_idempotency": "once_per_league", "one_team_per_player": true }`
 - Response shape: `{ "league_id": "uuid", "host_token": "uuid" }`
 - Use case called: CreateLeagueUseCase
-- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title)
+- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title or invalid rules)
 - Auth notes: Public — no credentials required
 
 ---
@@ -82,6 +84,7 @@ flowchart LR
   - 422 InvalidSetScoreError (non-integer or negative score)
   - 409 TeamConflictError (a player is already on a different team in this league)
   - 409 SameTeamOnBothSidesError (both teams resolve to the same existing team)
+  - 409 DuplicateTeamPairMatchError (league rules require at most one match per team pair and a match already exists for this pair)
 - Auth notes: `league_id` in URL path — possession is sufficient
 
 ---

@@ -16,6 +16,7 @@ from app.application.use_cases.get_match_history_use_case import MatchHistoryRec
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultResult
 from app.domain.exceptions import (
+    DuplicateTeamPairMatchError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
     PlayerNotFoundError,
@@ -132,6 +133,14 @@ class TestSubmitMatchResult:
         mock_submit_match_uc.execute.side_effect = TeamConflictError("conflict")
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 409
+
+    async def test_duplicate_team_pair_returns_409(
+        self, client: AsyncClient, mock_submit_match_uc: AsyncMock
+    ) -> None:
+        mock_submit_match_uc.execute.side_effect = DuplicateTeamPairMatchError("dup")
+        response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
+        assert response.status_code == 409
+        assert response.json()["error"] == "DuplicateTeamPairMatchError"
 
     async def test_team1_with_one_nickname_returns_422(
         self, client: AsyncClient

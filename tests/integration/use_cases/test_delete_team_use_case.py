@@ -21,11 +21,17 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 async def _setup(session: AsyncSession) -> tuple[League, str]:
     """Return (league, team_alice_bob_id_str) — no matches attached."""
-    league = League.create("Delete Team League", None, "host-del-tok")
+    league = League.create(
+        "Delete Team League",
+        None,
+        "host-del-tok",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+    )
     _, team = league.register_players_and_team("alice", "bob")
     league.register_players_and_team("charlie", "diana")   # second team
     await SqlAlchemyLeagueRepository(session).save(league)

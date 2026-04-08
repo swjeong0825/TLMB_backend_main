@@ -32,6 +32,7 @@ def _make_uow_factory(league=None):
     uow.league_repo.get_by_id_with_lock = AsyncMock(return_value=league)
     uow.league_repo.save = AsyncMock(return_value=None)
     uow.match_repo = AsyncMock()
+    uow.match_repo.exists_match_for_team_pair = AsyncMock(return_value=False)
     uow.match_repo.save = AsyncMock(return_value=None)
     uow.commit = AsyncMock(return_value=None)
     uow.rollback = AsyncMock(return_value=None)

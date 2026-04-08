@@ -1,17 +1,23 @@
 """Shared fixtures for all integration tests.
 
 Integration tests bypass the HTTP layer and talk directly to the DB via
-repositories and use cases.  They target the `tennis_league_integ` database
-(configurable via the INTEG_DATABASE_URL env var) and do NOT touch the app's
-production DATABASE_URL.
+repositories and use cases.
+
+Database URL resolution (first match wins):
+1. ``INTEG_DATABASE_URL`` — explicit override (e.g. CI isolated DB).
+2. ``DATABASE_URL`` — same DB as ``alembic upgrade`` when using project ``.env``
+   (recommended local workflow so migrations and tests stay aligned).
+3. Fallback: ``postgresql+asyncpg://localhost/tennis_league_integ``.
 """
 from __future__ import annotations
 
 import os
 from collections.abc import AsyncGenerator
 from functools import partial
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -28,14 +34,18 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import (
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 # ---------------------------------------------------------------------------
 # Engine setup – NullPool prevents event-loop binding issues with pytest-asyncio
 # ---------------------------------------------------------------------------
 
-_INTEG_DB_URL = os.environ.get(
-    "INTEG_DATABASE_URL",
-    "postgresql+asyncpg://localhost/tennis_league_integ",
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+_INTEG_DB_URL = (
+    os.environ.get("INTEG_DATABASE_URL")
+    or os.environ.get("DATABASE_URL")
+    or "postgresql+asyncpg://localhost/tennis_league_integ"
 )
 
 _engine = create_async_engine(_INTEG_DB_URL, echo=False, poolclass=NullPool)
@@ -82,7 +92,12 @@ async def clean_db() -> None:
 async def persisted_league(session_factory: async_sessionmaker[AsyncSession]) -> League:
     """Create and commit a bare League (no players/teams yet)."""
     async with session_factory() as s:
-        league = League.create("Fixture League", "Integration test league", "fixture-host-token")
+        league = League.create(
+            "Fixture League",
+            "Integration test league",
+            "fixture-host-token",
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        )
         repo = SqlAlchemyLeagueRepository(s)
         await repo.save(league)
         await s.commit()
@@ -101,7 +116,12 @@ async def persisted_league_with_match(
     """
     # Create league
     async with session_factory() as s:
-        league = League.create("Fixture League", None, "fixture-host-token")
+        league = League.create(
+            "Fixture League",
+            None,
+            "fixture-host-token",
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
 

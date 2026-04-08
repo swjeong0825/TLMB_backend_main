@@ -7,6 +7,7 @@ from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.exceptions import (
+    DuplicateTeamPairMatchError,
     LeagueNotFoundError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
@@ -63,6 +64,15 @@ class SubmitMatchResultUseCase:
 
             _, team1 = league.register_players_and_team(t1_n1, t1_n2)
             _, team2 = league.register_players_and_team(t2_n1, t2_n2)
+
+            if league.rules.match_pair_idempotency == "once_per_league":
+                pair_exists = await uow.match_repo.exists_match_for_team_pair(
+                    league_id, team1.team_id, team2.team_id
+                )
+                if pair_exists:
+                    raise DuplicateTeamPairMatchError(
+                        "A match between these two teams already exists in this league"
+                    )
 
             match = Match.create(league_id, team1.team_id, team2.team_id, set_score)
 

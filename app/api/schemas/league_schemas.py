@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
+
+
+class LeagueRulesV1Request(BaseModel):
+    """Shape of `rules` on create-league; `version` is validated in the domain (LeagueRules)."""
+
+    version: int
+    match_pair_idempotency: Literal["none", "once_per_league"]
+    one_team_per_player: bool = True
 
 
 class CreateLeagueRequest(BaseModel):
     title: str
     description: str | None = None
+    rules: LeagueRulesV1Request | None = None
 
     @field_validator("title")
     @classmethod

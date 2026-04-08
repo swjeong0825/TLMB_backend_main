@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from app.domain.aggregates.league.aggregate_root import League
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.exceptions import LeagueTitleAlreadyExistsError
 
@@ -12,6 +14,7 @@ from app.domain.exceptions import LeagueTitleAlreadyExistsError
 class CreateLeagueCommand:
     title: str
     description: str | None
+    rules: dict[str, Any] | None = None
 
 
 @dataclass
@@ -34,7 +37,10 @@ class CreateLeagueUseCase:
             )
 
         host_token = str(uuid.uuid4())
-        league = League.create(command.title, command.description, host_token)
+        rules_vo = (
+            LeagueRules.from_dict(command.rules) if command.rules is not None else None
+        )
+        league = League.create(command.title, command.description, host_token, rules=rules_vo)
         await self._league_repo.save(league)
 
         return CreateLeagueResult(

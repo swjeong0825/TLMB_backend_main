@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.aggregates.league.value_objects import LeagueId, TeamId
@@ -56,6 +56,23 @@ class SqlAlchemyMatchRepository(MatchRepository):
                 MatchORM.league_id == league_id.value,
                 (MatchORM.team1_id == team_id.value) | (MatchORM.team2_id == team_id.value),
             ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def exists_match_for_team_pair(
+        self, league_id: LeagueId, team1_id: TeamId, team2_id: TeamId
+    ) -> bool:
+        t1, t2 = team1_id.value, team2_id.value
+        result = await self._session.execute(
+            select(MatchORM.match_id)
+            .where(
+                MatchORM.league_id == league_id.value,
+                or_(
+                    and_(MatchORM.team1_id == t1, MatchORM.team2_id == t2),
+                    and_(MatchORM.team1_id == t2, MatchORM.team2_id == t1),
+                ),
+            )
+            .limit(1)
         )
         return result.scalar_one_or_none() is not None
 

@@ -8,7 +8,8 @@ from app.application.use_cases.create_league_use_case import (
     CreateLeagueCommand,
     CreateLeagueUseCase,
 )
-from app.domain.exceptions import LeagueTitleAlreadyExistsError
+from app.domain.aggregates.league.league_rules import LeagueRules
+from app.domain.exceptions import LeagueTitleAlreadyExistsError, InvalidLeagueRulesError
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
 )
@@ -39,6 +40,43 @@ async def test_persists_league_to_db(session: AsyncSession) -> None:
     assert found.title == "Summer Cup"
     assert found.description == "Annual summer tournament"
     assert found.host_token.value == result.host_token
+    assert found.rules == LeagueRules.default_for_new_league()
+
+
+async def test_persists_explicit_rules(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    custom = {
+        "version": 1,
+        "match_pair_idempotency": "none",
+        "one_team_per_player": True,
+    }
+    await CreateLeagueUseCase(repo).execute(
+        CreateLeagueCommand("Custom Rules League", None, rules=custom)
+    )
+    await session.commit()
+    session.expire_all()
+
+    from app.domain.aggregates.league.value_objects import LeagueId
+
+    found = await repo.get_by_normalized_title("custom rules league")
+    assert found is not None
+    assert found.rules == LeagueRules.from_dict(custom)
+
+
+async def test_invalid_rules_version_raises(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    with pytest.raises(InvalidLeagueRulesError):
+        await CreateLeagueUseCase(repo).execute(
+            CreateLeagueCommand(
+                "Bad Rules League",
+                None,
+                rules={
+                    "version": 99,
+                    "match_pair_idempotency": "none",
+                    "one_team_per_player": True,
+                },
+            )
+        )
 
 
 async def test_raises_for_duplicate_title(session: AsyncSession) -> None:

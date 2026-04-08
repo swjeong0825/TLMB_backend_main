@@ -18,11 +18,14 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 async def test_returns_empty_standings_for_league_with_no_matches(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
-    league = League.create("Empty League", None, "tok")
+    league = League.create(
+        "Empty League", None, "tok", rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+    )
     await repo.save(league)
 
     use_case = GetStandingsUseCase(repo, SqlAlchemyMatchRepository(session))

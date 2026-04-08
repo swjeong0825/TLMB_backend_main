@@ -18,11 +18,17 @@ from app.domain.exceptions import (
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 async def _setup_league_with_players(session: AsyncSession) -> tuple[League, str, str]:
     """Return (league, alice_player_id, bob_player_id)."""
-    league = League.create("Edit Nick League", None, "host-token-edit")
+    league = League.create(
+        "Edit Nick League",
+        None,
+        "host-token-edit",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+    )
     new_players, _ = league.register_players_and_team("alice", "bob")
     alice_id = str(new_players[0].player_id.value)
     bob_id = str(new_players[1].player_id.value)

@@ -19,6 +19,7 @@ erDiagram
         TEXT title_normalized
         TEXT host_token
         TEXT description
+        JSONB rules
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
     }
@@ -70,6 +71,7 @@ erDiagram
 - title_normalized (TEXT, NOT NULL, UNIQUE) — lowercase; used for uniqueness checks and `get_by_normalized_title`
 - host_token (TEXT, NOT NULL) — plaintext UUID generated at use case level
 - description (TEXT, nullable)
+- rules (JSONB, NOT NULL) — versioned per-league configuration (`LeagueRules`); see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md); backfilled on migration for existing rows
 - created_at (TIMESTAMPTZ, server default NOW())
 - updated_at (TIMESTAMPTZ, updated on change)
 
@@ -95,6 +97,7 @@ erDiagram
 - `PlayerNickname` → `nickname_normalized TEXT` — reconstructed through the PlayerNickname validator on load (which enforces lowercase and non-empty); never stored as raw input
 - `LeagueId`, `PlayerId`, `TeamId` → PostgreSQL `UUID` type
 - `HostToken` → `host_token TEXT` (plaintext UUID string)
+- `LeagueRules` → `rules JSONB` — parse/validate on load; serialize on save
 
 **Concurrency / locking strategy**
 - `LeagueRepository.get_by_id_with_lock` issues `SELECT ... FOR UPDATE` on the `leagues` row

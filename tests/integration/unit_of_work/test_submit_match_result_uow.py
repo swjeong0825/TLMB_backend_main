@@ -21,11 +21,14 @@ from app.infrastructure.persistence.repositories.match_repository import (
 from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import (
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 async def _create_league(sf: async_sessionmaker, token: str = "tok") -> League:
     async with sf() as s:
-        league = League.create("UoW Test League", None, token)
+        league = League.create(
+            "UoW Test League", None, token, rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+        )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
     return league

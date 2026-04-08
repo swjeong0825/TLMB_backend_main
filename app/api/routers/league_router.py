@@ -53,7 +53,11 @@ async def create_league(
     use_case: CreateLeagueUseCase = Depends(get_create_league_use_case),
 ) -> CreateLeagueResponse:
     result = await use_case.execute(
-        CreateLeagueCommand(title=body.title, description=body.description)
+        CreateLeagueCommand(
+            title=body.title,
+            description=body.description,
+            rules=body.rules.model_dump() if body.rules is not None else None,
+        )
     )
     return CreateLeagueResponse(league_id=result.league_id, host_token=result.host_token)
 

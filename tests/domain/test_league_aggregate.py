@@ -9,6 +9,7 @@ import uuid
 import pytest
 
 from app.domain.aggregates.league.aggregate_root import League
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
     NicknameAlreadyInUseError,
     PlayerNotFoundError,
@@ -70,6 +71,10 @@ class TestLeagueCreate:
     def test_pending_deleted_team_ids_initialised_empty(self) -> None:
         league = _league()
         assert league.pending_deleted_team_ids == []
+
+    def test_default_rules_use_once_per_league_for_new_product_leagues(self) -> None:
+        league = _league()
+        assert league.rules == LeagueRules.default_for_new_league()
 
 
 # ---------------------------------------------------------------------------

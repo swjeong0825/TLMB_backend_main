@@ -10,14 +10,25 @@ from httpx import AsyncClient
 # ---------------------------------------------------------------------------
 
 
+# Default for e2e: allow rematches between the same team pair (most tests submit twice).
+_DEFAULT_E2E_RULES = {
+    "version": 1,
+    "match_pair_idempotency": "none",
+    "one_team_per_player": True,
+}
+
+
 async def create_league(
     client: AsyncClient,
     title: str = "Test League",
     description: str | None = None,
+    rules: dict | None = _DEFAULT_E2E_RULES,
 ) -> dict:
     payload: dict = {"title": title}
     if description is not None:
         payload["description"] = description
+    if rules is not None:
+        payload["rules"] = rules
     resp = await client.post("/leagues", json=payload)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -108,9 +119,71 @@ async def test_create_league_missing_title_returns_422(client: AsyncClient) -> N
     assert resp.status_code == 422
 
 
+async def test_create_league_invalid_rules_version_returns_422(client: AsyncClient) -> None:
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Bad Rules",
+            "rules": {
+                "version": 2,
+                "match_pair_idempotency": "none",
+                "one_team_per_player": True,
+            },
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "InvalidLeagueRulesError"
+
+
 # ---------------------------------------------------------------------------
 # POST /leagues/{league_id}/matches
 # ---------------------------------------------------------------------------
+
+
+async def test_second_submit_same_team_pair_returns_409_with_default_league_rules(
+    client: AsyncClient,
+) -> None:
+    """POST /leagues without `rules` uses product default once_per_league."""
+    resp = await client.post("/leagues", json={"title": "Single Meeting League"})
+    assert resp.status_code == 201
+    league_id = resp.json()["league_id"]
+    payload = {
+        "team1_nicknames": ["a", "b"],
+        "team2_nicknames": ["c", "d"],
+        "team1_score": "6",
+        "team2_score": "3",
+    }
+    first = await client.post(f"/leagues/{league_id}/matches", json=payload)
+    assert first.status_code == 201
+    second = await client.post(f"/leagues/{league_id}/matches", json=payload)
+    assert second.status_code == 409
+    assert second.json()["error"] == "DuplicateTeamPairMatchError"
+
+
+async def test_second_submit_same_team_pair_allowed_when_rules_allow_duplicates(
+    client: AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Rematch League",
+            "rules": {
+                "version": 1,
+                "match_pair_idempotency": "none",
+                "one_team_per_player": True,
+            },
+        },
+    )
+    assert resp.status_code == 201
+    league_id = resp.json()["league_id"]
+    payload = {
+        "team1_nicknames": ["a", "b"],
+        "team2_nicknames": ["c", "d"],
+        "team1_score": "6",
+        "team2_score": "3",
+    }
+    assert (await client.post(f"/leagues/{league_id}/matches", json=payload)).status_code == 201
+    assert (await client.post(f"/leagues/{league_id}/matches", json=payload)).status_code == 201
 
 
 async def test_submit_match_result_success(client: AsyncClient) -> None:

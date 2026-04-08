@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from app.api.routers.admin_router import router as admin_router
 from app.api.routers.league_router import router as league_router
 from app.domain.exceptions import (
+    DuplicateTeamPairMatchError,
+    InvalidLeagueRulesError,
     InvalidSetScoreError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
@@ -91,6 +93,16 @@ async def same_team_handler(request: Request, exc: SameTeamOnBothSidesError) -> 
     return JSONResponse(status_code=409, content={"error": "SameTeamOnBothSidesError", "detail": str(exc)})
 
 
+@app.exception_handler(DuplicateTeamPairMatchError)
+async def duplicate_team_pair_match_handler(
+    request: Request, exc: DuplicateTeamPairMatchError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"error": "DuplicateTeamPairMatchError", "detail": str(exc)},
+    )
+
+
 @app.exception_handler(SamePlayerWithinSingleTeamError)
 async def same_player_single_team_handler(request: Request, exc: SamePlayerWithinSingleTeamError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "SamePlayerWithinSingleTeamError", "detail": str(exc)})
@@ -104,3 +116,8 @@ async def same_player_both_teams_handler(request: Request, exc: SamePlayerOnBoth
 @app.exception_handler(InvalidSetScoreError)
 async def invalid_score_handler(request: Request, exc: InvalidSetScoreError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "InvalidSetScoreError", "detail": str(exc)})
+
+
+@app.exception_handler(InvalidLeagueRulesError)
+async def invalid_league_rules_handler(request: Request, exc: InvalidLeagueRulesError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"error": "InvalidLeagueRulesError", "detail": str(exc)})

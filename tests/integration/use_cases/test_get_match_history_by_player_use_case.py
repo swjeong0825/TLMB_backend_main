@@ -26,6 +26,7 @@ from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import 
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
 from tests.integration.conftest import _session_factory
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 def _use_case(session: AsyncSession) -> GetMatchHistoryByPlayerUseCase:
@@ -105,7 +106,12 @@ async def test_returns_only_matches_involving_player(
 ) -> None:
     """Alice's matches should not include a match between two other teams."""
     async with session_factory() as s:
-        league = League.create("Filter Test League", None, "tok")
+        league = League.create(
+            "Filter Test League",
+            None,
+            "tok",
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
 
@@ -131,7 +137,12 @@ async def test_returns_multiple_matches_for_player(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as s:
-        league = League.create("Multi Match League", None, "tok")
+        league = League.create(
+            "Multi Match League",
+            None,
+            "tok",
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
 

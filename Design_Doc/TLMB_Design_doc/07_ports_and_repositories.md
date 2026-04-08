@@ -23,6 +23,7 @@
   - `get_by_id(match_id: MatchId, league_id: LeagueId) -> Match | None` — load a single Match scoped to its league; returns None if the match does not exist or does not belong to the given league (prevents cross-league access at the repository level)
   - `get_all_by_league(league_id: LeagueId) -> list[Match]` — load all match records for a league; used by standings computation and match history views
   - `has_matches_for_team(team_id: TeamId, league_id: LeagueId) -> bool` — returns True if any match record in the league references the given team; used as the precondition check in `DeleteTeamUseCase` before delegating to League domain behavior
+  - `exists_match_for_team_pair(league_id: LeagueId, team1_id: TeamId, team2_id: TeamId) -> bool` — returns True if any match in the league involves exactly this **unordered** pair of teams (either orientation of team1_id / team2_id on the match row); used by `SubmitMatchResultUseCase` when `LeagueRules.match_pair_idempotency` is `once_per_league` (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md))
   - `save(match: Match) -> None` — persist a new or updated Match aggregate root
   - `delete(match_id: MatchId, league_id: LeagueId) -> None` — hard-delete a match record; scoped to league_id as a safety guard
 - Returns domain objects?: Yes — returns Match aggregate root; never returns ORM models to application/domain code

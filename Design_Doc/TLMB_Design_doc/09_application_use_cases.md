@@ -28,7 +28,7 @@ flowchart TD
 ## Use Case: CreateLeagueUseCase
 
 - Business action: Create League
-- Inputs: CreateLeagueCommand(title: str, description: str | None)
+- Inputs: CreateLeagueCommand(title: str, description: str | None, rules: LeagueRules | None) — when `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md))
 - Output: CreateLeagueResult(league_id: str, host_token: str)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — single repository save
@@ -43,11 +43,12 @@ flowchart TD
   1. Normalize title to lowercase
   2. Call LeagueRepository.get_by_normalized_title(normalized_title) — raise LeagueTitleAlreadyExistsError if a league already exists with that normalized title
   3. Generate host_token as str(uuid.uuid4())
-  4. Call League.create(title, description, host_token) — constructs new aggregate with empty roster
-  5. Save via LeagueRepository.save(league)
-  6. Return league_id and host_token
-- Domain rules enforced where: League.create (title must be non-empty); title uniqueness pre-check at application layer via repository
-- Errors: LeagueTitleAlreadyExistsError, ValidationError (blank title)
+  4. Resolve `LeagueRules` from command.rules or product defaults
+  5. Call League.create(title, description, host_token, rules) — constructs new aggregate with empty roster and persisted rules
+  6. Save via LeagueRepository.save(league)
+  7. Return league_id and host_token
+- Domain rules enforced where: League.create (title must be non-empty); title uniqueness pre-check at application layer via repository; LeagueRules validation on construction
+- Errors: LeagueTitleAlreadyExistsError, ValidationError (blank title), invalid rules payload
 
 ---
 
@@ -61,7 +62,7 @@ flowchart TD
 - Aggregate(s) loaded: League
 - Aggregate(s) loaded through which repository?: LeagueRepository
 - Domain service used?: No
-- Repository calls: LeagueRepository.get_by_id, LeagueRepository.save, MatchRepository.save
+- Repository calls: LeagueRepository.get_by_id_with_lock, LeagueRepository.save, MatchRepository (existence check when rules require idempotency), MatchRepository.save
 - Port calls: none
 - Persistence required?: Yes
 - Transaction notes: LeagueRepository.save and MatchRepository.save must commit together; rollback on any domain error or DB failure
@@ -73,19 +74,21 @@ flowchart TD
   5. Construct SetScore(team1_score, team2_score) value object — raise InvalidSetScoreError if either score fails non-negative integer validation
   6. Enter SubmitMatchResultUnitOfWork
   7. Load League via LeagueRepository.get_by_id_with_lock(league_id) — raise LeagueNotFoundError if missing
-  8. Call league.register_players_and_team(team1_nicknames[0], team1_nicknames[1]) → team1 — raises TeamConflictError if either player already belongs to a different team
-  9. Call league.register_players_and_team(team2_nicknames[0], team2_nicknames[1]) → team2 — raises TeamConflictError if either player already belongs to a different team
-  10. Call Match.create(league_id, team1.team_id, team2.team_id, set_score) — raises SameTeamOnBothSidesError if team1_id == team2_id
-  11. LeagueRepository.save(league) — persists any newly registered players and teams
-  12. MatchRepository.save(match) — persists the new match record
-  13. Commit UoW
-  14. Return match_id
+  8. Call league.register_players_and_team(team1_nicknames[0], team1_nicknames[1]) → team1 — raises TeamConflictError if either player already belongs to a different team (when league rules require one team per player)
+  9. Call league.register_players_and_team(team2_nicknames[0], team2_nicknames[1]) → team2 — same as step 8
+  10. If league.rules.match_pair_idempotency is `once_per_league`, call MatchRepository.exists_match_for_team_pair(league_id, team1.team_id, team2.team_id) — raise DuplicateTeamPairMatchError (or equivalent) if true
+  11. Call Match.create(league_id, team1.team_id, team2.team_id, set_score) — raises SameTeamOnBothSidesError if team1_id == team2_id
+  12. LeagueRepository.save(league) — persists any newly registered players and teams
+  13. MatchRepository.save(match) — persists the new match record
+  14. Commit UoW
+  15. Return match_id
 - Domain rules enforced where:
   - Application layer: within-team distinct-player check (steps 2–3), cross-team distinct-player check (step 4) — all structural validations before any aggregate is loaded
   - SetScore constructor: non-negative integer validation (step 5)
-  - League.register_players_and_team: nickname uniqueness within league, one-team-per-player
+  - League.register_players_and_team: nickname uniqueness within league, one-team-per-player when enabled by league rules
   - Match.create: team1_id ≠ team2_id
-- Errors: LeagueNotFoundError, SamePlayerWithinSingleTeamError, SamePlayerOnBothTeamsError, InvalidSetScoreError, TeamConflictError, SameTeamOnBothSidesError
+  - Application layer: match pair idempotency when `once_per_league`
+- Errors: LeagueNotFoundError, SamePlayerWithinSingleTeamError, SamePlayerOnBothTeamsError, InvalidSetScoreError, TeamConflictError, SameTeamOnBothSidesError, DuplicateTeamPairMatchError (409 when idempotency violated)
 
 ---
 

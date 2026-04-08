@@ -21,6 +21,11 @@ class MatchRepository(ABC):
     async def has_matches_for_team(self, team_id: TeamId, league_id: LeagueId) -> bool: ...
 
     @abstractmethod
+    async def exists_match_for_team_pair(
+        self, league_id: LeagueId, team1_id: TeamId, team2_id: TeamId
+    ) -> bool: ...
+
+    @abstractmethod
     async def save(self, match: Match) -> None: ...
 
     @abstractmethod

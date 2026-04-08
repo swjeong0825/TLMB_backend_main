@@ -52,3 +52,11 @@ class SamePlayerOnBothTeamsError(DomainError):
 
 class InvalidSetScoreError(DomainError):
     pass
+
+
+class InvalidLeagueRulesError(DomainError):
+    pass
+
+
+class DuplicateTeamPairMatchError(DomainError):
+    pass

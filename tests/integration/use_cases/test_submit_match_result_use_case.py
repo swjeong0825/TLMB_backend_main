@@ -11,7 +11,9 @@ from app.application.use_cases.submit_match_result_use_case import (
     SubmitMatchResultUseCase,
 )
 from app.domain.aggregates.league.aggregate_root import League
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
+    DuplicateTeamPairMatchError,
     LeagueNotFoundError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
@@ -26,6 +28,7 @@ from app.infrastructure.persistence.repositories.match_repository import (
 from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import (
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 def _use_case(sf: async_sessionmaker) -> SubmitMatchResultUseCase:
@@ -34,7 +37,9 @@ def _use_case(sf: async_sessionmaker) -> SubmitMatchResultUseCase:
 
 async def _create_league(sf: async_sessionmaker, title: str = "Test", token: str = "tok") -> League:
     async with sf() as s:
-        league = League.create(title, None, token)
+        league = League.create(
+            title, None, token, rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+        )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
     return league
@@ -166,3 +171,29 @@ async def test_raises_when_player_already_in_another_team(
                 team2_score="3",
             )
         )
+
+
+async def test_raises_duplicate_team_pair_when_once_per_league(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as s:
+        league = League.create(
+            "Dup Pair League",
+            None,
+            "tok",
+            rules=LeagueRules.default_for_new_league(),
+        )
+        await SqlAlchemyLeagueRepository(s).save(league)
+        await s.commit()
+
+    use_case = _use_case(session_factory)
+    cmd = SubmitMatchResultCommand(
+        league_id=str(league.league_id),
+        team1_nicknames=("alice", "bob"),
+        team2_nicknames=("charlie", "diana"),
+        team1_score="6",
+        team2_score="3",
+    )
+    await use_case.execute(cmd)
+    with pytest.raises(DuplicateTeamPairMatchError):
+        await use_case.execute(cmd)

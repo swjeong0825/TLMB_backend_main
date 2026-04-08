@@ -13,6 +13,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +25,12 @@ async def _seed_league_with_teams(
     session: AsyncSession,
 ) -> tuple[League, str, str]:
     """Persist a league with two teams; return (league, team1_id_str, team2_id_str)."""
-    league = League.create("Match Test League", None, "seed-token")
+    league = League.create(
+        "Match Test League",
+        None,
+        "seed-token",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+    )
     _, team1 = league.register_players_and_team("alice", "bob")
     _, team2 = league.register_players_and_team("charlie", "diana")
     repo = SqlAlchemyLeagueRepository(session)
@@ -116,7 +122,12 @@ async def test_get_all_by_league_returns_all_matches(session: AsyncSession) -> N
 async def test_get_all_by_league_does_not_return_other_leagues_matches(session: AsyncSession) -> None:
     league1, t1, t2 = await _seed_league_with_teams(session)
 
-    league2 = League.create("Other League", None, "other-token")
+    league2 = League.create(
+        "Other League",
+        None,
+        "other-token",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+    )
     _, l2_t1 = league2.register_players_and_team("eve", "frank")
     _, l2_t2 = league2.register_players_and_team("grace", "harry")
     await SqlAlchemyLeagueRepository(session).save(league2)
@@ -155,6 +166,35 @@ async def test_has_matches_for_team_returns_false_when_no_matches(session: Async
     from app.domain.aggregates.league.value_objects import TeamId
     result = await repo.has_matches_for_team(TeamId.from_str(t1), league.league_id)
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# exists_match_for_team_pair
+# ---------------------------------------------------------------------------
+
+
+async def test_exists_match_for_team_pair_true_either_orientation(session: AsyncSession) -> None:
+    league, t1, t2 = await _seed_league_with_teams(session)
+    repo = SqlAlchemyMatchRepository(session)
+    await repo.save(_make_match(league, t1, t2))
+    await session.commit()
+
+    from app.domain.aggregates.league.value_objects import TeamId
+
+    t1id, t2id = TeamId.from_str(t1), TeamId.from_str(t2)
+    assert await repo.exists_match_for_team_pair(league.league_id, t1id, t2id)
+    assert await repo.exists_match_for_team_pair(league.league_id, t2id, t1id)
+
+
+async def test_exists_match_for_team_pair_false_when_no_match(session: AsyncSession) -> None:
+    league, t1, t2 = await _seed_league_with_teams(session)
+    repo = SqlAlchemyMatchRepository(session)
+
+    from app.domain.aggregates.league.value_objects import TeamId
+
+    assert not await repo.exists_match_for_team_pair(
+        league.league_id, TeamId.from_str(t1), TeamId.from_str(t2)
+    )
 
 
 # ---------------------------------------------------------------------------

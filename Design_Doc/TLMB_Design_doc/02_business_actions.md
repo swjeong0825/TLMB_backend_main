@@ -52,12 +52,13 @@ flowchart LR
 - Triggered by: Host submitting a new league creation request
 - Actor: League Host
 - Goal: Establish a new league and receive the credentials needed to manage it and share it with players
-- Input: title (required, unique per system case-insensitively), description (optional)
+- Input: title (required, unique per system case-insensitively), description (optional), **rules** (optional JSON; fixed for the lifetime of the league in this version—see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md))
 - Output: leagueId (shared with players), hostToken (kept secret by host)
 - Happy path: League created with unique title; leagueId and hostToken returned to the host
 - Failure cases:
   - Title is blank or missing
   - Title already in use by another league (case-insensitive unique constraint)
+  - Invalid or unsupported rules payload
 - Related context: League Management
 
 ---
@@ -73,8 +74,9 @@ flowchart LR
 - Failure cases:
   - leagueId does not exist
   - A player nickname appears on both teams (invalid match structure)
-  - A player is already a member of a different team in the same league (team conflict invariant)
+  - A player is already a member of a different team in the same league (when league rules require one team per player)
   - Set scores are structurally invalid
+  - League rules require at most one match per team pair and this pairing already has a match
 - Notes: The backend treats this submission as final. It does not re-prompt or perform conversational repair. Structured error codes are returned; rendering them into natural language is the responsibility of the external adapter.
 - Related context: Match Recording, League Management (implicit registration performed by the SubmitMatchResult use case via League aggregate domain behavior)
 

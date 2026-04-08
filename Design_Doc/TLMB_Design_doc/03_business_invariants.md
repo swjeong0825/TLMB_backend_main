@@ -22,14 +22,14 @@
 
 ---
 
-## Invariant: One Team Per Player Per League
+## Invariant: One Team Per Player Per League (configurable)
 
-- Statement: A player may belong to at most one team within a given league.
-- Why it exists: Standings and roster integrity depend on each player having a single, unambiguous team affiliation. A player on two teams would create contradictory match records.
+- Statement: **When** the league’s `LeagueRules.one_team_per_player` is true (the default), a player may belong to at most one team within that league.
+- Why it exists: Standings and several read paths (e.g. standings-by-player) assume a single team affiliation per player. A player on two teams requires explicit support in those queries.
 - Scope / context: League Management
-- Likely owner: League aggregate root (checked on implicit registration and on admin team reassignment)
-- Violated when: A match submission attempts to register a player who is already a member of a different team in the same league. Also violated if an admin reassigns a player to a second team without removing them from the first.
-- Notes: This invariant is the primary rejection condition for match submissions. The backend returns a structured error code when it is violated; the AI chatbot renders this as a natural-language explanation to the player.
+- Likely owner: League aggregate root (checked on implicit registration via `OneTeamPerPlayerPolicy` when the flag is true)
+- Violated when: A match submission attempts to register a player who is already a member of a different team in the same league **and** the league requires one team per player.
+- Notes: When `one_team_per_player` is false (future), this invariant does not apply; enabling that flag requires updating read models that currently resolve a player to a single team via `next(...)`. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
 
 ---
 
@@ -62,7 +62,18 @@
 - Scope / context: Match Recording
 - Likely owner: Match aggregate root (enforced on match creation via `team1_id ≠ team2_id` check)
 - Violated when: A match submission provides the same team identifier for both team1 and team2.
-- Notes: This invariant, combined with the "One Team Per Player Per League" invariant owned by the League aggregate, derivably guarantees that no player can appear on both sides of a match. A separate explicit cross-player check is therefore not needed — if the two team IDs are distinct and each player belongs to exactly one team, player uniqueness across sides is structurally guaranteed.
+- Notes: When one-team-per-player holds, this invariant combined with the League aggregate’s membership rules derivably guarantees that no player can appear on both sides of a match (given distinct team IDs). A separate explicit cross-player check is still used in the application layer for clear error messages. If one-team-per-player is disabled in a future version, cross-side player overlap must be ruled out by other means or explicitly allowed by product design.
+
+---
+
+## Invariant: Match Pair Idempotency (optional per league)
+
+- Statement: **When** `LeagueRules.match_pair_idempotency` is `once_per_league`, the system must not persist a second match in that league between the same **unordered** pair of teams (same two `team_id` values).
+- Why it exists: Some leagues treat a round-robin or season as allowing only one official result per pairing.
+- Scope / context: Match Recording (enforced in `SubmitMatchResultUseCase` using `MatchRepository`, not inside the Match aggregate)
+- Likely owner: Application use case + `MatchRepository.exists_match_for_team_pair`
+- Violated when: A second submit resolves to two team IDs that already appear together on an existing match row in that league.
+- Notes: When the setting is `none`, multiple matches between the same two teams are allowed. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
 
 ---
 

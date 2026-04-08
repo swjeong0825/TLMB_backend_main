@@ -91,6 +91,8 @@ They become necessary only when a consumer concern exists — for example: an au
 - leagueId: stored on the aggregate root; identifies which league this match belongs to (reference into the League aggregate boundary)
 - team1_id, team2_id: opaque references to Team entities inside the League aggregate; Match does not hold player lists or nicknames directly
 
+**League rules:** Whether two teams may play more than once in a league is governed by `LeagueRules` on the League aggregate and enforced in `SubmitMatchResultUseCase` (not in this aggregate). See [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
+
 ---
 
 - Match stores team IDs only. Player nicknames are resolved at read time from the current League state. Admin nickname edits will retroactively affect how historical matches are displayed — this is an accepted trade-off in V1.
