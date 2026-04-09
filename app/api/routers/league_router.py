@@ -236,6 +236,7 @@ async def get_league_roster(
 ) -> GetLeagueRosterResponse:
     roster = await use_case.execute(GetLeagueRosterQuery(league_id=league_id))
     return GetLeagueRosterResponse(
+        title=roster.title,
         players=[PlayerEntrySchema(player_id=p.player_id, nickname=p.nickname) for p in roster.players],
         teams=[
             TeamEntrySchema(

@@ -27,6 +27,7 @@ async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> Non
         GetLeagueRosterQuery(league_id=str(league.league_id))
     )
 
+    assert roster.title == "Empty"
     assert roster.players == []
     assert roster.teams == []
 
@@ -40,6 +41,7 @@ async def test_returns_players_and_teams_after_match(persisted_league_with_match
             GetLeagueRosterQuery(league_id=str(league.league_id))
         )
 
+    assert roster.title == league.title
     nicknames = {p.nickname for p in roster.players}
     assert nicknames == {"alice", "bob", "charlie", "diana"}
     assert len(roster.teams) == 2

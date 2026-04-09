@@ -27,6 +27,7 @@ class TeamEntry:
 
 @dataclass
 class RosterView:
+    title: str
     players: list[PlayerEntry]
     teams: list[TeamEntry]
 
@@ -61,4 +62,4 @@ class GetLeagueRosterUseCase:
             key=lambda e: e.player1_nickname,
         )
 
-        return RosterView(players=players, teams=teams)
+        return RosterView(title=league.title, players=players, teams=teams)

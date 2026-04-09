@@ -615,6 +615,7 @@ async def test_get_league_roster_empty(client: AsyncClient) -> None:
 
     assert resp.status_code == 200
     body = resp.json()
+    assert body["title"] == "Test League"
     assert body["players"] == []
     assert body["teams"] == []
 
@@ -630,6 +631,7 @@ async def test_get_league_roster_after_matches(client: AsyncClient) -> None:
     assert resp.status_code == 200
     body = resp.json()
 
+    assert body["title"] == "Test League"
     assert len(body["players"]) == 4
     nicknames = {p["nickname"] for p in body["players"]}
     assert nicknames == {"alice", "bob", "charlie", "diana"}

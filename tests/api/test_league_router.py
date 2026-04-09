@@ -433,12 +433,14 @@ class TestGetLeagueRoster:
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
     ) -> None:
         mock_get_roster_uc.execute.return_value = RosterView(
+            title="Summer Cup",
             players=[PlayerEntry(player_id="p1", nickname="alice")],
             teams=[TeamEntry(team_id="t1", player1_nickname="alice", player2_nickname="bob")],
         )
         response = await client.get("/leagues/lid/roster")
         assert response.status_code == 200
         data = response.json()
+        assert data["title"] == "Summer Cup"
         assert len(data["players"]) == 1
         assert data["players"][0]["nickname"] == "alice"
         assert len(data["teams"]) == 1
@@ -453,9 +455,10 @@ class TestGetLeagueRoster:
     async def test_empty_roster_returns_empty_lists(
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
     ) -> None:
-        mock_get_roster_uc.execute.return_value = RosterView(players=[], teams=[])
+        mock_get_roster_uc.execute.return_value = RosterView(title="Empty League", players=[], teams=[])
         response = await client.get("/leagues/lid/roster")
         assert response.status_code == 200
         data = response.json()
+        assert data["title"] == "Empty League"
         assert data["players"] == []
         assert data["teams"] == []

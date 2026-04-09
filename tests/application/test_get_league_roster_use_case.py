@@ -28,6 +28,7 @@ class TestGetLeagueRosterUseCase:
         result = await use_case.execute(GetLeagueRosterQuery(league_id=str(league.league_id)))
 
         assert isinstance(result, RosterView)
+        assert result.title == "Test League"
         assert result.players == []
         assert result.teams == []
 

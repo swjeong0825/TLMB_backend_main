@@ -99,5 +99,6 @@ class TeamEntrySchema(BaseModel):
 
 
 class GetLeagueRosterResponse(BaseModel):
+    title: str
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]
