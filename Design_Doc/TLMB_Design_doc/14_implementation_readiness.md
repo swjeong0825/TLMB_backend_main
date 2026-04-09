@@ -22,8 +22,9 @@
 - **Unit of Work interface** (`application/unit_of_work/`):
   - `base.py`: shared abstract UoW contract (`__aenter__`, `__aexit__`, `commit`, `rollback`)
   - `submit_match_result_uow.py`: abstract `SubmitMatchResultUnitOfWork` exposing `league_repo: LeagueRepository` and `match_repo: MatchRepository`
-- **Use cases** (`application/use_cases/`) — all 9 use cases fully defined in `09_application_use_cases.md`:
+- **Use cases** (`application/use_cases/`) — all 10 use cases fully defined in `09_application_use_cases.md`:
   - `create_league_use_case.py`
+  - `search_leagues_by_title_prefix_use_case.py`
   - `submit_match_result_use_case.py`
   - `get_standings_use_case.py`
   - `get_match_history_use_case.py`
@@ -43,16 +44,16 @@
   - `league_mapper.py`, `player_mapper.py`, `team_mapper.py`, `match_mapper.py`
   - Value object reconstruction rules (`PlayerNickname`, `SetScore`, typed UUID wrappers) all documented
 - **Repository implementations** (`infrastructure/persistence/repositories/`):
-  - `league_repository.py`: implements all 4 `LeagueRepository` methods including `get_by_id_with_lock` (`SELECT ... FOR UPDATE`)
+  - `league_repository.py`: implements all `LeagueRepository` methods including `get_by_id_with_lock` (`SELECT ... FOR UPDATE`) and `search_by_title_prefix` (lightweight projection, no aggregate load)
   - `match_repository.py`: implements all 5 `MatchRepository` methods including hard `delete`
 - **Concrete UoW** (`infrastructure/persistence/unit_of_work/submit_match_result_uow.py`): wires `LeagueRepository` and `MatchRepository` to a single shared `AsyncSession`
 - **Alembic migration**: initial migration creating all 4 tables with constraints and indexes
 
 ### API layer
 
-- **Request/response schemas** (`api/schemas/`): shapes for all 9 endpoints fully defined in `13_api_contracts.md`
+- **Request/response schemas** (`api/schemas/`): shapes for all 10 endpoints fully defined in `13_api_contracts.md`
 - **Routers** (`api/routers/`):
-  - `league_router.py`: 5 player-facing endpoints (POST `/leagues`, POST `/leagues/{league_id}/matches`, GET standings/matches/roster)
+  - `league_router.py`: 6 player-facing endpoints (POST `/leagues`, GET `/leagues` title-prefix search, POST `/leagues/{league_id}/matches`, GET standings/matches/roster)
   - `admin_router.py`: 4 admin endpoints under `/admin/leagues/...` gated by `X-Host-Token` header
 - **Dependency wiring** (`dependencies.py`): composition root binding abstract interfaces to concrete implementations
 - **App entrypoint** (`main.py`): FastAPI app creation, router registration

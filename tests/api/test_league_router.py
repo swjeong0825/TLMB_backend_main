@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.application.use_cases.create_league_use_case import CreateLeagueResult
+from app.application.use_cases.search_leagues_by_title_prefix_use_case import LeagueListItem
 from app.application.use_cases.get_league_roster_use_case import PlayerEntry, RosterView, TeamEntry
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
@@ -77,6 +78,58 @@ class TestCreateLeague:
         )
         response = await client.post("/leagues", json={"title": "L", "description": "desc"})
         assert response.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# GET /leagues (title prefix search)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchLeaguesByTitlePrefix:
+    async def test_returns_200_with_leagues(
+        self, client: AsyncClient, mock_search_leagues_uc: AsyncMock
+    ) -> None:
+        mock_search_leagues_uc.execute.return_value = [
+            LeagueListItem(league_id="lid-1", title="Summer League"),
+            LeagueListItem(league_id="lid-2", title="Summer Cup"),
+        ]
+        response = await client.get("/leagues", params={"title_prefix": "sum"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["leagues"] == [
+            {"league_id": "lid-1", "title": "Summer League"},
+            {"league_id": "lid-2", "title": "Summer Cup"},
+        ]
+
+    async def test_returns_empty_list(self, client: AsyncClient, mock_search_leagues_uc: AsyncMock) -> None:
+        mock_search_leagues_uc.execute.return_value = []
+        response = await client.get("/leagues", params={"title_prefix": "zzz"})
+        assert response.status_code == 200
+        assert response.json()["leagues"] == []
+
+    async def test_blank_prefix_after_trim_returns_422(self, client: AsyncClient) -> None:
+        response = await client.get("/leagues", params={"title_prefix": "   "})
+        assert response.status_code == 422
+
+    async def test_missing_title_prefix_returns_422(self, client: AsyncClient) -> None:
+        response = await client.get("/leagues")
+        assert response.status_code == 422
+
+    async def test_passes_normalized_prefix_and_limit_to_use_case(
+        self, client: AsyncClient, mock_search_leagues_uc: AsyncMock
+    ) -> None:
+        from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
+            SearchLeaguesByTitlePrefixQuery,
+        )
+
+        mock_search_leagues_uc.execute.return_value = []
+        await client.get("/leagues", params={"title_prefix": "  Foo ", "limit": 200})
+        mock_search_leagues_uc.execute.assert_awaited_once()
+        call = mock_search_leagues_uc.execute.await_args
+        q = call.args[0]
+        assert isinstance(q, SearchLeaguesByTitlePrefixQuery)
+        assert q.title_prefix_normalized == "foo"
+        assert q.limit == 200
 
 
 # ---------------------------------------------------------------------------

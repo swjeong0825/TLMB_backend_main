@@ -107,7 +107,7 @@ erDiagram
 - `LeagueRepository.get_by_id` (no lock) is used for all read-only queries (GetStandings, GetMatchHistory, GetLeagueRoster)
 
 **Index notes**
-- UNIQUE index on `leagues.title_normalized` — enforces system-wide league title uniqueness
+- UNIQUE index on `leagues.title_normalized` — enforces system-wide league title uniqueness; also supports prefix discovery via `WHERE title_normalized LIKE :prefix || '%'` (with literal escape for user-supplied `%` / `_` / `\`) — no extra migration required for V1 search
 - UNIQUE index on `(players.league_id, players.nickname_normalized)` — enforces per-league player nickname uniqueness at DB level
 - UNIQUE index on `(teams.league_id, teams.player_id_1, teams.player_id_2)` — prevents duplicate team registration
 - Index on `(players.league_id)` — used when loading all players for a league

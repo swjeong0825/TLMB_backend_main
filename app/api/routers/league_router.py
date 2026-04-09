@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.schemas.league_schemas import (
     CreateLeagueRequest,
@@ -11,6 +11,8 @@ from app.api.schemas.league_schemas import (
     MatchHistoryRecordSchema,
     PlayerEntrySchema,
     StandingsEntrySchema,
+    LeagueListItemSchema,
+    SearchLeaguesResponse,
     SubmitMatchResultRequest,
     SubmitMatchResultResponse,
     TeamEntrySchema,
@@ -30,6 +32,10 @@ from app.application.use_cases.get_match_history_by_player_use_case import (
     GetMatchHistoryByPlayerQuery,
     GetMatchHistoryByPlayerUseCase,
 )
+from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
+    SearchLeaguesByTitlePrefixQuery,
+    SearchLeaguesByTitlePrefixUseCase,
+)
 from app.application.use_cases.submit_match_result_use_case import (
     SubmitMatchResultCommand,
     SubmitMatchResultUseCase,
@@ -41,6 +47,7 @@ from app.dependencies import (
     get_get_match_history_use_case,
     get_get_standings_by_player_use_case,
     get_get_standings_use_case,
+    get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
 )
 
@@ -60,6 +67,30 @@ async def create_league(
         )
     )
     return CreateLeagueResponse(league_id=result.league_id, host_token=result.host_token)
+
+
+@router.get("/leagues", status_code=status.HTTP_200_OK, response_model=SearchLeaguesResponse)
+async def search_leagues_by_title_prefix(
+    title_prefix: str = Query(..., description="Prefix of league title; matched case-insensitively after trim"),
+    limit: int = Query(
+        SearchLeaguesByTitlePrefixUseCase.DEFAULT_LIMIT,
+        ge=1,
+        description=f"Maximum leagues to return (capped at {SearchLeaguesByTitlePrefixUseCase.MAX_LIMIT})",
+    ),
+    use_case: SearchLeaguesByTitlePrefixUseCase = Depends(get_search_leagues_by_title_prefix_use_case),
+) -> SearchLeaguesResponse:
+    normalized = title_prefix.strip().lower()
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="title_prefix must not be blank",
+        )
+    items = await use_case.execute(
+        SearchLeaguesByTitlePrefixQuery(title_prefix_normalized=normalized, limit=limit)
+    )
+    return SearchLeaguesResponse(
+        leagues=[LeagueListItemSchema(league_id=i.league_id, title=i.title) for i in items]
+    )
 
 
 @router.post(

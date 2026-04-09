@@ -5,6 +5,7 @@
 - **Player-facing endpoints:** `league_id` in the URL path is the only access check. Possession of a valid `league_id` is sufficient proof of league membership.
 - **Admin endpoints:** Both `league_id` (URL path) and `X-Host-Token` HTTP header are required. The use case loads the League by `league_id` and verifies the token matches that league's stored `host_token`. Returns 401 if the header is missing or the token does not match the league.
 - **League creation:** Public — no credentials required; `league_id` and `host_token` are returned in the response.
+- **League discovery (title prefix search):** Public — no credentials required; returns only `league_id` and display `title` (no `host_token` or other sensitive fields).
 
 ## Endpoint Overview
 
@@ -12,6 +13,7 @@
 flowchart LR
     subgraph player [Player-facing]
         P1["POST /leagues"]
+        P1b["GET /leagues?title_prefix=str"]
         P2["POST /leagues/{league_id}/matches"]
         P3["GET /leagues/{league_id}/standings"]
         P4["GET /leagues/{league_id}/matches"]
@@ -57,6 +59,30 @@ flowchart LR
 - Response shape: `{ "league_id": "uuid", "host_token": "uuid" }`
 - Use case called: CreateLeagueUseCase
 - Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title or invalid rules)
+- Auth notes: Public — no credentials required
+
+---
+
+## Endpoint: Search leagues by title prefix
+
+- Method: GET
+- Path: `/leagues`
+- Purpose: Discover existing leagues whose stored normalized title starts with a given prefix (for linking players to the correct league). **Cursor-based pagination is not supported** in this API version; results are capped by `limit` only.
+- Query parameters:
+  - `title_prefix` (required): Non-empty after trim. The server normalizes it the same way as league titles in storage: **strip** whitespace, then **lowercase** (matches `leagues.title_normalized`).
+  - `limit` (optional): Maximum number of rows to return. Default **50**, maximum **100**; values above the cap are clamped to **100**.
+- Matching: Prefix match on `title_normalized` using SQL `LIKE` with an explicit escape character so characters `%`, `_`, and `\` in the user prefix are treated literally, not as pattern wildcards.
+- Response shape:
+  ```json
+  {
+    "leagues": [
+      { "league_id": "uuid", "title": "str" }
+    ]
+  }
+  ```
+  Rows are sorted ascending by normalized title for stable ordering. **`host_token` and `description` are never returned** from this endpoint.
+- Use case called: SearchLeaguesByTitlePrefixUseCase
+- Error responses: 422 if `title_prefix` is missing or empty after trim
 - Auth notes: Public — no credentials required
 
 ---

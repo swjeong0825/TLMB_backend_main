@@ -253,8 +253,9 @@ app/dependencies.py
 app/main.py
 ```
 
-**`league_schemas.py`** — request and response schemas for all 5 player-facing endpoints:
+**`league_schemas.py`** — request and response schemas for all 6 player-facing endpoints:
 - `CreateLeagueRequest`, `CreateLeagueResponse`
+- `LeagueListItemSchema`, `SearchLeaguesResponse` (GET `/leagues` search)
 - `SubmitMatchResultRequest`, `SubmitMatchResultResponse`
 - `GetStandingsResponse`, `StandingsEntrySchema`
 - `GetMatchHistoryResponse`, `MatchHistoryRecordSchema`
@@ -265,8 +266,9 @@ app/main.py
 - `EditMatchScoreRequest`, `EditMatchScoreResponse`
 - (DELETE endpoints use no request body and return 204 No Content)
 
-**`league_router.py`** — 5 player-facing routes; each route calls exactly one use case:
+**`league_router.py`** — 6 player-facing routes; each route calls exactly one use case:
 - `POST /leagues` → `CreateLeagueUseCase`
+- `GET /leagues` → `SearchLeaguesByTitlePrefixUseCase`
 - `POST /leagues/{league_id}/matches` → `SubmitMatchResultUseCase`
 - `GET /leagues/{league_id}/standings` → `GetStandingsUseCase`
 - `GET /leagues/{league_id}/matches` → `GetMatchHistoryUseCase`
@@ -292,6 +294,10 @@ app/main.py
 - `POST /leagues` happy path: 201 response with `league_id` and `host_token`
 - `POST /leagues` with duplicate title: 409 with `LeagueTitleAlreadyExistsError`
 - `POST /leagues` with blank title: 422 validation error
+- `GET /leagues?title_prefix=...` happy path: 200 with `leagues` array of `{ league_id, title }`
+- `GET /leagues?title_prefix=...` with no matches: 200 with empty `leagues` array
+- `GET /leagues` missing `title_prefix` or blank after trim: 422
+- `GET /leagues?title_prefix=...&limit=200`: limit clamped to cap (100); use case receives at most 100
 - `POST /leagues/{league_id}/matches` happy path with new players: 201 with `match_id`
 - `POST /leagues/{league_id}/matches` with unknown `league_id`: 404
 - `POST /leagues/{league_id}/matches` with same player on both teams: 422 `SamePlayerOnBothTeamsError`

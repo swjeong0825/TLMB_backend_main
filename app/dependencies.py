@@ -16,6 +16,9 @@ from app.application.use_cases.get_match_history_use_case import GetMatchHistory
 from app.application.use_cases.get_match_history_by_player_use_case import GetMatchHistoryByPlayerUseCase
 from app.application.use_cases.get_standings_by_player_use_case import GetStandingsByPlayerUseCase
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
+from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
+    SearchLeaguesByTitlePrefixUseCase,
+)
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultUseCase
 from app.infrastructure.config.database import AsyncSessionFactory
 from app.infrastructure.persistence.repositories.league_repository import SqlAlchemyLeagueRepository
@@ -51,6 +54,12 @@ def get_create_league_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
 ) -> CreateLeagueUseCase:
     return CreateLeagueUseCase(league_repo)
+
+
+def get_search_leagues_by_title_prefix_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> SearchLeaguesByTitlePrefixUseCase:
+    return SearchLeaguesByTitlePrefixUseCase(league_repo)
 
 
 def get_submit_match_result_use_case() -> SubmitMatchResultUseCase:

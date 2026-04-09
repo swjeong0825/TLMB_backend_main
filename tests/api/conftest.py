@@ -28,6 +28,7 @@ from app.dependencies import (
     get_get_match_history_by_player_use_case,
     get_get_standings_by_player_use_case,
     get_get_standings_use_case,
+    get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
 )
 from app.main import app
@@ -36,6 +37,13 @@ from app.main import app
 @pytest.fixture
 def mock_create_league_uc() -> AsyncMock:
     return AsyncMock()
+
+
+@pytest.fixture
+def mock_search_leagues_uc() -> AsyncMock:
+    m = AsyncMock()
+    m.execute = AsyncMock(return_value=[])
+    return m
 
 
 @pytest.fixture
@@ -91,6 +99,7 @@ def mock_get_standings_by_player_uc() -> AsyncMock:
 @pytest_asyncio.fixture
 async def client(
     mock_create_league_uc: AsyncMock,
+    mock_search_leagues_uc: AsyncMock,
     mock_submit_match_uc: AsyncMock,
     mock_get_standings_uc: AsyncMock,
     mock_get_match_history_uc: AsyncMock,
@@ -103,6 +112,9 @@ async def client(
     mock_get_standings_by_player_uc: AsyncMock,
 ) -> AsyncClient:
     app.dependency_overrides[get_create_league_use_case] = lambda: mock_create_league_uc
+    app.dependency_overrides[get_search_leagues_by_title_prefix_use_case] = (
+        lambda: mock_search_leagues_uc
+    )
     app.dependency_overrides[get_submit_match_result_use_case] = lambda: mock_submit_match_uc
     app.dependency_overrides[get_get_standings_use_case] = lambda: mock_get_standings_uc
     app.dependency_overrides[get_get_match_history_use_case] = lambda: mock_get_match_history_uc

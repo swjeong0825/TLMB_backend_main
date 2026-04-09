@@ -200,6 +200,49 @@ async def test_save_removes_pending_deleted_teams(session: AsyncSession) -> None
 
 
 # ---------------------------------------------------------------------------
+# search_by_title_prefix
+# ---------------------------------------------------------------------------
+
+
+async def test_search_by_title_prefix_matches_and_orders_by_normalized_title(
+    session: AsyncSession,
+) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    await repo.save(_make_league("Alpha Spring", token="t1"))
+    await repo.save(_make_league("Alpha Autumn", token="t2"))
+    await repo.save(_make_league("Beta Cup", token="t3"))
+    await session.commit()
+    session.expire_all()
+
+    rows = await repo.search_by_title_prefix("alpha", 50)
+    assert len(rows) == 2
+    assert rows[0][1] == "Alpha Autumn"
+    assert rows[1][1] == "Alpha Spring"
+
+
+async def test_search_by_title_prefix_respects_limit(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    for i in range(3):
+        await repo.save(_make_league(f"Prefix League {i}", token=f"tok{i}"))
+    await session.commit()
+    session.expire_all()
+
+    rows = await repo.search_by_title_prefix("prefix", 2)
+    assert len(rows) == 2
+
+
+async def test_search_by_title_prefix_escapes_like_metacharacters(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    await repo.save(_make_league("100% Fun", token="t1"))
+    await session.commit()
+    session.expire_all()
+
+    rows = await repo.search_by_title_prefix("100%", 10)
+    assert len(rows) == 1
+    assert rows[0][1] == "100% Fun"
+
+
+# ---------------------------------------------------------------------------
 # unique constraint
 # ---------------------------------------------------------------------------
 

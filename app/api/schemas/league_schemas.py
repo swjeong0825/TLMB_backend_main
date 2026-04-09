@@ -32,6 +32,15 @@ class CreateLeagueResponse(BaseModel):
     host_token: str
 
 
+class LeagueListItemSchema(BaseModel):
+    league_id: str
+    title: str
+
+
+class SearchLeaguesResponse(BaseModel):
+    leagues: list[LeagueListItemSchema]
+
+
 class SubmitMatchResultRequest(BaseModel):
     team1_nicknames: list[str]
     team2_nicknames: list[str]

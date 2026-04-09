@@ -19,6 +19,11 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _escape_sql_like_prefix(prefix: str) -> str:
+    """Escape %, _, and \\ so the prefix is matched literally in SQL LIKE."""
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class SqlAlchemyLeagueRepository(LeagueRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -50,6 +55,16 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
         )
         orm = result.scalar_one_or_none()
         return league_to_domain(orm) if orm is not None else None
+
+    async def search_by_title_prefix(self, normalized_prefix: str, limit: int) -> list[tuple[str, str]]:
+        pattern = _escape_sql_like_prefix(normalized_prefix) + "%"
+        result = await self._session.execute(
+            select(LeagueORM.league_id, LeagueORM.title)
+            .where(LeagueORM.title_normalized.like(pattern, escape="\\"))
+            .order_by(LeagueORM.title_normalized.asc())
+            .limit(limit)
+        )
+        return [(str(row.league_id), row.title) for row in result.all()]
 
     async def save(self, league: League) -> None:
         league_orm = await self._session.get(LeagueORM, league.league_id.value)

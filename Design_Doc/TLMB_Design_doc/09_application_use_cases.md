@@ -11,6 +11,7 @@ flowchart TD
         GMH["GetMatchHistory\n→ Match records + nickname resolution  (read-only)"]
         GLR["GetLeagueRoster\n→ League aggregate  (read-only)"]
         GMBP["GetMatchHistoryByPlayer\n→ player lookup + match filter  (read-only)"]
+        SLP["SearchLeaguesByTitlePrefix\n→ LeagueRepository prefix query  (read-only)"]
     end
     subgraph ADMIN ["Admin  (X-Host-Token required)"]
         EPN["EditPlayerNickname\n→ League aggregate"]
@@ -49,6 +50,26 @@ flowchart TD
   7. Return league_id and host_token
 - Domain rules enforced where: League.create (title must be non-empty); title uniqueness pre-check at application layer via repository; LeagueRules validation on construction
 - Errors: LeagueTitleAlreadyExistsError, ValidationError (blank title), invalid rules payload
+
+---
+
+## Use Case: SearchLeaguesByTitlePrefixUseCase
+
+- Business action: List leagues whose normalized title starts with a given prefix (public discovery)
+- Inputs: `SearchLeaguesByTitlePrefixQuery(title_prefix: str, limit: int)` — `title_prefix` must be non-empty after strip; `limit` is clamped to at most 100 (application layer)
+- Output: `list[LeagueListItem]` where each item is `(league_id: str, title: str)` — no host token or aggregate load
+- State-changing or calculation-only?: Read-only
+- Unit of Work needed?: No
+- Aggregate(s) loaded: none (projection query only)
+- Repository calls: `LeagueRepository.search_by_title_prefix(normalized_prefix, limit)`
+- Persistence required?: Yes (read query on `leagues.title_normalized`)
+- Steps:
+  1. Normalize `title_prefix` with strip + lowercase (same convention as `title_normalized` on save)
+  2. Reject empty normalized prefix (HTTP 422 at API boundary)
+  3. Clamp `limit` to default 50 / max 100 per API contract
+  4. Call repository prefix search with SQL `LIKE` and escaped wildcards
+  5. Return ordered list of league id + display title
+- Errors: none from domain — validation only at API layer for blank prefix
 
 ---
 

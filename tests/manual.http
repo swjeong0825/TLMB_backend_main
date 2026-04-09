@@ -28,6 +28,11 @@ Content-Type: application/json
 
 ###
 
+### Search leagues by title prefix (public)
+GET {{baseUrl}}/leagues?title_prefix=sum&limit=50
+
+###
+
 ### Create League (with description)
 POST {{baseUrl}}/leagues
 Content-Type: application/json
