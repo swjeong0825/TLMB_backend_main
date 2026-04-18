@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from starlette.requests import Request
 
 from app.api.schemas.league_schemas import (
     CreateLeagueRequest,
@@ -50,12 +51,15 @@ from app.dependencies import (
     get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
 )
+from app.rate_limit import limiter
 
 router = APIRouter(tags=["leagues"])
 
 
 @router.post("/leagues", status_code=status.HTTP_201_CREATED, response_model=CreateLeagueResponse)
+@limiter.limit("15/minute")
 async def create_league(
+    request: Request,
     body: CreateLeagueRequest,
     use_case: CreateLeagueUseCase = Depends(get_create_league_use_case),
 ) -> CreateLeagueResponse:
@@ -98,7 +102,9 @@ async def search_leagues_by_title_prefix(
     status_code=status.HTTP_201_CREATED,
     response_model=SubmitMatchResultResponse,
 )
+@limiter.limit("30/minute")
 async def submit_match_result(
+    request: Request,
     league_id: str,
     body: SubmitMatchResultRequest,
     use_case: SubmitMatchResultUseCase = Depends(get_submit_match_result_use_case),

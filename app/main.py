@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routers.admin_router import router as admin_router
 from app.api.routers.league_router import router as league_router
+from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     DuplicateTeamPairMatchError,
     InvalidLeagueRulesError,
@@ -38,6 +39,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+register_rate_limit_middleware(app)
 
 app.include_router(league_router)
 app.include_router(admin_router)

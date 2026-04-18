@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, status
+from starlette.requests import Request
 
 from app.api.schemas.admin_schemas import (
     EditMatchScoreRequest,
@@ -24,6 +25,7 @@ from app.dependencies import (
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
 )
+from app.rate_limit import limiter
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -33,7 +35,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
     status_code=status.HTTP_200_OK,
     response_model=EditPlayerNicknameResponse,
 )
+@limiter.limit("60/minute")
 async def edit_player_nickname(
+    request: Request,
     league_id: str,
     player_id: str,
     body: EditPlayerNicknameRequest,
@@ -57,7 +61,9 @@ async def edit_player_nickname(
     "/leagues/{league_id}/teams/{team_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("60/minute")
 async def delete_team(
+    request: Request,
     league_id: str,
     team_id: str,
     x_host_token: str = Header(..., alias="X-Host-Token"),
@@ -77,7 +83,9 @@ async def delete_team(
     status_code=status.HTTP_200_OK,
     response_model=EditMatchScoreResponse,
 )
+@limiter.limit("60/minute")
 async def edit_match_score(
+    request: Request,
     league_id: str,
     match_id: str,
     body: EditMatchScoreRequest,
@@ -104,7 +112,9 @@ async def edit_match_score(
     "/leagues/{league_id}/matches/{match_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("60/minute")
 async def delete_match(
+    request: Request,
     league_id: str,
     match_id: str,
     x_host_token: str = Header(..., alias="X-Host-Token"),
