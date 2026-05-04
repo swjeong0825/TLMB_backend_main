@@ -30,6 +30,7 @@ app = FastAPI(title="Tennis League Manager", version="1.0.0")
 ALLOWED_ORIGINS = [
     "https://tlmb.swjapps.com",
     "https://www.tlmb.swjapps.com",
+    "https://tlmb-test-site.swjeong0825.workers.dev"
 ]
 
 app.add_middleware(
