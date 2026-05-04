@@ -132,17 +132,7 @@ async def get_standings(
 ) -> GetStandingsResponse:
     entries = await use_case.execute(GetStandingsQuery(league_id=league_id))
     return GetStandingsResponse(
-        standings=[
-            StandingsEntrySchema(
-                rank=e.rank,
-                team_id=e.team_id,
-                player1_nickname=e.player1_nickname,
-                player2_nickname=e.player2_nickname,
-                wins=e.wins,
-                losses=e.losses,
-            )
-            for e in entries
-        ]
+        standings=[_to_standings_entry_schema(e) for e in entries]
     )
 
 
@@ -160,17 +150,26 @@ async def get_standings_by_player(
         GetStandingsByPlayerQuery(league_id=league_id, player_name=player_name)
     )
     return GetStandingsResponse(
-        standings=[
-            StandingsEntrySchema(
-                rank=e.rank,
-                team_id=e.team_id,
-                player1_nickname=e.player1_nickname,
-                player2_nickname=e.player2_nickname,
-                wins=e.wins,
-                losses=e.losses,
-            )
-            for e in entries
-        ]
+        standings=[_to_standings_entry_schema(e) for e in entries]
+    )
+
+
+def _to_standings_entry_schema(entry) -> StandingsEntrySchema:
+    return StandingsEntrySchema(
+        subject_kind=entry.subject_kind,
+        rank=entry.rank,
+        matches_played=entry.matches_played,
+        wins=entry.wins,
+        losses=entry.losses,
+        games_won=entry.games_won,
+        games_lost=entry.games_lost,
+        games_diff=entry.games_diff,
+        win_pct=entry.win_pct,
+        team_id=entry.team_id,
+        player1_nickname=entry.player1_nickname,
+        player2_nickname=entry.player2_nickname,
+        player_id=entry.player_id,
+        nickname=entry.nickname,
     )
 
 

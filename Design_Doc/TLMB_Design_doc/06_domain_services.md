@@ -2,38 +2,48 @@
 
 ## Service: StandingsCalculator
 
-- Business purpose: Compute the ranked win/loss standings for all teams in a league from the full set of persisted match records. Applies tied-rank logic — teams with the same win count share the same rank; the next rank after a tie skips positions (standard competition ranking, e.g. two teams at rank 1 means the next team is rank 3). No tiebreaker is applied in V1.
-- Why it is not an aggregate method: Standings computation draws from two separate aggregate boundaries — Match records (for win/loss outcomes) and League (for team identity and player display names). Neither aggregate owns the other's data; placing this logic on either root would force it to receive foreign aggregate state as a parameter, which is a misplacement of responsibility. As a pure, stateless calculation with no side effects, it is correctly modeled as a standalone domain service.
+- Business purpose: Compute the ranked standings for a league from the full set of persisted match records, using the league's configured **ranking subject** (`"team"` or `"player"`) and **ordered `tie_breakers` list**. Both come from `LeagueRules` v2 — see [17_configurable_ranking.md](17_configurable_ranking.md). Applies tied-rank logic — rows whose full metric tuple is equal share the same rank; the next rank after a tie skips positions (standard competition ranking, e.g. two rows at rank 1 means the next row is rank 3).
+- Why it is not an aggregate method: Standings computation draws from two separate aggregate boundaries — Match records (for win/loss/games outcomes) and League (for team identity, player display names, and ranking rules). Neither aggregate owns the other's data; placing this logic on either root would force it to receive foreign aggregate state as a parameter, which is a misplacement of responsibility. As a pure, stateless calculation with no side effects, it is correctly modeled as a standalone domain service.
 - Inputs:
-  - `matches: list[Match]` — all persisted match records for the league (supplies win/loss outcomes)
+  - `matches: list[Match]` — all persisted match records for the league (supplies win/loss/games outcomes)
   - `teams: list[Team]` — team entities from the League aggregate (supplies team identity and player ID references)
   - `players: list[Player]` — player entities from the League aggregate (supplies nicknames for display)
-- Outputs: `list[StandingsEntry]` — each entry contains:
-  - `team_id`
-  - `player1_nickname` (resolved from Player list)
-  - `player2_nickname` (resolved from Player list)
-  - `wins` (count of matches where this team won)
-  - `losses` (count of matches where this team lost)
-  - `rank` (integer; tied teams share the same rank value)
-  - Sorted ascending by rank
-- Purity / no-IO rule: Pure — no DB calls, no HTTP, no side effects; receives all required state as input parameters and returns a computed result
-- Related aggregates: League (for team and player data), Match (for win/loss records)
+  - `rules: LeagueRules` — supplies `ranking_subject` (which row shape to emit) and `tie_breakers` (which metric tuple to sort by)
+- Outputs: `list[StandingsEntry]` — discriminated by `subject_kind`. Both variants carry `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Team variant additionally carries `team_id`, `player1_nickname`, `player2_nickname`. Player variant additionally carries `player_id`, `nickname`. Sorted ascending by `rank`.
+- Purity / no-IO rule: Pure — no DB calls, no HTTP, no side effects; receives all required state as input parameters and returns a computed result.
+- Related aggregates: League (for team and player data, plus rules), Match (for win/loss/games records).
 - Used for:
-  - pure calculation / decision flow (called by the `GetStandingsUseCase` after loading matches through `MatchRepository` and league data through `LeagueRepository`)
+  - pure calculation / decision flow (called by the `GetStandingsUseCase` and `GetStandingsByPlayerUseCase` after loading matches through `MatchRepository` and league data through `LeagueRepository`).
 
 ---
 
 ## Ranking Algorithm Notes
 
-- A team's score is its win count. Losses do not affect rank in V1; rank is purely win-count-based.
-- A win is determined by comparing `team1_score` and `team2_score` on each `SetScore` value object: the team with the higher score in the set wins the match. If scores are equal, the match is recorded as a draw — draws are not counted as wins or losses in V1 (see Notes below).
-- Teams are sorted descending by wins. Teams with equal win counts receive the same rank. The next team after a tied group receives rank = (position in sorted list), not (previous rank + 1).
+- A row's sort key is `tuple(metric_value(m) for m in rules.tie_breakers)`, sorted **descending**. The first metric is primary; subsequent metrics break ties.
+- Allowed metrics (v2): `matches_won`, `match_diff` (= matches_won − matches_lost), `games_won` (sum of subject's per-match `int(team_score)`), `games_lost` (sum of opponent's per-match `int(team_score)`), `games_diff` (= games_won − games_lost), `win_pct` (= matches_won / matches_played, with 0/0 = 0.0).
+- "Games" means the integer per-side score already stored on `SetScore` — v2 makes no schema change to matches.
+- Standard competition ranking: rows with equal full metric tuples receive the same rank. The next row after a tied group receives rank = (1-indexed position in sorted list), not (previous rank + 1). Dense rank is **not** offered as configuration.
+- A win is determined by comparing `team1_score` and `team2_score` on each `SetScore` value object: the side with the higher score wins the match. Equal scores produce a draw — draws contribute zero wins and zero losses but are counted in `matches_played` (see Notes below).
+- For `ranking_subject == "player"` (v2 locks `one_team_per_player == true` for every league), each match outcome is credited to **both** members of the winning team and **both** members of the losing team. Under OTPP=true this means teammates always have identical metric tuples and therefore always share a rank — see the worked example in [17](17_configurable_ranking.md). The redundancy is intentional and will become non-redundant when `one_team_per_player == false` ships.
+
+### Worked example: tie broken by `games_diff`
+
+Three teams, `tie_breakers = ["matches_won", "games_diff"]`:
+
+| Team | Matches won | Games for | Games against | Games diff |
+|---|---|---|---|---|
+| A | 2 | 12 | 9 | +3 |
+| B | 2 | 10 | 11 | -1 |
+| C | 1 | 8 | 10 | -2 |
+
+A and B tie on `matches_won` (both 2). Sort descending by `games_diff` breaks the tie: A gets rank 1, B gets rank 2, C gets rank 3.
 
 ---
 
 ## Notes / Resolved Decisions
 
-- **Draw handling in V1 (resolved):** If both teams score equally in a set, the match contributes zero wins and zero losses to both teams. Draws are structurally valid match records but have no effect on standings rank.
-- **Single set per match in V1 (resolved):** V1 uses exactly one `SetScore` per match. The win-determination logic compares `team1_score` vs `team2_score` on that single pair. Multi-set support, if needed in a future version, would require updating this logic.
-- **Player nickname display:** The service resolves player nicknames at calculation time from the passed `list[Player]`. It does not call any repository. The use case is responsible for loading both the match list and the league (with players and teams) before invoking the service.
+- **Draw handling (resolved):** If both teams score equally in a set, the match contributes zero wins and zero losses to both teams. Draws are structurally valid match records and are counted in `matches_played` (the denominator of `win_pct`) but have no effect on `matches_won` or `matches_lost`.
+- **Single set per match (resolved):** V1/V2 use exactly one `SetScore` per match. The win-determination logic compares `team1_score` vs `team2_score` on that single pair. Multi-set support, if needed in a future version, would require updating this logic.
+- **Player nickname display:** The service resolves player nicknames at calculation time from the passed `list[Player]`. It does not call any repository. The use case is responsible for loading the match list, the league (with players and teams), and the league's rules before invoking the service.
+- **`win_pct` for unplayed subjects:** A subject with `matches_played == 0` produces `win_pct == 0.0` so that sort order remains total. Such subjects always sort below any subject with at least one win.
 

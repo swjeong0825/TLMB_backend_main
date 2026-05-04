@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.aggregates.league.entities import Player, Team
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname, TeamId
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.league.value_objects import LeagueId
@@ -14,6 +15,9 @@ from app.domain.services.standings_calculator import StandingsCalculator
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+DEFAULT_RULES = LeagueRules.default_for_new_league()
 
 
 def make_player(nickname: str) -> Player:
@@ -43,7 +47,9 @@ def test_empty_matches_returns_zero_wins_for_all_teams() -> None:
     team_cd = make_team(charlie, diana)
     calculator = StandingsCalculator()
 
-    entries = calculator.compute(matches=[], teams=[team_ab, team_cd], players=[alice, bob, charlie, diana])
+    entries = calculator.compute(
+        matches=[], teams=[team_ab, team_cd], players=[alice, bob, charlie, diana], rules=DEFAULT_RULES
+    )
 
     assert len(entries) == 2
     for e in entries:
@@ -59,7 +65,9 @@ def test_team1_win_increments_wins_and_losses() -> None:
     league_id = LeagueId.generate()
 
     match = make_match(league_id, team_ab, team_cd, t1_score="6", t2_score="3")
-    entries = StandingsCalculator().compute([match], [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        [match], [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     ab_entry = next(e for e in entries if e.team_id == str(team_ab.team_id.value))
     cd_entry = next(e for e in entries if e.team_id == str(team_cd.team_id.value))
@@ -78,7 +86,9 @@ def test_team2_win_increments_correctly() -> None:
     league_id = LeagueId.generate()
 
     match = make_match(league_id, team_ab, team_cd, t1_score="2", t2_score="6")
-    entries = StandingsCalculator().compute([match], [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        [match], [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     ab_entry = next(e for e in entries if e.team_id == str(team_ab.team_id.value))
     cd_entry = next(e for e in entries if e.team_id == str(team_cd.team_id.value))
@@ -97,7 +107,9 @@ def test_draw_not_counted_as_win_or_loss() -> None:
     league_id = LeagueId.generate()
 
     match = make_match(league_id, team_ab, team_cd, t1_score="6", t2_score="6")
-    entries = StandingsCalculator().compute([match], [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        [match], [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     for e in entries:
         assert e.wins == 0
@@ -112,7 +124,9 @@ def test_winner_ranked_first() -> None:
     league_id = LeagueId.generate()
 
     match = make_match(league_id, team_ab, team_cd, "6", "3")
-    entries = StandingsCalculator().compute([match], [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        [match], [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     assert entries[0].team_id == str(team_ab.team_id.value)
     assert entries[0].rank == 1
@@ -129,7 +143,9 @@ def test_tied_teams_share_same_rank() -> None:
     # Two matches, each team wins once → tied at 1 win each
     m1 = make_match(league_id, team_ab, team_cd, "6", "3")
     m2 = make_match(league_id, team_cd, team_ab, "6", "3")
-    entries = StandingsCalculator().compute([m1, m2], [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        [m1, m2], [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     assert entries[0].wins == 1
     assert entries[1].wins == 1
@@ -149,7 +165,9 @@ def test_accumulated_wins_across_multiple_matches() -> None:
         make_match(league_id, team_ab, team_cd, "6", "4"),
         make_match(league_id, team_cd, team_ab, "6", "1"),
     ]
-    entries = StandingsCalculator().compute(matches, [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        matches, [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     ab_entry = next(e for e in entries if e.team_id == str(team_ab.team_id.value))
     cd_entry = next(e for e in entries if e.team_id == str(team_cd.team_id.value))
@@ -166,7 +184,9 @@ def test_player_nicknames_appear_in_entries() -> None:
     team_ab = make_team(alice, bob)
     team_cd = make_team(charlie, diana)
 
-    entries = StandingsCalculator().compute([], [team_ab, team_cd], [alice, bob, charlie, diana])
+    entries = StandingsCalculator().compute(
+        [], [team_ab, team_cd], [alice, bob, charlie, diana], DEFAULT_RULES
+    )
 
     ab_entry = next(e for e in entries if e.team_id == str(team_ab.team_id.value))
     nicknames = {ab_entry.player1_nickname, ab_entry.player2_nickname}
@@ -174,5 +194,5 @@ def test_player_nicknames_appear_in_entries() -> None:
 
 
 def test_empty_teams_returns_empty_entries() -> None:
-    entries = StandingsCalculator().compute([], [], [])
+    entries = StandingsCalculator().compute([], [], [], DEFAULT_RULES)
     assert entries == []

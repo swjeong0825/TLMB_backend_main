@@ -9,6 +9,8 @@ from app.application.use_cases.get_standings_by_player_use_case import (
     GetStandingsByPlayerQuery,
     GetStandingsByPlayerUseCase,
 )
+from app.domain.aggregates.league.aggregate_root import League
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import LeagueNotFoundError, PlayerNotFoundError
 from app.domain.services.standings_calculator import StandingsEntry
 from tests.application.conftest import make_league, make_match
@@ -118,3 +120,40 @@ class TestGetStandingsByPlayerUseCase:
         )
 
         mock_match_repo.get_all_by_league.assert_awaited_once_with(league.league_id)
+
+    async def test_player_subject_returns_players_own_row(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        rules = LeagueRules(
+            version=2,
+            match_pair_idempotency="once_per_league",
+            one_team_per_player=True,
+            ranking_subject="player",
+            tie_breakers=("matches_won",),
+        )
+        league = League.create(
+            title="Player-Ranked League",
+            description=None,
+            host_token="host",
+            rules=rules,
+        )
+        league.register_players_and_team("alice", "bob")
+        league.register_players_and_team("charlie", "diana")
+        team1 = league.teams[0]
+        team2 = league.teams[1]
+        match = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
+
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = [match]
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        result = await use_case.execute(
+            GetStandingsByPlayerQuery(league_id=str(league.league_id), player_name="charlie")
+        )
+
+        assert len(result) == 1
+        assert result[0].subject_kind == "player"
+        assert result[0].nickname == "charlie"
+        assert result[0].team_id is None
+        assert result[0].wins == 0
+        assert result[0].losses == 1

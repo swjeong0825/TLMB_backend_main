@@ -135,6 +135,29 @@ async def test_create_league_invalid_rules_version_returns_422(client: AsyncClie
     assert resp.json()["error"] == "InvalidLeagueRulesError"
 
 
+async def test_create_league_with_otpp_false_returns_422(client: AsyncClient) -> None:
+    """v2 locks one_team_per_player to true; OTPP=false must be rejected.
+
+    See backend_main/Design_Doc/TLMB_Design_doc/17_configurable_ranking.md for
+    the v2 validation contract and the v3 plan for unlocking OTPP=false.
+    """
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "OTPP False League",
+            "rules": {
+                "version": 2,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": False,
+                "ranking_subject": "team",
+                "tie_breakers": ["matches_won"],
+            },
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "InvalidLeagueRulesError"
+
+
 # ---------------------------------------------------------------------------
 # POST /leagues/{league_id}/matches
 # ---------------------------------------------------------------------------

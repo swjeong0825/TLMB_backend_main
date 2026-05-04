@@ -16,6 +16,7 @@ flowchart LR
         P1b["GET /leagues?title_prefix=str"]
         P2["POST /leagues/{league_id}/matches"]
         P3["GET /leagues/{league_id}/standings"]
+        P3b["GET /leagues/{league_id}/standings/by-player?player_name=str"]
         P4["GET /leagues/{league_id}/matches"]
         P5["GET /leagues/{league_id}/roster"]
         P6["GET /leagues/{league_id}/matches/by-player?player_name=str"]
@@ -46,6 +47,7 @@ flowchart LR
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
+| InvalidLeagueRulesError (invalid v1/v2 rules body — including v2 ranking config or `one_team_per_player == false`, which v2 does not yet support) | 422 |
 
 ---
 
@@ -54,11 +56,11 @@ flowchart LR
 - Method: POST
 - Path: `/leagues`
 - Purpose: Create a new league and receive access credentials
-- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null }` — **`rules` optional**. When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). Rules are **not** mutable after creation in this API version.
-- Example `rules` (v1): `{ "version": 1, "match_pair_idempotency": "once_per_league", "one_team_per_player": true }`
+- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null }` — **`rules` optional**. When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1 or v2 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md) and [17_configurable_ranking.md](17_configurable_ranking.md)). v1 inputs are upgraded to v2 transparently. Rules are **not** mutable after creation in this API version.
+- Example `rules` (v2): `{ "version": 2, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"] }`
 - Response shape: `{ "league_id": "uuid", "host_token": "uuid" }`
 - Use case called: CreateLeagueUseCase
-- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title or invalid rules)
+- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title, invalid rules, invalid ranking config, or `one_team_per_player == false` — v2 locks OTPP to `true`)
 - Auth notes: Public — no credentials required
 
 ---
@@ -119,25 +121,60 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/standings`
-- Purpose: Get the current win/loss standings for all teams in the league
+- Purpose: Get the current standings for the league, ranked according to the league's configured `ranking_subject` and ordered `tie_breakers` list (see [17_configurable_ranking.md](17_configurable_ranking.md))
 - Request shape: —
-- Response shape:
+- Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Team variants additionally carry `team_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`.
   ```json
   {
     "standings": [
       {
+        "subject_kind": "team",
         "rank": 1,
         "team_id": "uuid",
         "player1_nickname": "str",
         "player2_nickname": "str",
+        "matches_played": 4,
         "wins": 3,
-        "losses": 1
+        "losses": 1,
+        "games_won": 18,
+        "games_lost": 9,
+        "games_diff": 9,
+        "win_pct": 0.75
+      },
+      {
+        "subject_kind": "player",
+        "rank": 1,
+        "player_id": "uuid",
+        "nickname": "str",
+        "matches_played": 4,
+        "wins": 3,
+        "losses": 1,
+        "games_won": 18,
+        "games_lost": 9,
+        "games_diff": 9,
+        "win_pct": 0.75
       }
     ]
   }
   ```
 - Use case called: GetStandingsUseCase
 - Error responses: 404 LeagueNotFoundError
+- Auth notes: `league_id` in URL path — possession is sufficient
+- Notes: For a single response, every row's `subject_kind` is identical (a league has one ranking subject). The discriminator is included on every row so individual rows are still self-describing for downstream consumers (chat handlers, render loops). Old clients reading only `team_id` / `player1_nickname` / `player2_nickname` / `wins` / `losses` will silently break for player-subject leagues — coordinate frontend + backend rollouts.
+
+---
+
+## Endpoint: Get Standings By Player
+
+- Method: GET
+- Path: `/leagues/{league_id}/standings/by-player`
+- Purpose: Get the standings entry for the team or player identified by a nickname. Under `ranking_subject == "team"`, returns the row for the player's team. Under `ranking_subject == "player"`, returns that player's own row.
+- Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
+- Response shape: identical polymorphic shape to `GET /leagues/{league_id}/standings`. Typically a single-element `standings` array; an empty array is returned if the player exists but their team has been deleted (team-subject only).
+- Use case called: GetStandingsByPlayerUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 PlayerNotFoundError (no player with that nickname in this league)
 - Auth notes: `league_id` in URL path — possession is sufficient
 
 ---

@@ -42,6 +42,21 @@ class GetStandingsByPlayerUseCase:
                 f"Player '{query.player_name}' not found in league '{query.league_id}'"
             )
 
+        matches = await self._match_repo.get_all_by_league(league_id)
+        all_entries = self._calculator.compute(
+            matches, league.teams, league.players, league.rules
+        )
+
+        if league.rules.ranking_subject == "player":
+            pid = str(player.player_id.value)
+            return [e for e in all_entries if e.player_id == pid]
+
+        # Subject = "team": find the player's team and return that team's row.
+        # TODO(v3-ranking-tightening): the next(...) team lookup below is only
+        # safe because v2 locks one_team_per_player=true for every league, so a
+        # player has at most one team. When v3 unlocks OTPP=false, rethink which
+        # team to surface for a player who appears on multiple teams. See design
+        # doc 17.
         team = next(
             (
                 t for t in league.teams
@@ -52,7 +67,5 @@ class GetStandingsByPlayerUseCase:
         if team is None:
             return []
 
-        matches = await self._match_repo.get_all_by_league(league_id)
-        all_entries = self._calculator.compute(matches, league.teams, league.players)
         tid = str(team.team_id.value)
         return [e for e in all_entries if e.team_id == tid]

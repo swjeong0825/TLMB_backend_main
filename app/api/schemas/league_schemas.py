@@ -6,18 +6,39 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 
 
-class LeagueRulesV1Request(BaseModel):
-    """Shape of `rules` on create-league; `version` is validated in the domain (LeagueRules)."""
+RankingMetricLiteral = Literal[
+    "matches_won",
+    "match_diff",
+    "games_won",
+    "games_lost",
+    "games_diff",
+    "win_pct",
+]
 
-    version: int
+
+class LeagueRulesV2Request(BaseModel):
+    """Shape of `rules` on create-league.
+
+    `version` accepts 1 or 2: v1 inputs are upgraded transparently in
+    `LeagueRules.from_dict`; v2 strict-validates ranking fields. v2 also locks
+    `one_team_per_player` to `true` — `LeagueRules.from_dict` rejects any other
+    value with `InvalidLeagueRulesError`. The pydantic model accepts a plain
+    `bool` here (not `Literal[True]`) so that the rejection surfaces as the
+    domain-level `InvalidLeagueRulesError` (mapped to 422 with a uniform error
+    code) rather than as a generic pydantic validation error.
+    """
+
+    version: Literal[1, 2]
     match_pair_idempotency: Literal["none", "once_per_league"]
     one_team_per_player: bool = True
+    ranking_subject: Literal["team", "player"] | None = None
+    tie_breakers: list[RankingMetricLiteral] | None = None
 
 
 class CreateLeagueRequest(BaseModel):
     title: str
     description: str | None = None
-    rules: LeagueRulesV1Request | None = None
+    rules: LeagueRulesV2Request | None = None # has defualt
 
     @field_validator("title")
     @classmethod
@@ -60,12 +81,31 @@ class SubmitMatchResultResponse(BaseModel):
 
 
 class StandingsEntrySchema(BaseModel):
+    """Polymorphic standings row.
+
+    `subject_kind` discriminates which identifier/display fields are populated:
+    - "team": team_id, player1_nickname, player2_nickname are present;
+      player_id and nickname are None.
+    - "player": player_id and nickname are present; team_id, player1_nickname,
+      player2_nickname are None.
+
+    Metric fields are populated for both variants.
+    """
+
+    subject_kind: Literal["team", "player"]
     rank: int
-    team_id: str
-    player1_nickname: str
-    player2_nickname: str
+    matches_played: int
     wins: int
     losses: int
+    games_won: int
+    games_lost: int
+    games_diff: int
+    win_pct: float
+    team_id: str | None = None
+    player1_nickname: str | None = None
+    player2_nickname: str | None = None
+    player_id: str | None = None
+    nickname: str | None = None
 
 
 class GetStandingsResponse(BaseModel):

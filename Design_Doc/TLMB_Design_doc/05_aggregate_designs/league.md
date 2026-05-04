@@ -47,7 +47,7 @@ flowchart TD
 ## Invariants Enforced by Root
 - League title uniqueness: system-wide, case-insensitive (pre-checked at application layer via repository; aggregate trusts the check was done before `create` is called)
 - Player nickname uniqueness within a league: case-insensitive, enforced on `register_players_and_team` and `edit_player_nickname`
-- One team per player per league: **when** `LeagueRules.one_team_per_player` is true (default), a player may belong to at most one team; enforced on `register_players_and_team` via `OneTeamPerPlayerPolicy`. When false (future), this invariant is not enforced—read models that assume a single team per player must be revised before use in production.
+- One team per player per league: in v2, `LeagueRules.one_team_per_player` is locked to `true` for every league, so a player may belong to at most one team; enforced on `register_players_and_team` via `OneTeamPerPlayerPolicy`. v3 will accept `false`, at which point this invariant is not enforced and read models that assume a single team per player must be revised before use in production.
 - Team has exactly two distinct players: enforced on team creation inside `register_players_and_team`
 - Players and teams are created only through match submission: no standalone player/team creation endpoint; the only path is `register_players_and_team` called by the SubmitMatchResult use case
 - **Match pair idempotency** is **not** enforced inside the League aggregate: it is a cross-aggregate check in `SubmitMatchResultUseCase` using `League.rules` and `MatchRepository` (see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md))
@@ -69,7 +69,7 @@ flowchart TD
 - State changes: adds new Player records for any nickname not already present; adds a new Team record linking the two resolved player IDs if the pair has not been registered before
 - Invariants checked:
   - Player nickname uniqueness (case-insensitive): each nickname, after normalization, must not already belong to a different logical player than the one being resolved
-  - One team per player: **if** `self.rules.one_team_per_player` is true, neither player may already be a member of a different team
+  - One team per player: **if** `self.rules.one_team_per_player` is true, neither player may already be a member of a different team. (v2 locks this flag to `true`, so the check always runs; v3 will allow `false` and skip the check.)
   - Two distinct players: p1 and p2 must normalize to different nicknames
 - Returns: the list of newly created Player objects and the Team object (new or existing if the pair already played)
 - Notes: If both players already exist and already share a team, this is a no-op for registration and returns the existing player/team references. If both players exist but belong to different teams, the one-team-per-player invariant is violated and an error is raised.
@@ -135,10 +135,16 @@ flowchart TD
 - Immutability notes: immutable after creation
 
 ### Value Object: LeagueRules
-- Fields: versioned configuration (see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md)); persisted as JSONB on the league row
-- Why not ad-hoc dicts in the aggregate root: validation, defaults, and forward-compatible parsing live in one place
-- Validation / normalization: reject unknown `version`; coerce and validate known keys; ignore unknown keys for forward compatibility
-- Immutability notes: immutable value object; replaced only if a future product version allows rule updates
+- Fields (v2):
+  - `version: int` — schema version; current is `2`. v1 inputs are accepted on read and upgraded transparently to v2 with the v2 ranking defaults.
+  - `match_pair_idempotency: "none" | "once_per_league"` — see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
+  - `one_team_per_player: bool` — locked to `true` in v2 (any other value is rejected by `from_dict`). See [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
+  - `ranking_subject: "team" | "player"` — see [17_configurable_ranking.md](../17_configurable_ranking.md). Default `"team"`.
+  - `tie_breakers: tuple[Metric, ...]` — non-empty, no duplicates. Each entry one of `matches_won`, `match_diff`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Default `("matches_won",)`.
+- Persisted as JSONB on the league row (see [12_persistence_strategy.md](../12_persistence_strategy.md)).
+- Why not ad-hoc dicts in the aggregate root: validation, defaults, and forward-compatible parsing live in one place.
+- Validation / normalization: reject unknown `version`; coerce and validate known keys; ignore unknown keys for forward compatibility. v2 has no `(ranking_subject, one_team_per_player)` cross-rule because `one_team_per_player` is locked to `true`; v3 introduces the cross-rule when OTPP=false ships — see [17_configurable_ranking.md](../17_configurable_ranking.md).
+- Immutability notes: immutable value object; replaced only if a future product version allows rule updates.
 
 ---
 

@@ -221,16 +221,28 @@ class TestGetStandings:
     ) -> None:
         mock_get_standings_uc.execute.return_value = [
             StandingsEntry(
-                team_id="t1", player1_nickname="alice", player2_nickname="bob",
-                wins=2, losses=1, rank=1,
+                subject_kind="team",
+                rank=1,
+                matches_played=3,
+                wins=2,
+                losses=1,
+                games_won=12,
+                games_lost=8,
+                games_diff=4,
+                win_pct=2 / 3,
+                team_id="t1",
+                player1_nickname="alice",
+                player2_nickname="bob",
             )
         ]
         response = await client.get("/leagues/lid/standings")
         assert response.status_code == 200
         data = response.json()
         assert len(data["standings"]) == 1
+        assert data["standings"][0]["subject_kind"] == "team"
         assert data["standings"][0]["rank"] == 1
         assert data["standings"][0]["wins"] == 2
+        assert data["standings"][0]["games_diff"] == 4
 
     async def test_league_not_found_returns_404(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock
@@ -259,12 +271,18 @@ class TestGetStandingsByPlayer:
     ) -> None:
         mock_get_standings_by_player_uc.execute.return_value = [
             StandingsEntry(
+                subject_kind="team",
+                rank=1,
+                matches_played=3,
+                wins=2,
+                losses=1,
+                games_won=12,
+                games_lost=8,
+                games_diff=4,
+                win_pct=2 / 3,
                 team_id="t1",
                 player1_nickname="alice",
                 player2_nickname="bob",
-                wins=2,
-                losses=1,
-                rank=1,
             )
         ]
         response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
@@ -273,6 +291,32 @@ class TestGetStandingsByPlayer:
         assert len(data["standings"]) == 1
         assert data["standings"][0]["rank"] == 1
         assert data["standings"][0]["wins"] == 2
+
+    async def test_returns_200_with_player_subject_row(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.return_value = [
+            StandingsEntry(
+                subject_kind="player",
+                rank=1,
+                matches_played=3,
+                wins=2,
+                losses=1,
+                games_won=12,
+                games_lost=8,
+                games_diff=4,
+                win_pct=2 / 3,
+                player_id="p1",
+                nickname="alice",
+            )
+        ]
+        response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["standings"][0]["subject_kind"] == "player"
+        assert data["standings"][0]["nickname"] == "alice"
+        assert data["standings"][0]["player_id"] == "p1"
+        assert data["standings"][0]["team_id"] is None
 
     async def test_passes_params_to_use_case(
         self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock

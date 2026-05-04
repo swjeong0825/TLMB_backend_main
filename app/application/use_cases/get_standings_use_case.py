@@ -33,4 +33,6 @@ class GetStandingsUseCase:
 
         matches = await self._match_repo.get_all_by_league(league_id)
 
-        return self._calculator.compute(matches, league.teams, league.players)
+        return self._calculator.compute(
+            matches, league.teams, league.players, league.rules
+        )
