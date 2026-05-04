@@ -109,7 +109,17 @@ class StandingsEntrySchema(BaseModel):
 
 
 class GetStandingsResponse(BaseModel):
+    """Standings list for a league, plus the league's ordered ranking metrics.
+
+    `tie_breakers` mirrors `LeagueRules.tie_breakers` (see backend design doc 17):
+    the first entry is the primary ranking metric, the rest are sequential
+    tie-breakers. Clients render the displayed metric column ("Games won",
+    "Games ±", "Win %", ...) from `tie_breakers[0]` so the standings table
+    reflects the metric the league is actually ranked by.
+    """
+
     standings: list[StandingsEntrySchema]
+    tie_breakers: list[RankingMetricLiteral]
 
 
 class MatchHistoryRecordSchema(BaseModel):

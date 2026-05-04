@@ -14,7 +14,7 @@ from app.application.use_cases.create_league_use_case import CreateLeagueResult
 from app.application.use_cases.search_leagues_by_title_prefix_use_case import LeagueListItem
 from app.application.use_cases.get_league_roster_use_case import PlayerEntry, RosterView, TeamEntry
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
-from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
+from app.application.use_cases.get_standings_use_case import GetStandingsUseCase, StandingsView
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultResult
 from app.domain.exceptions import (
     DuplicateTeamPairMatchError,
@@ -219,22 +219,25 @@ class TestGetStandings:
     async def test_returns_200_with_standings_list(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock
     ) -> None:
-        mock_get_standings_uc.execute.return_value = [
-            StandingsEntry(
-                subject_kind="team",
-                rank=1,
-                matches_played=3,
-                wins=2,
-                losses=1,
-                games_won=12,
-                games_lost=8,
-                games_diff=4,
-                win_pct=2 / 3,
-                team_id="t1",
-                player1_nickname="alice",
-                player2_nickname="bob",
-            )
-        ]
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[
+                StandingsEntry(
+                    subject_kind="team",
+                    rank=1,
+                    matches_played=3,
+                    wins=2,
+                    losses=1,
+                    games_won=12,
+                    games_lost=8,
+                    games_diff=4,
+                    win_pct=2 / 3,
+                    team_id="t1",
+                    player1_nickname="alice",
+                    player2_nickname="bob",
+                )
+            ],
+            tie_breakers=("matches_won",),
+        )
         response = await client.get("/leagues/lid/standings")
         assert response.status_code == 200
         data = response.json()
@@ -243,6 +246,18 @@ class TestGetStandings:
         assert data["standings"][0]["rank"] == 1
         assert data["standings"][0]["wins"] == 2
         assert data["standings"][0]["games_diff"] == 4
+        assert data["tie_breakers"] == ["matches_won"]
+
+    async def test_response_echoes_league_tie_breakers(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("games_won", "games_diff"),
+        )
+        response = await client.get("/leagues/lid/standings")
+        assert response.status_code == 200
+        assert response.json()["tie_breakers"] == ["games_won", "games_diff"]
 
     async def test_league_not_found_returns_404(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock
@@ -254,7 +269,10 @@ class TestGetStandings:
     async def test_empty_standings_returned_as_empty_list(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock
     ) -> None:
-        mock_get_standings_uc.execute.return_value = []
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("matches_won",),
+        )
         response = await client.get("/leagues/lid/standings")
         assert response.status_code == 200
         assert response.json()["standings"] == []
@@ -269,47 +287,54 @@ class TestGetStandingsByPlayer:
     async def test_returns_200_with_standings_list(
         self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
     ) -> None:
-        mock_get_standings_by_player_uc.execute.return_value = [
-            StandingsEntry(
-                subject_kind="team",
-                rank=1,
-                matches_played=3,
-                wins=2,
-                losses=1,
-                games_won=12,
-                games_lost=8,
-                games_diff=4,
-                win_pct=2 / 3,
-                team_id="t1",
-                player1_nickname="alice",
-                player2_nickname="bob",
-            )
-        ]
+        mock_get_standings_by_player_uc.execute.return_value = StandingsView(
+            entries=[
+                StandingsEntry(
+                    subject_kind="team",
+                    rank=1,
+                    matches_played=3,
+                    wins=2,
+                    losses=1,
+                    games_won=12,
+                    games_lost=8,
+                    games_diff=4,
+                    win_pct=2 / 3,
+                    team_id="t1",
+                    player1_nickname="alice",
+                    player2_nickname="bob",
+                )
+            ],
+            tie_breakers=("matches_won",),
+        )
         response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
         assert response.status_code == 200
         data = response.json()
         assert len(data["standings"]) == 1
         assert data["standings"][0]["rank"] == 1
         assert data["standings"][0]["wins"] == 2
+        assert data["tie_breakers"] == ["matches_won"]
 
     async def test_returns_200_with_player_subject_row(
         self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
     ) -> None:
-        mock_get_standings_by_player_uc.execute.return_value = [
-            StandingsEntry(
-                subject_kind="player",
-                rank=1,
-                matches_played=3,
-                wins=2,
-                losses=1,
-                games_won=12,
-                games_lost=8,
-                games_diff=4,
-                win_pct=2 / 3,
-                player_id="p1",
-                nickname="alice",
-            )
-        ]
+        mock_get_standings_by_player_uc.execute.return_value = StandingsView(
+            entries=[
+                StandingsEntry(
+                    subject_kind="player",
+                    rank=1,
+                    matches_played=3,
+                    wins=2,
+                    losses=1,
+                    games_won=12,
+                    games_lost=8,
+                    games_diff=4,
+                    win_pct=2 / 3,
+                    player_id="p1",
+                    nickname="alice",
+                )
+            ],
+            tie_breakers=("games_won",),
+        )
         response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
         assert response.status_code == 200
         data = response.json()
@@ -317,11 +342,14 @@ class TestGetStandingsByPlayer:
         assert data["standings"][0]["nickname"] == "alice"
         assert data["standings"][0]["player_id"] == "p1"
         assert data["standings"][0]["team_id"] is None
+        assert data["tie_breakers"] == ["games_won"]
 
     async def test_passes_params_to_use_case(
         self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
     ) -> None:
-        mock_get_standings_by_player_uc.execute.return_value = []
+        mock_get_standings_by_player_uc.execute.return_value = StandingsView(
+            entries=[], tie_breakers=("matches_won",)
+        )
         await client.get("/leagues/lid/standings/by-player?player_name=alice")
         call_args = mock_get_standings_by_player_uc.execute.call_args[0][0]
         assert call_args.player_name == "alice"
@@ -349,7 +377,9 @@ class TestGetStandingsByPlayer:
     async def test_empty_result_returns_empty_standings_list(
         self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
     ) -> None:
-        mock_get_standings_by_player_uc.execute.return_value = []
+        mock_get_standings_by_player_uc.execute.return_value = StandingsView(
+            entries=[], tie_breakers=("matches_won",)
+        )
         response = await client.get("/leagues/lid/standings/by-player?player_name=alice")
         assert response.status_code == 200
         assert response.json()["standings"] == []

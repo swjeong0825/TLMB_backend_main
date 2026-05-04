@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.application.use_cases.get_standings_use_case import StandingsView
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId, PlayerNickname
 from app.domain.aggregates.match.repository import MatchRepository
 from app.domain.exceptions import LeagueNotFoundError, PlayerNotFoundError
-from app.domain.services.standings_calculator import StandingsCalculator, StandingsEntry
+from app.domain.services.standings_calculator import StandingsCalculator
 
 
 @dataclass
@@ -25,7 +26,7 @@ class GetStandingsByPlayerUseCase:
         self._match_repo = match_repo
         self._calculator = StandingsCalculator()
 
-    async def execute(self, query: GetStandingsByPlayerQuery) -> list[StandingsEntry]:
+    async def execute(self, query: GetStandingsByPlayerQuery) -> StandingsView:
         league_id = LeagueId.from_str(query.league_id)
 
         league = await self._league_repo.get_by_id(league_id)
@@ -49,7 +50,8 @@ class GetStandingsByPlayerUseCase:
 
         if league.rules.ranking_subject == "player":
             pid = str(player.player_id.value)
-            return [e for e in all_entries if e.player_id == pid]
+            filtered = [e for e in all_entries if e.player_id == pid]
+            return StandingsView(entries=filtered, tie_breakers=league.rules.tie_breakers)
 
         # Subject = "team": find the player's team and return that team's row.
         # TODO(v3-ranking-tightening): the next(...) team lookup below is only
@@ -65,7 +67,8 @@ class GetStandingsByPlayerUseCase:
             None,
         )
         if team is None:
-            return []
+            return StandingsView(entries=[], tie_breakers=league.rules.tie_breakers)
 
         tid = str(team.team_id.value)
-        return [e for e in all_entries if e.team_id == tid]
+        filtered = [e for e in all_entries if e.team_id == tid]
+        return StandingsView(entries=filtered, tie_breakers=league.rules.tie_breakers)

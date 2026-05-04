@@ -28,7 +28,8 @@ class TestGetStandingsUseCase:
 
         result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
-        assert result == []
+        assert result.entries == []
+        assert result.tie_breakers == league.rules.tie_breakers
 
     async def test_standings_computed_from_match_records(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -46,8 +47,8 @@ class TestGetStandingsUseCase:
 
         result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
-        assert len(result) == 2
-        winner = next(e for e in result if e.team_id == str(team1.team_id.value))
+        assert len(result.entries) == 2
+        winner = next(e for e in result.entries if e.team_id == str(team1.team_id.value))
         assert winner.wins == 1
         assert winner.losses == 0
         assert winner.rank == 1
@@ -87,8 +88,8 @@ class TestGetStandingsUseCase:
 
         result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
-        assert len(result) == 1
-        assert isinstance(result[0], StandingsEntry)
+        assert len(result.entries) == 1
+        assert isinstance(result.entries[0], StandingsEntry)
 
     async def test_tied_teams_both_ranked_first(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -107,4 +108,28 @@ class TestGetStandingsUseCase:
 
         result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
-        assert all(e.rank == 1 for e in result)
+        assert all(e.rank == 1 for e in result.entries)
+
+    async def test_view_includes_league_tie_breakers(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        from app.domain.aggregates.league.aggregate_root import League
+        from app.domain.aggregates.league.league_rules import LeagueRules
+
+        rules = LeagueRules(
+            version=2,
+            match_pair_idempotency="once_per_league",
+            one_team_per_player=True,
+            ranking_subject="team",
+            tie_breakers=("games_won", "matches_won"),
+        )
+        league = League.create(
+            title="Games-Won League", description=None, host_token="tok", rules=rules
+        )
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
+
+        assert result.tie_breakers == ("games_won", "matches_won")

@@ -465,6 +465,34 @@ async def test_get_standings_league_not_found(client: AsyncClient) -> None:
     assert resp.json()["error"] == "LeagueNotFoundError"
 
 
+async def test_get_standings_response_echoes_league_tie_breakers(
+    client: AsyncClient,
+) -> None:
+    """The standings response includes the league's ordered ranking metrics
+    so clients can label the displayed metric column ("Games won", "Games ±",
+    ...) to match the league's primary tie_breaker. See design doc 17."""
+    create_resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Games-Won League",
+            "rules": {
+                "version": 2,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": True,
+                "ranking_subject": "team",
+                "tie_breakers": ["games_won", "matches_won"],
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    league_id = create_resp.json()["league_id"]
+
+    resp = await client.get(f"/leagues/{league_id}/standings")
+
+    assert resp.status_code == 200
+    assert resp.json()["tie_breakers"] == ["games_won", "matches_won"]
+
+
 # ---------------------------------------------------------------------------
 # GET /leagues/{league_id}/standings/by-player
 # ---------------------------------------------------------------------------

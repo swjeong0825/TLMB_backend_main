@@ -123,7 +123,7 @@ flowchart LR
 - Path: `/leagues/{league_id}/standings`
 - Purpose: Get the current standings for the league, ranked according to the league's configured `ranking_subject` and ordered `tie_breakers` list (see [17_configurable_ranking.md](17_configurable_ranking.md))
 - Request shape: —
-- Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Team variants additionally carry `team_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`.
+- Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Team variants additionally carry `team_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`. The top-level `tie_breakers` field echoes the league's ordered ranking metrics (a copy of `LeagueRules.tie_breakers`) so clients can label the displayed metric column to match the league's primary tie-breaker — e.g. a league configured with `tie_breakers=["games_won", ...]` shows a "Games won" column rather than a generic "Games ±".
   ```json
   {
     "standings": [
@@ -154,7 +154,8 @@ flowchart LR
         "games_diff": 9,
         "win_pct": 0.75
       }
-    ]
+    ],
+    "tie_breakers": ["matches_won", "games_diff"]
   }
   ```
 - Use case called: GetStandingsUseCase

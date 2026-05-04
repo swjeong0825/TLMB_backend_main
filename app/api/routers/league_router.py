@@ -130,9 +130,10 @@ async def get_standings(
     league_id: str,
     use_case: GetStandingsUseCase = Depends(get_get_standings_use_case),
 ) -> GetStandingsResponse:
-    entries = await use_case.execute(GetStandingsQuery(league_id=league_id))
+    view = await use_case.execute(GetStandingsQuery(league_id=league_id))
     return GetStandingsResponse(
-        standings=[_to_standings_entry_schema(e) for e in entries]
+        standings=[_to_standings_entry_schema(e) for e in view.entries],
+        tie_breakers=list(view.tie_breakers),
     )
 
 
@@ -146,11 +147,12 @@ async def get_standings_by_player(
     player_name: str = Query(..., description="Player nickname (case-insensitive)"),
     use_case: GetStandingsByPlayerUseCase = Depends(get_get_standings_by_player_use_case),
 ) -> GetStandingsResponse:
-    entries = await use_case.execute(
+    view = await use_case.execute(
         GetStandingsByPlayerQuery(league_id=league_id, player_name=player_name)
     )
     return GetStandingsResponse(
-        standings=[_to_standings_entry_schema(e) for e in entries]
+        standings=[_to_standings_entry_schema(e) for e in view.entries],
+        tie_breakers=list(view.tie_breakers),
     )
 
 

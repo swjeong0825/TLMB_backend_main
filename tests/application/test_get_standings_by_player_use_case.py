@@ -64,8 +64,9 @@ class TestGetStandingsByPlayerUseCase:
         result = await use_case.execute(
             GetStandingsByPlayerQuery(league_id=str(league.league_id), player_name="ALICE")
         )
-        assert len(result) == 1
-        assert isinstance(result[0], StandingsEntry)
+        assert len(result.entries) == 1
+        assert isinstance(result.entries[0], StandingsEntry)
+        assert result.tie_breakers == league.rules.tie_breakers
 
     async def test_returns_empty_when_player_has_no_team(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -80,7 +81,8 @@ class TestGetStandingsByPlayerUseCase:
         result = await use_case.execute(
             GetStandingsByPlayerQuery(league_id=str(league.league_id), player_name="alice")
         )
-        assert result == []
+        assert result.entries == []
+        assert result.tie_breakers == league.rules.tie_breakers
 
     async def test_returns_single_entry_with_league_rank(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -100,11 +102,11 @@ class TestGetStandingsByPlayerUseCase:
             GetStandingsByPlayerQuery(league_id=str(league.league_id), player_name="charlie")
         )
 
-        assert len(result) == 1
-        assert result[0].team_id == str(team2.team_id.value)
-        assert result[0].wins == 0
-        assert result[0].losses == 1
-        assert result[0].rank == 2
+        assert len(result.entries) == 1
+        assert result.entries[0].team_id == str(team2.team_id.value)
+        assert result.entries[0].wins == 0
+        assert result.entries[0].losses == 1
+        assert result.entries[0].rank == 2
 
     async def test_match_repo_queried_with_league_id(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -151,9 +153,10 @@ class TestGetStandingsByPlayerUseCase:
             GetStandingsByPlayerQuery(league_id=str(league.league_id), player_name="charlie")
         )
 
-        assert len(result) == 1
-        assert result[0].subject_kind == "player"
-        assert result[0].nickname == "charlie"
-        assert result[0].team_id is None
-        assert result[0].wins == 0
-        assert result[0].losses == 1
+        assert len(result.entries) == 1
+        assert result.entries[0].subject_kind == "player"
+        assert result.entries[0].nickname == "charlie"
+        assert result.entries[0].team_id is None
+        assert result.entries[0].wins == 0
+        assert result.entries[0].losses == 1
+        assert result.tie_breakers == ("matches_won",)

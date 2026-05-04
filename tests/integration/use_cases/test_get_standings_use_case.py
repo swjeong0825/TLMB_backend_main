@@ -29,9 +29,10 @@ async def test_returns_empty_standings_for_league_with_no_matches(session: Async
     await repo.save(league)
 
     use_case = GetStandingsUseCase(repo, SqlAlchemyMatchRepository(session))
-    entries = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
+    result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
-    assert entries == []
+    assert result.entries == []
+    assert result.tie_breakers == league.rules.tie_breakers
 
 
 async def test_returns_correct_standings_after_match(persisted_league_with_match: dict) -> None:
@@ -42,10 +43,11 @@ async def test_returns_correct_standings_after_match(persisted_league_with_match
     async with _session_factory() as s:
         league_repo = SqlAlchemyLeagueRepository(s)
         match_repo = SqlAlchemyMatchRepository(s)
-        entries = await GetStandingsUseCase(league_repo, match_repo).execute(
+        result = await GetStandingsUseCase(league_repo, match_repo).execute(
             GetStandingsQuery(league_id=str(league.league_id))
         )
 
+    entries = result.entries
     assert len(entries) == 2
     assert entries[0].rank == 1
     assert entries[0].wins == 1
@@ -53,6 +55,7 @@ async def test_returns_correct_standings_after_match(persisted_league_with_match
     assert entries[1].rank == 2
     assert entries[1].wins == 0
     assert entries[1].losses == 1
+    assert result.tie_breakers == league.rules.tie_breakers
 
 
 async def test_raises_for_unknown_league(session: AsyncSession) -> None:

@@ -120,7 +120,7 @@ There is no `(ranking_subject, one_team_per_player)` cross-rule in v2; rule 3 ma
 
 ## Standings response shape (polymorphic)
 
-The same two endpoints, `GET /leagues/{id}/standings` and `GET /leagues/{id}/standings/by-player`, are reused. Each row carries a `subject_kind` discriminator:
+The same two endpoints, `GET /leagues/{id}/standings` and `GET /leagues/{id}/standings/by-player`, are reused. The response carries the league's ordered ranking metrics at the top level, and each row carries a `subject_kind` discriminator:
 
 ```json
 {
@@ -139,9 +139,12 @@ The same two endpoints, `GET /leagues/{id}/standings` and `GET /leagues/{id}/sta
       "games_diff": 9,
       "win_pct": 0.75
     }
-  ]
+  ],
+  "tie_breakers": ["matches_won", "games_diff"]
 }
 ```
+
+The top-level `tie_breakers` field is a verbatim copy of `LeagueRules.tie_breakers`. It exists so clients can label the displayed metric column to match the league's primary tie-breaker — a league configured with `tie_breakers=["games_won", ...]` is rendered with a "Games won" column rather than the previously hard-coded "Games ±". Every row in the response always carries every metric (`matches_won` is `wins`, plus `games_won`, `games_lost`, `games_diff`, `win_pct`), so the choice is purely presentational; no row data is added or removed when tie-breakers change.
 
 For player-subject leagues, each row instead has:
 
