@@ -29,7 +29,7 @@
 - Scope / context: League Management
 - Likely owner: League aggregate root (checked on implicit registration via `OneTeamPerPlayerPolicy` when the flag is true)
 - Violated when: A match submission attempts to register a player who is already a member of a different team in the same league **and** the league requires one team per player.
-- Notes: When `one_team_per_player` is false (future), this invariant does not apply; enabling that flag requires updating read models that currently resolve a player to a single team via `next(...)`. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
+- Notes: When `one_team_per_player` is false (legal under v3), this invariant does not apply; the by-player read models (`GetStandingsByPlayerUseCase`, `GetMatchHistoryByPlayerUseCase`) aggregate across every team the player belongs to. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md) and [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md).
 
 ---
 

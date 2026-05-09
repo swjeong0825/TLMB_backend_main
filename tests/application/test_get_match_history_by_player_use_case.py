@@ -57,7 +57,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         league = make_league()
         league.register_players_and_team("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_team.return_value = []
+        mock_match_repo.get_all_by_player.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -79,7 +79,7 @@ class TestGetMatchHistoryByPlayerUseCase:
             GetMatchHistoryByPlayerQuery(league_id=str(league.league_id), player_name="alice")
         )
         assert result == []
-        mock_match_repo.get_all_by_team.assert_not_called()
+        mock_match_repo.get_all_by_player.assert_not_called()
 
     async def test_returns_empty_list_when_player_has_no_matches(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
@@ -87,7 +87,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         league = make_league()
         league.register_players_and_team("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_team.return_value = []
+        mock_match_repo.get_all_by_player.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -110,7 +110,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         match_without_alice = make_match(league.league_id, team_charlie.team_id, team_edgar.team_id, "4", "6")
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_team.return_value = [match_with_alice]
+        mock_match_repo.get_all_by_player.return_value = [match_with_alice]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -131,7 +131,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         match = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_team.return_value = [match]
+        mock_match_repo.get_all_by_player.return_value = [match]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -170,7 +170,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         newer_match.created_at = datetime(2025, 6, 1)
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_team.return_value = [newer_match, older_match]
+        mock_match_repo.get_all_by_player.return_value = [newer_match, older_match]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -192,7 +192,7 @@ class TestGetMatchHistoryByPlayerUseCase:
         match = make_match(league.league_id, team_charlie.team_id, team_alice.team_id, "3", "6")
 
         mock_league_repo.get_by_id.return_value = league
-        mock_match_repo.get_all_by_team.return_value = [match]
+        mock_match_repo.get_all_by_player.return_value = [match]
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         result = await use_case.execute(
@@ -201,3 +201,55 @@ class TestGetMatchHistoryByPlayerUseCase:
 
         assert len(result) == 1
         assert result[0].match_id == str(match.match_id)
+
+    async def test_otpp_false_unions_matches_across_player_teams(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        """v3: under OTPP=false, the player may be on multiple teams.
+
+        The use case collects every team the player belongs to and asks the
+        repo for the union of matches across those teams.
+        """
+        from app.domain.aggregates.league.aggregate_root import League
+        from app.domain.aggregates.league.league_rules import LeagueRules
+
+        rules = LeagueRules.from_dict(
+            {
+                "version": 3,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": False,
+                "ranking_subject": "team",
+                "tie_breakers": ["matches_won"],
+            }
+        )
+        league = League.create("OTPP-False League", None, "host", rules=rules)
+        league.register_players_and_team("alice", "bob")
+        league.register_players_and_team("alice", "charlie")
+        team_ab = league.teams[0]
+        team_ac = league.teams[1]
+        league.register_players_and_team("diana", "edgar")
+        team_de = league.teams[2]
+
+        match_ab_de = make_match(league.league_id, team_ab.team_id, team_de.team_id, "6", "4")
+        match_ac_de = make_match(league.league_id, team_ac.team_id, team_de.team_id, "3", "6")
+
+        mock_league_repo.get_by_id.return_value = league
+        # Repo returns matches from both of Alice's teams.
+        mock_match_repo.get_all_by_player.return_value = [match_ab_de, match_ac_de]
+
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        result = await use_case.execute(
+            GetMatchHistoryByPlayerQuery(league_id=str(league.league_id), player_name="alice")
+        )
+
+        assert len(result) == 2
+        ids = {r.match_id for r in result}
+        assert ids == {str(match_ab_de.match_id), str(match_ac_de.match_id)}
+
+        # Verify the use case passed both of Alice's team IDs to the repo.
+        mock_match_repo.get_all_by_player.assert_awaited_once()
+        call_args = mock_match_repo.get_all_by_player.await_args
+        assert call_args.args[0] == league.league_id
+        passed_team_ids = set(call_args.args[1])
+        assert passed_team_ids == {team_ab.team_id, team_ac.team_id}

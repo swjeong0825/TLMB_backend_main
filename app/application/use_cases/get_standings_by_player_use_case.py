@@ -53,22 +53,18 @@ class GetStandingsByPlayerUseCase:
             filtered = [e for e in all_entries if e.player_id == pid]
             return StandingsView(entries=filtered, tie_breakers=league.rules.tie_breakers)
 
-        # Subject = "team": find the player's team and return that team's row.
-        # TODO(v3-ranking-tightening): the next(...) team lookup below is only
-        # safe because v2 locks one_team_per_player=true for every league, so a
-        # player has at most one team. When v3 unlocks OTPP=false, rethink which
-        # team to surface for a player who appears on multiple teams. See design
-        # doc 17.
-        team = next(
-            (
-                t for t in league.teams
-                if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
-            ),
-            None,
-        )
-        if team is None:
+        # Subject = "team": surface every team the player belongs to.
+        # Under OTPP=true the player has at most one team, so the result is a
+        # single-element array (or empty if all of their teams have been
+        # deleted). Under OTPP=false a player may belong to multiple teams and
+        # all of their team rows are returned. See design doc 18.
+        player_team_ids = {
+            str(t.team_id.value)
+            for t in league.teams
+            if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
+        }
+        if not player_team_ids:
             return StandingsView(entries=[], tie_breakers=league.rules.tie_breakers)
 
-        tid = str(team.team_id.value)
-        filtered = [e for e in all_entries if e.team_id == tid]
+        filtered = [e for e in all_entries if e.team_id in player_team_ids]
         return StandingsView(entries=filtered, tie_breakers=league.rules.tie_breakers)

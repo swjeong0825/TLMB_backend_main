@@ -135,18 +135,18 @@ async def test_create_league_invalid_rules_version_returns_422(client: AsyncClie
     assert resp.json()["error"] == "InvalidLeagueRulesError"
 
 
-async def test_create_league_with_otpp_false_returns_422(client: AsyncClient) -> None:
-    """v2 locks one_team_per_player to true; OTPP=false must be rejected.
+async def test_create_league_with_otpp_false_succeeds(client: AsyncClient) -> None:
+    """v3 unlocks `(team, OTPP=false)` — a player may belong to multiple teams.
 
-    See backend_main/Design_Doc/TLMB_Design_doc/17_configurable_ranking.md for
-    the v2 validation contract and the v3 plan for unlocking OTPP=false.
+    See backend_main/Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md
+    for the v3 cross-rule.
     """
     resp = await client.post(
         "/leagues",
         json={
             "title": "OTPP False League",
             "rules": {
-                "version": 2,
+                "version": 3,
                 "match_pair_idempotency": "once_per_league",
                 "one_team_per_player": False,
                 "ranking_subject": "team",
@@ -154,8 +154,75 @@ async def test_create_league_with_otpp_false_returns_422(client: AsyncClient) ->
             },
         },
     )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "league_id" in body
+    assert "host_token" in body
+
+
+async def test_create_league_with_player_subject_and_otpp_true_returns_422(
+    client: AsyncClient,
+) -> None:
+    """v3 cross-rule: `(player, OTPP=true)` is rejected."""
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Player OTPP True League",
+            "rules": {
+                "version": 3,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": True,
+                "ranking_subject": "player",
+                "tie_breakers": ["matches_won"],
+            },
+        },
+    )
     assert resp.status_code == 422
     assert resp.json()["error"] == "InvalidLeagueRulesError"
+
+
+async def test_create_league_with_player_subject_and_otpp_false_succeeds(
+    client: AsyncClient,
+) -> None:
+    """v3: `(player, OTPP=false)` is the only legal player-subject combo."""
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Player OTPP False League",
+            "rules": {
+                "version": 3,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": False,
+                "ranking_subject": "player",
+                "tie_breakers": ["matches_won"],
+            },
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "league_id" in body
+    assert "host_token" in body
+
+
+async def test_v2_rules_input_upgrades_to_v3(client: AsyncClient) -> None:
+    """v2 inputs are accepted on input and upgraded transparently to v3."""
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "V2 Upgrade Smoke Test",
+            "rules": {
+                "version": 2,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": True,
+                "ranking_subject": "team",
+                "tie_breakers": ["matches_won", "games_diff"],
+            },
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "league_id" in body
+    assert "host_token" in body
 
 
 # ---------------------------------------------------------------------------

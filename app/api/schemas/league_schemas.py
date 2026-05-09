@@ -16,19 +16,20 @@ RankingMetricLiteral = Literal[
 ]
 
 
-class LeagueRulesV2Request(BaseModel):
+class LeagueRulesV3Request(BaseModel):
     """Shape of `rules` on create-league.
 
-    `version` accepts 1 or 2: v1 inputs are upgraded transparently in
-    `LeagueRules.from_dict`; v2 strict-validates ranking fields. v2 also locks
-    `one_team_per_player` to `true` — `LeagueRules.from_dict` rejects any other
-    value with `InvalidLeagueRulesError`. The pydantic model accepts a plain
-    `bool` here (not `Literal[True]`) so that the rejection surfaces as the
-    domain-level `InvalidLeagueRulesError` (mapped to 422 with a uniform error
-    code) rather than as a generic pydantic validation error.
+    `version` accepts 1, 2, or 3: v1 and v2 inputs are upgraded transparently
+    in `LeagueRules.from_dict`. v3 strict-validates ranking fields and adds
+    a cross-rule: `ranking_subject = "player"` requires
+    `one_team_per_player = false`. The combo `(player, OTPP=true)` is rejected
+    with `InvalidLeagueRulesError` (mapped to 422). The pydantic model accepts
+    plain `bool` for `one_team_per_player` so the cross-rule rejection
+    surfaces as the domain-level error code rather than a generic pydantic
+    validation error.
     """
 
-    version: Literal[1, 2]
+    version: Literal[1, 2, 3]
     match_pair_idempotency: Literal["none", "once_per_league"]
     one_team_per_player: bool = True
     ranking_subject: Literal["team", "player"] | None = None
@@ -38,7 +39,7 @@ class LeagueRulesV2Request(BaseModel):
 class CreateLeagueRequest(BaseModel):
     title: str
     description: str | None = None
-    rules: LeagueRulesV2Request | None = None # has defualt
+    rules: LeagueRulesV3Request | None = None # has default
 
     @field_validator("title")
     @classmethod

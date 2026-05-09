@@ -23,10 +23,13 @@ ALLOWED_METRICS: tuple[RankingMetric, ...] = get_args(RankingMetric)
 class LeagueRules:
     """Versioned per-league configuration stored as JSONB on the league row.
 
-    v2 (current) adds `ranking_subject` and `tie_breakers` for configurable ranking.
-    v1 inputs are accepted on read and upgraded transparently to v2 by injecting
-    the v2 ranking defaults; see `from_dict` and the design doc
-    `Design_Doc/TLMB_Design_doc/17_configurable_ranking.md`.
+    v3 (current) accepts `one_team_per_player = false` and enforces the
+    `(ranking_subject = "player", one_team_per_player = true)` cross-rule
+    rejection. v1 and v2 inputs are accepted on read and upgraded transparently
+    to v3 — v1 inputs additionally have the v2 ranking defaults injected before
+    the v3 upgrade. See the design docs
+    `Design_Doc/TLMB_Design_doc/17_configurable_ranking.md` (v2) and
+    `Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md` (v3).
     """
 
     version: int
@@ -50,7 +53,7 @@ class LeagueRules:
             raise InvalidLeagueRulesError("League rules must be a JSON object")
 
         version = data.get("version")
-        if version not in (1, 2):
+        if version not in (1, 2, 3):
             raise InvalidLeagueRulesError(f"Unsupported league rules version: {version!r}")
 
         mpi = data.get("match_pair_idempotency")
@@ -63,16 +66,6 @@ class LeagueRules:
         if not isinstance(otpp, bool):
             raise InvalidLeagueRulesError("one_team_per_player must be a boolean")
 
-        # TODO(v3-ranking-tightening): v2 locks one_team_per_player to true;
-        # v3 will accept false and add a (ranking_subject, OTPP) cross-rule
-        # rejecting (player, OTPP=true). Loosen this check and introduce the
-        # cross-rule together; see design doc 17.
-        if otpp is not True:
-            raise InvalidLeagueRulesError(
-                "one_team_per_player must be true in v2; "
-                "configurable one_team_per_player arrives in v3"
-            )
-
         if version == 1:
             ranking_subject: RankingSubject = "team"
             tie_breakers: tuple[RankingMetric, ...] = ("matches_won",)
@@ -80,8 +73,14 @@ class LeagueRules:
             ranking_subject = cls._parse_ranking_subject(data.get("ranking_subject"))
             tie_breakers = cls._parse_tie_breakers(data.get("tie_breakers"))
 
+        if ranking_subject == "player" and otpp is True:
+            raise InvalidLeagueRulesError(
+                "ranking_subject='player' requires one_team_per_player=false; "
+                "pick (team, OTPP=true) or (player, OTPP=false)"
+            )
+
         return cls(
-            version=2,
+            version=3,
             match_pair_idempotency=mpi,
             one_team_per_player=otpp,
             ranking_subject=ranking_subject,
@@ -123,11 +122,13 @@ class LeagueRules:
         """Product default when POST /leagues omits `rules` (new leagues only).
 
         Migrated existing DB rows use match_pair_idempotency \"none\" via Alembic 002,
-        and ranking_subject=\"team\" / tie_breakers=[\"matches_won\"] via Alembic 003,
-        which together reproduce v1 behavior byte-for-byte.
+        ranking_subject=\"team\" / tie_breakers=[\"matches_won\"] via Alembic 003, and
+        version=3 (with `(player, OTPP=true)` rewritten to `(team, OTPP=true)`) via
+        Alembic 004 — which together reproduce v1/v2 behavior byte-for-byte for
+        every legal combo carried over from v2.
         """
         return cls(
-            version=2,
+            version=3,
             match_pair_idempotency="once_per_league",
             one_team_per_player=True,
             ranking_subject="team",

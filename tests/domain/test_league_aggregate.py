@@ -28,6 +28,20 @@ def _league(title: str = "Test League") -> League:
     return League.create(title=title, description=None, host_token="test-token")
 
 
+def _league_otpp_false(title: str = "OTPP-False League") -> League:
+    """League configured with v3 `(team, OTPP=false)` rules."""
+    rules = LeagueRules.from_dict(
+        {
+            "version": 3,
+            "match_pair_idempotency": "once_per_league",
+            "one_team_per_player": False,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+        }
+    )
+    return League.create(title=title, description=None, host_token="test-token", rules=rules)
+
+
 # ---------------------------------------------------------------------------
 # League.create
 # ---------------------------------------------------------------------------
@@ -167,6 +181,43 @@ class TestRegisterPlayersAndTeam:
         p1_league2 = next(p for p in league2.players if p.player_id == team2.player_id_1)
         assert p1_league1.nickname.value == "aime"
         assert p1_league2.nickname.value == "aime"
+
+
+# ---------------------------------------------------------------------------
+# v3: register_players_and_team under one_team_per_player=False
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterPlayersAndTeamOTPPFalse:
+    def test_player_can_join_second_team_when_otpp_false(self) -> None:
+        league = _league_otpp_false()
+        _, team_ab = league.register_players_and_team("alice", "bob")
+        new_players, team_ac = league.register_players_and_team("alice", "charlie")
+
+        assert team_ab.team_id != team_ac.team_id
+        assert len(league.teams) == 2
+        # Only charlie is a new player; alice already existed.
+        assert len(new_players) == 1
+        assert new_players[0].nickname.value == "charlie"
+
+    def test_player_on_three_teams_when_otpp_false(self) -> None:
+        league = _league_otpp_false()
+        league.register_players_and_team("alice", "bob")
+        league.register_players_and_team("alice", "charlie")
+        league.register_players_and_team("alice", "diana")
+
+        assert len(league.teams) == 3
+        # Alice is exactly one Player record (registered once, partnered three times).
+        nicknames = [p.nickname.value for p in league.players]
+        assert nicknames.count("alice") == 1
+        assert {"alice", "bob", "charlie", "diana"} == set(nicknames)
+
+    def test_otpp_true_still_rejects_second_team_for_same_player(self) -> None:
+        """Regression: OTPP=true is still the default for new leagues."""
+        league = _league()
+        league.register_players_and_team("alice", "bob")
+        with pytest.raises(TeamConflictError):
+            league.register_players_and_team("alice", "charlie")
 
 
 # ---------------------------------------------------------------------------

@@ -256,46 +256,7 @@ The frontend's create-league form sends `version: 2` for new leagues; old API cl
 
 ## Forward-compatibility note (planned for v3)
 
-V2 locks `one_team_per_player` to `true`, so the only legal v2 combos are `(team, OTPP=true)` and `(player, OTPP=true)`. Once `one_team_per_player = false` becomes a real product feature (currently a placeholder in [16](16_league_rules_and_match_policies.md)), the equivalence demonstrated in §[Worked example](#worked-example-equivalence-under-otpptrue) goes away — player ranking starts producing genuinely-distinct rows when partners differ across matches. At that point `(player, OTPP=true)` becomes redundant rather than useful, and v3 introduces a cross-rule for the first time.
-
-### Planned v3 rule
-
-`ranking_subject = "player"` will require `one_team_per_player = false`. Equivalently: `one_team_per_player = true` forces `ranking_subject = "team"`. The validation matrix changes as follows:
-
-| Combo | v2 (today) | v3 (planned) |
-|---|---|---|
-| `(team, OTPP=true)` | legal | legal |
-| `(player, OTPP=true)` | **legal** | **illegal** |
-| `(team, OTPP=false)` | illegal (OTPP=false rejected) | legal |
-| `(player, OTPP=false)` | illegal (OTPP=false rejected) | legal |
-
-### Back-compat policy: auto-migrate at v3
-
-Every v2 row has `one_team_per_player = true` (locked at validation time), so the only existing combo that needs rewriting at v3 is `(player, OTPP=true)`. When v3 ships, an alembic migration rewrites every such row to `(team, OTPP=true)`:
-
-- Only `ranking_subject` flips, from `"player"` to `"team"`. The v2 default for new leagues is `"team"`, so this aligns affected rows with the canonical default.
-- `tie_breakers` is preserved verbatim. Metric choice is independent of subject; users who picked custom tie-breakers do not lose them.
-- `one_team_per_player` and `match_pair_idempotency` are untouched.
-
-Affected leagues' standings will visibly change shape — rows collapse from one-per-player back to one-per-team, halving the row count. v3 release notes must call this out so league hosts are not surprised. No data is destroyed; the underlying matches remain, only the presentation changes.
-
-### Why this policy was chosen
-
-Two alternatives were considered and rejected:
-
-1. **Strict on create, lenient on load.** Make v3's `LeagueRules.from_dict` accept existing `(player, OTPP=true)` rows on read but reject new ones on create. Rejected because it would couple `from_dict` to a `mode: "create" | "load"` parameter that does not exist today and would fan out into every load path.
-2. **Never tighten — document as discouraged.** Rejected because we want the schema to converge to a state where every legal combo conveys distinct information.
-
-Auto-migration keeps the schema uniform across all rows and pays the user-visible cost once, at upgrade time, behind a release note.
-
-### `# TODO(v3-ranking-tightening):` markers
-
-Every v2 code site whose behavior depends on OTPP being locked to `true` carries a `# TODO(v3-ranking-tightening):` comment so the v3 implementer can find them quickly. Primary sites:
-
-- `LeagueRules.from_dict` OTPP strict check (loosen to accept `false`; introduce the `(player, OTPP=true)` cross-rule rejection).
-- `StandingsCalculator.compute` player-subject branch (mathematical equivalence note — equivalence breaks once OTPP=false ships).
-- `GetStandingsByPlayerUseCase` `next(...)` team lookup (only safe while OTPP is locked to true).
-- Front-end create-league form: re-introduce an OTPP control and add subject/OTPP coupling that disables `subject = "player"` while OTPP=true.
+**Superseded.** V3 has shipped. See [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md) for the v3 spec, the `(player, OTPP=true)` cross-rule, and the alembic 004 auto-migration.
 
 ---
 

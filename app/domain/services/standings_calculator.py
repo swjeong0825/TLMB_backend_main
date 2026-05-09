@@ -101,12 +101,13 @@ class StandingsCalculator:
         subject: RankingSubject = rules.ranking_subject
         if subject == "team":
             return self._compute_for_teams(matches, teams, players, rules)
-        # TODO(v3-ranking-tightening): v2 locks one_team_per_player to true for
-        # every league, so each player's metric tuple equals their teammate's
-        # and player rows always tie within a team. v3 will accept OTPP=false,
-        # at which point this branch produces genuinely-distinct rows; v3 also
-        # introduces a (subject, OTPP) cross-rule rejecting (player, OTPP=true).
-        # See design doc 17.
+        # Player-subject branch. Under v3 the (player, OTPP=true) cross-rule is
+        # rejected by `LeagueRules.from_dict`, so this branch only ever runs for
+        # leagues with one_team_per_player=false. Each player row aggregates
+        # per-match outcomes across every team the player belongs to, so a
+        # player who partnered with different teammates across matches can have
+        # a different metric tuple than any individual teammate.
+        # See design doc 18 (configurable_ranking_v3).
         return self._compute_for_players(matches, teams, players, rules)
 
     def _compute_for_teams(
@@ -158,9 +159,10 @@ class StandingsCalculator:
         rules: LeagueRules,
     ) -> list[StandingsEntry]:
         # Build, per player, the set of teams they belong to.
-        # In v2 every league has OTPP=true (locked at validation time), so each
-        # player has at most one team; under future OTPP=false, this naturally
-        # aggregates across multiple teams.
+        # Under v3 this branch only runs for leagues with OTPP=false (the
+        # `(player, OTPP=true)` cross-rule is rejected by LeagueRules), so a
+        # player may belong to multiple teams; the aggregation naturally unions
+        # match outcomes across every team they appear on.
         teams_for_player: dict[str, set[str]] = {}
         for t in teams:
             teams_for_player.setdefault(str(t.player_id_1.value), set()).add(

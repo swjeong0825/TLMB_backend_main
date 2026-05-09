@@ -47,7 +47,7 @@ def _rules(
     one_team_per_player: bool = True,
 ) -> LeagueRules:
     return LeagueRules(
-        version=2,
+        version=3,
         match_pair_idempotency="once_per_league",
         one_team_per_player=one_team_per_player,
         ranking_subject=ranking_subject,  # type: ignore[arg-type]
@@ -294,12 +294,16 @@ class TestTieBreakersTeam:
 
 # ---------------------------------------------------------------------------
 # Tie-breaker tests: subject="player"
-# Under v2 (OTPP=true), each team's two players share identical metric tuples.
+# When teammates always partner together, each team's two players share
+# identical metric tuples (the v2 equivalence case). v3 cross-rule rejects
+# `(player, OTPP=true)` at the input boundary, but these tests construct
+# LeagueRules directly to exercise the algorithm's player-subject branch on
+# the equivalence case; the rotated-partner case below covers OTPP=false.
 # ---------------------------------------------------------------------------
 
 
 class TestPlayerSubjectRanking:
-    def test_player_rows_under_otpp_true_match_team_rows(self) -> None:
+    def test_player_rows_match_team_rows_when_partners_are_fixed(self) -> None:
         alice, bob = _player("alice"), _player("bob")
         charlie, diana = _player("charlie"), _player("diana")
         eve, frank = _player("eve"), _player("frank")
@@ -343,7 +347,7 @@ class TestPlayerSubjectRanking:
             ]
             assert len(partners) == 2
 
-    def test_player_subject_pairs_share_rank_under_otpp_true(self) -> None:
+    def test_fixed_partners_share_rank(self) -> None:
         alice, bob = _player("alice"), _player("bob")
         charlie, diana = _player("charlie"), _player("diana")
         team_ab = _team(alice, bob)
@@ -369,3 +373,85 @@ class TestPlayerSubjectRanking:
             assert e.nickname in {"alice", "bob"}
             assert e.team_id is None
             assert e.player1_nickname is None
+
+
+# ---------------------------------------------------------------------------
+# v3 worked example: rotated partners under (player, OTPP=false)
+# Source: backend_main/Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md
+# §"Worked example: distinct player rows under OTPP=false".
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerSubjectOTPPFalse:
+    def test_rotated_partners_produce_distinct_player_rows(self) -> None:
+        alice = _player("alice")
+        bob = _player("bob")
+        charlie = _player("charlie")
+        dan = _player("dan")
+
+        team_ab = _team(alice, bob)
+        team_cd = _team(charlie, dan)
+        team_ac = _team(alice, charlie)
+        team_bd = _team(bob, dan)
+        team_bc = _team(bob, charlie)
+        team_ad = _team(alice, dan)
+
+        # Match 1: Alice+Bob 6-4 Charlie+Dan
+        # Match 2: Alice+Charlie 6-2 Bob+Dan
+        # Match 3: Bob+Charlie 6-3 Alice+Dan
+        m1 = _match(LEAGUE, team_ab, team_cd, "6", "4")
+        m2 = _match(LEAGUE, team_ac, team_bd, "6", "2")
+        m3 = _match(LEAGUE, team_bc, team_ad, "6", "3")
+
+        rules = _rules(
+            ranking_subject="player",
+            one_team_per_player=False,
+            tie_breakers=("matches_won", "games_diff"),
+        )
+
+        entries = StandingsCalculator().compute(
+            [m1, m2, m3],
+            [team_ab, team_cd, team_ac, team_bd, team_bc, team_ad],
+            [alice, bob, charlie, dan],
+            rules,
+        )
+
+        by_nick = {e.nickname: e for e in entries}
+
+        # Alice: matches 1 (W 6-4), 2 (W 6-2), 3 (L 3-6) -> 2W 1L, gw=15 gl=12 diff=+3
+        assert by_nick["alice"].wins == 2
+        assert by_nick["alice"].losses == 1
+        assert by_nick["alice"].games_won == 15
+        assert by_nick["alice"].games_lost == 12
+        assert by_nick["alice"].games_diff == 3
+
+        # Bob: matches 1 (W 6-4), 2 (L 2-6), 3 (W 6-3) -> 2W 1L, gw=14 gl=13 diff=+1
+        assert by_nick["bob"].wins == 2
+        assert by_nick["bob"].losses == 1
+        assert by_nick["bob"].games_won == 14
+        assert by_nick["bob"].games_lost == 13
+        assert by_nick["bob"].games_diff == 1
+
+        # Charlie: matches 1 (L 4-6), 2 (W 6-2), 3 (W 6-3) -> 2W 1L, gw=16 gl=11 diff=+5
+        assert by_nick["charlie"].wins == 2
+        assert by_nick["charlie"].losses == 1
+        assert by_nick["charlie"].games_won == 16
+        assert by_nick["charlie"].games_lost == 11
+        assert by_nick["charlie"].games_diff == 5
+
+        # Dan: matches 1 (L 4-6), 2 (L 2-6), 3 (L 3-6) -> 0W 3L, gw=9 gl=18 diff=-9
+        assert by_nick["dan"].wins == 0
+        assert by_nick["dan"].losses == 3
+        assert by_nick["dan"].games_won == 9
+        assert by_nick["dan"].games_lost == 18
+        assert by_nick["dan"].games_diff == -9
+
+        # Ranking by (matches_won desc, games_diff desc):
+        # Charlie 2W +5, Alice 2W +3, Bob 2W +1, Dan 0W -9
+        # All three of Alice/Bob/Charlie have 2 wins but different games_diff
+        # so they do NOT share a rank — this is the v3-OTPP=false distinguishing
+        # behavior.
+        assert by_nick["charlie"].rank == 1
+        assert by_nick["alice"].rank == 2
+        assert by_nick["bob"].rank == 3
+        assert by_nick["dan"].rank == 4

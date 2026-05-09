@@ -8,7 +8,9 @@ Leagues differ in how strictly they treat **repeat matchups** (same doubles pair
 
 **Scope added in v2 of `LeagueRules`:** configurable ranking — `ranking_subject` (`"team"` vs `"player"`) and an ordered `tie_breakers` list (`matches_won`, `match_diff`, `games_won`, `games_lost`, `games_diff`, `win_pct`). Full specification lives in [17_configurable_ranking.md](17_configurable_ranking.md).
 
-**Out of scope until specified:** `once_per_calendar_day` (needs a stored day boundary, e.g. league IANA timezone), player allowlist, relaxing one-team-per-player (those are documented here as **future extensions**), head-to-head tie-breakers, multi-set scoring.
+**Scope added in v3 of `LeagueRules`:** `one_team_per_player = false` is now legal (a player may belong to multiple teams) and a `(ranking_subject, one_team_per_player)` cross-rule is introduced: `ranking_subject = "player"` requires `one_team_per_player = false`. Full specification lives in [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md).
+
+**Out of scope until specified:** `once_per_calendar_day` (needs a stored day boundary, e.g. league IANA timezone), player allowlist, head-to-head tie-breakers, multi-set scoring.
 
 **Mutability:** Rules are **fixed at league creation** (optional request body; otherwise product defaults). There is **no** host API to patch rules after creation in this version.
 
@@ -20,18 +22,18 @@ Leagues differ in how strictly they treat **repeat matchups** (same doubles pair
 
 - **Owned by:** League aggregate (loaded and saved with the league row).
 - **Serialized as:** JSON object in PostgreSQL `JSONB` on `leagues.rules`.
-- **Versioning:** A required integer field `version` (started at `1`; current is `2`). Parsers accept unknown keys for forward compatibility but validate known keys strictly. v1 inputs are silently upgraded to v2 by injecting the v2 ranking defaults.
-- **Fields (v2):**
+- **Versioning:** A required integer field `version` (started at `1`; current is `3`). Parsers accept unknown keys for forward compatibility but validate known keys strictly. v1 and v2 inputs are silently upgraded to v3 (v1 inputs additionally have the v2 ranking defaults injected before the v3 upgrade).
+- **Fields (v3):**
 
 | Field | Type (logical) | Meaning |
 |-------|----------------|---------|
-| `version` | int | Schema version; current is `2`. v1 is accepted on input and upgraded transparently. |
+| `version` | int | Schema version; current is `3`. v1 and v2 are accepted on input and upgraded transparently. |
 | `match_pair_idempotency` | enum string | `none`: allow multiple matches between the same two teams. `once_per_league`: at most one match row per **unordered** team pair in the league. |
-| `one_team_per_player` | bool | **v2: locked to `true`**. `LeagueRules.from_dict` rejects any other value. [`OneTeamPerPlayerPolicy`](05_aggregate_designs/league.md) applies to every league. v3 will accept `false` (a player on multiple teams), at which point **read models** that assume a single team per player must be updated. |
-| `ranking_subject` | enum string (v2+) | `"team"` (default): rank one row per team. `"player"`: rank one row per player. No `(ranking_subject, one_team_per_player)` cross-rule in v2 — `one_team_per_player` is locked to `true`, which makes any pairing trivially valid. v3 introduces a cross-rule when OTPP=false ships — see [17](17_configurable_ranking.md). |
+| `one_team_per_player` | bool | `true` (default for new leagues): a player may belong to at most one team in the league; [`OneTeamPerPlayerPolicy`](05_aggregate_designs/league.md) is applied on `register_players_and_team`. `false`: a player may belong to multiple teams (e.g. partnered with Bob in one team and Charlie in another); the policy is skipped. The cross-rule below constrains which `(ranking_subject, one_team_per_player)` combos are legal. |
+| `ranking_subject` | enum string (v2+) | `"team"` (default): rank one row per team. `"player"`: rank one row per player. **v3 cross-rule:** `ranking_subject = "player"` requires `one_team_per_player = false`. Equivalently, `one_team_per_player = true` forces `ranking_subject = "team"`. The combo `(player, OTPP=true)` is rejected with `InvalidLeagueRulesError`. See [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md). |
 | `tie_breakers` | list[enum string] (v2+) | Ordered, non-empty, no duplicates. Each entry is one of `matches_won`, `match_diff`, `games_won`, `games_lost`, `games_diff`, `win_pct`. The first entry is the primary metric; subsequent entries break ties. Default: `["matches_won"]`. |
 
-**Migration defaults for existing leagues:** v1 -> v2 backfill via alembic 003 sets `version = 2`, `ranking_subject = "team"`, `tie_breakers = ["matches_won"]` so v2 behavior is byte-identical to v1 for previously-existing leagues. The legacy v1 backfill (alembic 002) for `match_pair_idempotency: "none"` and `one_team_per_player: true` continues to apply for rows that predate v1 rules. **New leagues** created without an explicit rules body use product defaults defined in application code (recommended: `once_per_league`, `ranking_subject = "team"`, `tie_breakers = ["matches_won"]` for new leagues only—document the choice in code comments).
+**Migration defaults for existing leagues:** v1 -> v2 backfill via alembic 003 sets `version = 2`, `ranking_subject = "team"`, `tie_breakers = ["matches_won"]` so v2 behavior is byte-identical to v1 for previously-existing leagues. v2 -> v3 backfill via alembic 004 bumps `version` to `3` for every row and additionally rewrites every `(ranking_subject = "player", one_team_per_player = true)` row to `(ranking_subject = "team", one_team_per_player = true)` so the v3 cross-rule is satisfied — `tie_breakers` is preserved verbatim. The legacy v1 backfill (alembic 002) for `match_pair_idempotency: "none"` and `one_team_per_player: true` continues to apply for rows that predate v1 rules. **New leagues** created without an explicit rules body use product defaults defined in application code: `version = 3`, `match_pair_idempotency = "once_per_league"`, `one_team_per_player = true`, `ranking_subject = "team"`, `tie_breakers = ["matches_won"]`.
 
 ### What counts as the “same matchup”
 
@@ -60,7 +62,7 @@ Planned extensions (design placeholders only):
 |------|---------------|-------------------|
 | Once per calendar day | `match_pair_idempotency: "once_per_day"`, `league_timezone: "America/Los_Angeles"` | `MatchRepository` method filtering by local date of `created_at` |
 | Player pre-allowlist | `allowed_nicknames_normalized: string[]` | Before or after nickname normalization, reject if any of the four nicknames not in set |
-| Multiple teams per player | `one_team_per_player: false` | Skip or replace `OneTeamPerPlayerPolicy` in `register_players_and_team`; update `GetStandingsByPlayer` / `GetMatchHistoryByPlayer` (today they use `next(...)` and assume one team) |
+| Head-to-head tie-breaker | `tie_breakers: [..., "head_to_head"]` | Requires sub-tournament reasoning across cycles; deferred until a stable algorithm is chosen |
 
 ---
 
@@ -78,8 +80,9 @@ See [13_api_contracts.md](13_api_contracts.md) for optional `rules` on `POST /le
 
 ## Related documents
 
-- [17_configurable_ranking.md](17_configurable_ranking.md) — full v2 specification of `ranking_subject` and `tie_breakers`, including the polymorphic standings response and the v3 forward-compatibility plan.
-- [05_aggregate_designs/league.md](05_aggregate_designs/league.md) — League root carries `LeagueRules`; invariant wording for one-team-per-player becomes conditional.
+- [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md) — current (v3) specification: cross-rule, OTPP=false read-path semantics, alembic 004 migration.
+- [17_configurable_ranking.md](17_configurable_ranking.md) — v2 specification of `ranking_subject` and `tie_breakers`, kept as the v2 spec of record.
+- [05_aggregate_designs/league.md](05_aggregate_designs/league.md) — League root carries `LeagueRules`; the one-team-per-player invariant is conditional on `LeagueRules.one_team_per_player`.
 - [03_business_invariants.md](03_business_invariants.md) — Optional idempotency invariant; cross-invariant note when `one_team_per_player` is false.
 - [09_application_use_cases.md](09_application_use_cases.md) — CreateLeague and SubmitMatchResult steps.
 - [07_ports_and_repositories.md](07_ports_and_repositories.md) — `MatchRepository.exists_match_for_team_pair`.

@@ -42,17 +42,19 @@ class GetMatchHistoryByPlayerUseCase:
                 f"Player '{query.player_name}' not found in league '{query.league_id}'"
             )
 
-        team = next(
-            (
-                t for t in league.teams
-                if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
-            ),
-            None,
-        )
-        if team is None:
+        # Under OTPP=true the player has at most one team. Under OTPP=false
+        # they may belong to multiple teams; the repo returns the union of
+        # matches across every supplied team ID, deduped by `match_id`. See
+        # design doc 18.
+        team_ids = [
+            t.team_id
+            for t in league.teams
+            if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
+        ]
+        if not team_ids:
             return []
 
-        player_matches = await self._match_repo.get_all_by_team(team.team_id, league_id)
+        player_matches = await self._match_repo.get_all_by_player(league_id, team_ids)
 
         player_map = {p.player_id: p.nickname.value for p in league.players}
         team_map: dict[TeamId, Team] = {t.team_id: t for t in league.teams}

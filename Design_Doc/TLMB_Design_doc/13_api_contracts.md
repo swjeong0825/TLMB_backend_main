@@ -47,7 +47,7 @@ flowchart LR
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
-| InvalidLeagueRulesError (invalid v1/v2 rules body — including v2 ranking config or `one_team_per_player == false`, which v2 does not yet support) | 422 |
+| InvalidLeagueRulesError (invalid v1/v2/v3 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
 
 ---
 
@@ -56,11 +56,11 @@ flowchart LR
 - Method: POST
 - Path: `/leagues`
 - Purpose: Create a new league and receive access credentials
-- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null }` — **`rules` optional**. When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1 or v2 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md) and [17_configurable_ranking.md](17_configurable_ranking.md)). v1 inputs are upgraded to v2 transparently. Rules are **not** mutable after creation in this API version.
-- Example `rules` (v2): `{ "version": 2, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"] }`
+- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null }` — **`rules` optional**. When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, or v3 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), and [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md)). v1 and v2 inputs are upgraded to v3 transparently. Rules are **not** mutable after creation in this API version.
+- Example `rules` (v3): `{ "version": 3, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"] }`
 - Response shape: `{ "league_id": "uuid", "host_token": "uuid" }`
 - Use case called: CreateLeagueUseCase
-- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title, invalid rules, invalid ranking config, or `one_team_per_player == false` — v2 locks OTPP to `true`)
+- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_team_per_player=true)`)
 - Auth notes: Public — no credentials required
 
 ---
@@ -171,7 +171,7 @@ flowchart LR
 - Path: `/leagues/{league_id}/standings/by-player`
 - Purpose: Get the standings entry for the team or player identified by a nickname. Under `ranking_subject == "team"`, returns the row for the player's team. Under `ranking_subject == "player"`, returns that player's own row.
 - Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
-- Response shape: identical polymorphic shape to `GET /leagues/{league_id}/standings`. Typically a single-element `standings` array; an empty array is returned if the player exists but their team has been deleted (team-subject only).
+- Response shape: identical polymorphic shape to `GET /leagues/{league_id}/standings`. Under `(team, OTPP=true)` and `(player, OTPP=false)`, the `standings` array has at most one element. Under `(team, OTPP=false)`, the array contains one element per team the resolved player belongs to. An empty array is returned if the player exists but has no team (e.g. all of their teams have been deleted).
 - Use case called: GetStandingsByPlayerUseCase
 - Error responses:
   - 404 LeagueNotFoundError
@@ -237,7 +237,7 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/matches/by-player`
-- Purpose: Get the match history for a specific player, identified by nickname; resolves the player's team and returns all matches involving that team
+- Purpose: Get the match history for a specific player, identified by nickname. Under `one_team_per_player = true` resolves the player's single team and returns its matches. Under `one_team_per_player = false` returns the union of matches across every team the player belongs to (deduped by `match_id`).
 - Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
 - Response shape: same as Get Match History
   ```json
@@ -261,7 +261,7 @@ flowchart LR
   - 404 LeagueNotFoundError
   - 404 PlayerNotFoundError (no player with that nickname in this league)
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: Sorted by `created_at` descending. Returns an empty list if the player's team has been deleted. Nickname resolution at read time — admin nickname edits retroactively affect display.
+- Notes: Sorted by `created_at` descending. Returns an empty list if the player has no team (e.g. all of their teams have been deleted). Under `one_team_per_player = false` matches from every team the player belongs to are unioned and deduped by `match_id`. Nickname resolution at read time — admin nickname edits retroactively affect display.
 
 ---
 
