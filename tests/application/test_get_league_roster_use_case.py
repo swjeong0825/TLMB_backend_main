@@ -31,6 +31,7 @@ class TestGetLeagueRosterUseCase:
         assert result.title == "Test League"
         assert result.players == []
         assert result.teams == []
+        assert result.rules == league.rules.to_dict()
 
     async def test_players_sorted_alphabetically(
         self, mock_league_repo: AsyncMock
@@ -119,3 +120,26 @@ class TestGetLeagueRosterUseCase:
 
         assert len(result.players) == 4
         assert len(result.teams) == 2
+
+    async def test_rules_returned_match_league_rules_to_dict(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        """Frontend gates UI hints (e.g. partner-conflict warnings) on the
+        league's `one_team_per_player` flag, so the roster view must echo
+        the full rules dict — not a subset."""
+        league = make_league()
+
+        mock_league_repo.get_by_id.return_value = league
+        use_case = self._use_case(mock_league_repo)
+
+        result = await use_case.execute(GetLeagueRosterQuery(league_id=str(league.league_id)))
+
+        assert result.rules == league.rules.to_dict()
+        assert set(result.rules.keys()) == {
+            "version",
+            "match_pair_idempotency",
+            "one_team_per_player",
+            "ranking_subject",
+            "tie_breakers",
+            "require_eligible_players",
+        }

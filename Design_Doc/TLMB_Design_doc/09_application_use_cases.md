@@ -167,7 +167,7 @@ flowchart TD
 
 - Business action: View League Roster
 - Inputs: GetLeagueRosterQuery(league_id: str)
-- Output: RosterView(players: list[PlayerEntry(player_id, nickname)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
+- Output: RosterView(title: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
 - Aggregate(s) loaded: League

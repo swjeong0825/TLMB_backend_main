@@ -234,11 +234,20 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/roster`
-- Purpose: Get the list of all registered players and teams in the league
+- Purpose: Get the league title, the active `LeagueRules` configuration, and the list of all registered players and teams. Returning the rules alongside the roster lets the frontend gate UI on the league config (e.g. suppress the partner-conflict warning under `one_team_per_player = false`) without an extra round-trip on page load.
 - Request shape: —
 - Response shape:
   ```json
   {
+    "title": "str",
+    "rules": {
+      "version": 4,
+      "match_pair_idempotency": "none | once_per_league",
+      "one_team_per_player": true,
+      "ranking_subject": "team | player",
+      "tie_breakers": ["matches_won"],
+      "require_eligible_players": false
+    },
     "players": [
       { "player_id": "uuid", "nickname": "str" }
     ],
@@ -250,6 +259,7 @@ flowchart LR
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
+- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3 inputs are upgraded to v4 on read so the response `version` is always `4`.
 
 ---
 

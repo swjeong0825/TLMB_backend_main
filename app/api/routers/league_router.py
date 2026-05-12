@@ -11,6 +11,7 @@ from app.api.schemas.league_schemas import (
     GetLeagueRosterResponse,
     GetMatchHistoryResponse,
     GetStandingsResponse,
+    LeagueRulesResponseSchema,
     MatchHistoryRecordSchema,
     PlayerEntrySchema,
     StandingsEntrySchema,
@@ -252,6 +253,7 @@ async def get_league_roster(
     roster = await use_case.execute(GetLeagueRosterQuery(league_id=league_id))
     return GetLeagueRosterResponse(
         title=roster.title,
+        rules=LeagueRulesResponseSchema(**roster.rules),
         players=[PlayerEntrySchema(player_id=p.player_id, nickname=p.nickname) for p in roster.players],
         teams=[
             TeamEntrySchema(

@@ -178,8 +178,26 @@ class TeamEntrySchema(BaseModel):
     player2_nickname: str
 
 
+class LeagueRulesResponseSchema(BaseModel):
+    """Read-side projection of `LeagueRules` returned alongside league metadata.
+
+    Mirrors `LeagueRules.to_dict()` so the frontend can render and gate UI on
+    the active rule configuration without an additional round-trip. All fields
+    are always populated — v4 is the canonical response version (older inputs
+    are upgraded by `LeagueRules.from_dict` before they are returned).
+    """
+
+    version: int
+    match_pair_idempotency: Literal["none", "once_per_league"]
+    one_team_per_player: bool
+    ranking_subject: Literal["team", "player"]
+    tie_breakers: list[RankingMetricLiteral]
+    require_eligible_players: bool
+
+
 class GetLeagueRosterResponse(BaseModel):
     title: str
+    rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]
 

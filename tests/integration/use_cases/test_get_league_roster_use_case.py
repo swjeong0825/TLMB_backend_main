@@ -30,6 +30,7 @@ async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> Non
     assert roster.title == "Empty"
     assert roster.players == []
     assert roster.teams == []
+    assert roster.rules == league.rules.to_dict()
 
 
 async def test_returns_players_and_teams_after_match(persisted_league_with_match: dict) -> None:

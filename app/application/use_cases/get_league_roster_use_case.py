@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId
@@ -27,7 +28,17 @@ class TeamEntry:
 
 @dataclass
 class RosterView:
+    """Read model returned by `GET /leagues/{id}/roster`.
+
+    `rules` is the serialized `LeagueRules.to_dict()` payload — exposed on
+    the roster so the frontend can fetch league title + rules in a single
+    page-load round-trip and gate UI hints (e.g. the partner-conflict
+    warning emitted by `renderMatchSubmitRosterNotes` is only meaningful
+    when `one_team_per_player` is true).
+    """
+
     title: str
+    rules: dict[str, Any]
     players: list[PlayerEntry]
     teams: list[TeamEntry]
 
@@ -62,4 +73,9 @@ class GetLeagueRosterUseCase:
             key=lambda e: e.player1_nickname,
         )
 
-        return RosterView(title=league.title, players=players, teams=teams)
+        return RosterView(
+            title=league.title,
+            rules=league.rules.to_dict(),
+            players=players,
+            teams=teams,
+        )

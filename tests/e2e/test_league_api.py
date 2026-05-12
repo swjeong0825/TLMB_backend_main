@@ -736,6 +736,38 @@ async def test_get_league_roster_empty(client: AsyncClient) -> None:
     assert body["title"] == "Test League"
     assert body["players"] == []
     assert body["teams"] == []
+    # rules echoed so the frontend can fetch league title + rules in one trip.
+    assert body["rules"]["version"] == 4
+    assert body["rules"]["match_pair_idempotency"] == "none"
+    assert body["rules"]["one_team_per_player"] is True
+    assert body["rules"]["ranking_subject"] == "team"
+    assert body["rules"]["tie_breakers"] == ["matches_won"]
+    assert body["rules"]["require_eligible_players"] is False
+
+
+async def test_get_league_roster_echoes_one_team_per_player_false(client: AsyncClient) -> None:
+    """When the league was created with `one_team_per_player=false`, the
+    roster response must surface the flag verbatim — the chat UI uses it
+    to suppress the partner-conflict warning that only applies when each
+    player can belong to a single team."""
+    league = await create_league(
+        client,
+        rules={
+            "version": 4,
+            "match_pair_idempotency": "none",
+            "one_team_per_player": False,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+        },
+    )
+    league_id = league["league_id"]
+
+    resp = await client.get(f"/leagues/{league_id}/roster")
+
+    assert resp.status_code == 200
+    rules = resp.json()["rules"]
+    assert rules["one_team_per_player"] is False
+    assert rules["ranking_subject"] == "team"
 
 
 async def test_get_league_roster_after_matches(client: AsyncClient) -> None:

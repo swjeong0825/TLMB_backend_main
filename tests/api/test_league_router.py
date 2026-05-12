@@ -559,12 +559,23 @@ class TestGetMatchHistoryByPlayer:
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_ROSTER_RULES: dict = {
+    "version": 4,
+    "match_pair_idempotency": "once_per_league",
+    "one_team_per_player": True,
+    "ranking_subject": "team",
+    "tie_breakers": ["matches_won"],
+    "require_eligible_players": False,
+}
+
+
 class TestGetLeagueRoster:
     async def test_returns_200_with_players_and_teams(
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
     ) -> None:
         mock_get_roster_uc.execute.return_value = RosterView(
             title="Summer Cup",
+            rules=dict(_DEFAULT_ROSTER_RULES),
             players=[PlayerEntry(player_id="p1", nickname="alice")],
             teams=[TeamEntry(team_id="t1", player1_nickname="alice", player2_nickname="bob")],
         )
@@ -575,6 +586,7 @@ class TestGetLeagueRoster:
         assert len(data["players"]) == 1
         assert data["players"][0]["nickname"] == "alice"
         assert len(data["teams"]) == 1
+        assert data["rules"] == _DEFAULT_ROSTER_RULES
 
     async def test_league_not_found_returns_404(
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
@@ -586,13 +598,40 @@ class TestGetLeagueRoster:
     async def test_empty_roster_returns_empty_lists(
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
     ) -> None:
-        mock_get_roster_uc.execute.return_value = RosterView(title="Empty League", players=[], teams=[])
+        mock_get_roster_uc.execute.return_value = RosterView(
+            title="Empty League",
+            rules=dict(_DEFAULT_ROSTER_RULES),
+            players=[],
+            teams=[],
+        )
         response = await client.get("/leagues/lid/roster")
         assert response.status_code == 200
         data = response.json()
         assert data["title"] == "Empty League"
         assert data["players"] == []
         assert data["teams"] == []
+        assert data["rules"] == _DEFAULT_ROSTER_RULES
+
+    async def test_response_echoes_one_team_per_player_false(
+        self, client: AsyncClient, mock_get_roster_uc: AsyncMock
+    ) -> None:
+        """v3+: leagues created with `one_team_per_player=false` must surface
+        that flag verbatim so the chat UI can suppress the partner-conflict
+        warning emitted by `renderMatchSubmitRosterNotes`."""
+        rules = dict(_DEFAULT_ROSTER_RULES)
+        rules["one_team_per_player"] = False
+        rules["ranking_subject"] = "player"
+        mock_get_roster_uc.execute.return_value = RosterView(
+            title="Open Roster",
+            rules=rules,
+            players=[],
+            teams=[],
+        )
+        response = await client.get("/leagues/lid/roster")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rules"]["one_team_per_player"] is False
+        assert data["rules"]["ranking_subject"] == "player"
 
 
 # ---------------------------------------------------------------------------
