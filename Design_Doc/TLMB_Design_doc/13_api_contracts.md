@@ -20,12 +20,15 @@ flowchart LR
         P4["GET /leagues/{league_id}/matches"]
         P5["GET /leagues/{league_id}/roster"]
         P6["GET /leagues/{league_id}/matches/by-player?player_name=str"]
+        P7["GET /leagues/{league_id}/eligible-players"]
     end
     subgraph admin ["Admin — league_id + X-Host-Token header"]
         A1["PATCH /admin/leagues/{league_id}/players/{player_id}"]
         A2["DELETE /admin/leagues/{league_id}/teams/{team_id}"]
         A3["PATCH /admin/leagues/{league_id}/matches/{match_id}"]
         A4["DELETE /admin/leagues/{league_id}/matches/{match_id}"]
+        A5["POST /admin/leagues/{league_id}/eligible-players"]
+        A6["DELETE /admin/leagues/{league_id}/eligible-players/{eligible_player_id}"]
     end
 ```
 
@@ -47,7 +50,10 @@ flowchart LR
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
-| InvalidLeagueRulesError (invalid v1/v2/v3 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
+| InvalidLeagueRulesError (invalid v1/v2/v3/v4 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
+| EligiblePlayerNotFoundError | 404 |
+| EligiblePlayerNicknameAlreadyExistsError | 409 |
+| IneligiblePlayerError (match submission contains nicknames not in `eligible_players`; only when `LeagueRules.require_eligible_players = true`) | 422 |
 
 ---
 
@@ -55,12 +61,25 @@ flowchart LR
 
 - Method: POST
 - Path: `/leagues`
-- Purpose: Create a new league and receive access credentials
-- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null }` — **`rules` optional**. When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, or v3 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), and [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md)). v1 and v2 inputs are upgraded to v3 transparently. Rules are **not** mutable after creation in this API version.
-- Example `rules` (v3): `{ "version": 3, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"] }`
+- Purpose: Create a new league and receive access credentials. Optionally seed the host-managed eligible-players allowlist in the same transaction.
+- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null, "eligible_players": ["str", ...] }`
+  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, or v4 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_eligible_players.md](20_eligible_players.md)). v1, v2, and v3 inputs are upgraded to v4 transparently. Rules are **not** mutable after creation in this API version.
+  - **`eligible_players` optional**, default `[]`. When non-empty, each entry must be a non-blank string; entries are inserted into the league's eligible-players allowlist as part of the same DB transaction that creates the league row (see [20_eligible_players.md](20_eligible_players.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.require_eligible_players` — when the flag is `false`, the allowlist is still populated, just not enforced on match submission. In-batch or against-existing duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row is persisted.
+- Example `rules` (v4): `{ "version": 4, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "require_eligible_players": false }`
+- Example request with inline seeding:
+  ```json
+  {
+    "title": "Summer Doubles 2026",
+    "rules": { "version": 4, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won"], "require_eligible_players": true },
+    "eligible_players": ["Alex", "Daniel", "Jason"]
+  }
+  ```
 - Response shape: `{ "league_id": "uuid", "host_token": "uuid" }`
 - Use case called: CreateLeagueUseCase
-- Error responses: 409 LeagueTitleAlreadyExistsError, 422 validation (blank title, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_team_per_player=true)`)
+- Error responses:
+  - 409 LeagueTitleAlreadyExistsError
+  - 409 EligiblePlayerNicknameAlreadyExistsError (in-batch duplicate inside `eligible_players`; entire request rejected, league row not persisted)
+  - 422 validation (blank title, blank `eligible_players` entry, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_team_per_player=true)`)
 - Auth notes: Public — no credentials required
 
 ---
@@ -110,6 +129,7 @@ flowchart LR
   - 422 SamePlayerWithinSingleTeamError (same player listed twice on one team)
   - 422 SamePlayerOnBothTeamsError (same player appears on both teams)
   - 422 InvalidSetScoreError (non-integer or negative score)
+  - 422 IneligiblePlayerError (only when `LeagueRules.require_eligible_players = true`; body includes `missing_nicknames` array — see [20_eligible_players.md](20_eligible_players.md))
   - 409 TeamConflictError (a player is already on a different team in this league)
   - 409 SameTeamOnBothSidesError (both teams resolve to the same existing team)
   - 409 DuplicateTeamPairMatchError (league rules require at most one match per team pair and a match already exists for this pair)
@@ -328,5 +348,65 @@ flowchart LR
 - Error responses:
   - 404 LeagueNotFoundError
   - 404 MatchNotFoundError
+  - 401 UnauthorizedError
+- Auth notes: `league_id` (URL path) + `X-Host-Token` header
+
+---
+
+## Endpoint: Get Eligible Players
+
+- Method: GET
+- Path: `/leagues/{league_id}/eligible-players`
+- Purpose: Get the host-managed allowlist of nicknames that may participate in this league. Distinct from the roster (`/roster`); see [20_eligible_players.md](20_eligible_players.md).
+- Request shape: —
+- Response shape:
+  ```json
+  {
+    "eligible_players": [
+      { "eligible_player_id": "uuid", "nickname": "str" }
+    ]
+  }
+  ```
+- Use case called: GetEligiblePlayersUseCase
+- Error responses: 404 LeagueNotFoundError
+- Auth notes: `league_id` in URL path — possession is sufficient. The eligible list is treated as league-discoverable data, not host-only.
+
+---
+
+## Endpoint: Add Eligible Players (Admin)
+
+- Method: POST
+- Path: `/admin/leagues/{league_id}/eligible-players`
+- Purpose: Atomically extend the eligible-players allowlist with one or more nicknames. Bulk-batch shape supports the natural "host pre-populates the list" workflow; single-add is a one-element list.
+- Request shape: `{ "nicknames": ["str", "str", ...] }` — non-empty list; each entry non-blank after trim.
+- Response shape: 201 Created
+  ```json
+  {
+    "eligible_players": [
+      { "eligible_player_id": "uuid", "nickname": "str" }
+    ]
+  }
+  ```
+- Use case called: AddEligiblePlayersUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 401 UnauthorizedError
+  - 409 EligiblePlayerNicknameAlreadyExistsError (any input nickname duplicates an existing eligible nickname OR another nickname inside the same batch — entire request rejected, no partial inserts)
+  - 422 validation (empty list, blank nickname)
+- Auth notes: `league_id` (URL path) + `X-Host-Token` header
+
+---
+
+## Endpoint: Remove Eligible Player (Admin)
+
+- Method: DELETE
+- Path: `/admin/leagues/{league_id}/eligible-players/{eligible_player_id}`
+- Purpose: Remove a single nickname from the eligible-players allowlist. Does NOT delete any roster `Player` row.
+- Request shape: —
+- Response shape: 204 No Content
+- Use case called: RemoveEligiblePlayerUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 EligiblePlayerNotFoundError
   - 401 UnauthorizedError
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header

@@ -9,9 +9,15 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 
+from app.application.use_cases.add_eligible_players_use_case import (
+    AddEligiblePlayersResult,
+    EligiblePlayerEntry,
+)
 from app.application.use_cases.edit_match_score_use_case import UpdatedMatchResult
 from app.application.use_cases.edit_player_nickname_use_case import UpdatedPlayerResult
 from app.domain.exceptions import (
+    EligiblePlayerNicknameAlreadyExistsError,
+    EligiblePlayerNotFoundError,
     LeagueNotFoundError,
     MatchNotFoundError,
     NicknameAlreadyInUseError,
@@ -282,5 +288,154 @@ class TestDeleteMatch:
         self, client: AsyncClient, mock_delete_match_uc: AsyncMock
     ) -> None:
         mock_delete_match_uc.execute.side_effect = UnauthorizedError("unauthorized")
+        response = await client.delete(self._URL, headers={"X-Host-Token": "wrong"})
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/leagues/{league_id}/eligible-players
+# ---------------------------------------------------------------------------
+
+
+class TestAddEligiblePlayers:
+    _URL = "/admin/leagues/league-id/eligible-players"
+
+    async def test_returns_201_on_success(
+        self, client: AsyncClient, mock_add_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_add_eligible_players_uc.execute.return_value = AddEligiblePlayersResult(
+            eligible_players=[
+                EligiblePlayerEntry(eligible_player_id="ep-1", nickname="alex"),
+            ]
+        )
+        response = await client.post(
+            self._URL,
+            json={"nicknames": ["Alex"]},
+            headers={"X-Host-Token": "valid-token"},
+        )
+        assert response.status_code == 201
+
+    async def test_response_contains_added_entries(
+        self, client: AsyncClient, mock_add_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_add_eligible_players_uc.execute.return_value = AddEligiblePlayersResult(
+            eligible_players=[
+                EligiblePlayerEntry(eligible_player_id="ep-1", nickname="alex"),
+                EligiblePlayerEntry(eligible_player_id="ep-2", nickname="daniel"),
+            ]
+        )
+        response = await client.post(
+            self._URL,
+            json={"nicknames": ["alex", "daniel"]},
+            headers={"X-Host-Token": "token"},
+        )
+        data = response.json()
+        assert len(data["eligible_players"]) == 2
+        assert data["eligible_players"][0]["eligible_player_id"] == "ep-1"
+        assert data["eligible_players"][0]["nickname"] == "alex"
+
+    async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(self._URL, json={"nicknames": ["alex"]})
+        assert response.status_code == 422
+
+    async def test_empty_nicknames_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            self._URL,
+            json={"nicknames": []},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_blank_entry_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            self._URL,
+            json={"nicknames": ["alex", "  "]},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_league_not_found_returns_404(
+        self, client: AsyncClient, mock_add_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_add_eligible_players_uc.execute.side_effect = LeagueNotFoundError("not found")
+        response = await client.post(
+            self._URL,
+            json={"nicknames": ["alex"]},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 404
+
+    async def test_wrong_token_returns_401(
+        self, client: AsyncClient, mock_add_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_add_eligible_players_uc.execute.side_effect = UnauthorizedError("unauthorized")
+        response = await client.post(
+            self._URL,
+            json={"nicknames": ["alex"]},
+            headers={"X-Host-Token": "wrong"},
+        )
+        assert response.status_code == 401
+
+    async def test_duplicate_returns_409(
+        self, client: AsyncClient, mock_add_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_add_eligible_players_uc.execute.side_effect = (
+            EligiblePlayerNicknameAlreadyExistsError("already")
+        )
+        response = await client.post(
+            self._URL,
+            json={"nicknames": ["alex"]},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "EligiblePlayerNicknameAlreadyExistsError"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /admin/leagues/{league_id}/eligible-players/{eligible_player_id}
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveEligiblePlayer:
+    _URL = "/admin/leagues/league-id/eligible-players/ep-id"
+
+    async def test_returns_204_on_success(
+        self, client: AsyncClient, mock_remove_eligible_player_uc: AsyncMock
+    ) -> None:
+        mock_remove_eligible_player_uc.execute.return_value = None
+        response = await client.delete(
+            self._URL, headers={"X-Host-Token": "valid-token"}
+        )
+        assert response.status_code == 204
+
+    async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
+        response = await client.delete(self._URL)
+        assert response.status_code == 422
+
+    async def test_league_not_found_returns_404(
+        self, client: AsyncClient, mock_remove_eligible_player_uc: AsyncMock
+    ) -> None:
+        mock_remove_eligible_player_uc.execute.side_effect = LeagueNotFoundError(
+            "not found"
+        )
+        response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
+        assert response.status_code == 404
+
+    async def test_eligible_player_not_found_returns_404(
+        self, client: AsyncClient, mock_remove_eligible_player_uc: AsyncMock
+    ) -> None:
+        mock_remove_eligible_player_uc.execute.side_effect = EligiblePlayerNotFoundError(
+            "not found"
+        )
+        response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
+        assert response.status_code == 404
+        assert response.json()["error"] == "EligiblePlayerNotFoundError"
+
+    async def test_wrong_token_returns_401(
+        self, client: AsyncClient, mock_remove_eligible_player_uc: AsyncMock
+    ) -> None:
+        mock_remove_eligible_player_uc.execute.side_effect = UnauthorizedError(
+            "unauthorized"
+        )
         response = await client.delete(self._URL, headers={"X-Host-Token": "wrong"})
         assert response.status_code == 401

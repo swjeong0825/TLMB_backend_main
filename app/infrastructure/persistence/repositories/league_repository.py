@@ -9,10 +9,16 @@ from sqlalchemy.orm import selectinload
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId
+from app.infrastructure.persistence.mappers.eligible_player_mapper import eligible_player_to_orm
 from app.infrastructure.persistence.mappers.league_mapper import league_to_domain
 from app.infrastructure.persistence.mappers.player_mapper import player_to_orm
 from app.infrastructure.persistence.mappers.team_mapper import team_to_orm
-from app.infrastructure.persistence.models.orm_models import LeagueORM, PlayerORM, TeamORM
+from app.infrastructure.persistence.models.orm_models import (
+    EligiblePlayerORM,
+    LeagueORM,
+    PlayerORM,
+    TeamORM,
+)
 
 
 def _utcnow() -> datetime:
@@ -28,10 +34,16 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    _LEAGUE_LOAD_OPTIONS = (
+        selectinload(LeagueORM.players),
+        selectinload(LeagueORM.teams),
+        selectinload(LeagueORM.eligible_players),
+    )
+
     async def get_by_id(self, league_id: LeagueId) -> League | None:
         result = await self._session.execute(
             select(LeagueORM)
-            .options(selectinload(LeagueORM.players), selectinload(LeagueORM.teams))
+            .options(*self._LEAGUE_LOAD_OPTIONS)
             .where(LeagueORM.league_id == league_id.value)
         )
         orm = result.scalar_one_or_none()
@@ -40,7 +52,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
     async def get_by_id_with_lock(self, league_id: LeagueId) -> League | None:
         result = await self._session.execute(
             select(LeagueORM)
-            .options(selectinload(LeagueORM.players), selectinload(LeagueORM.teams))
+            .options(*self._LEAGUE_LOAD_OPTIONS)
             .where(LeagueORM.league_id == league_id.value)
             .with_for_update()
         )
@@ -50,7 +62,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
     async def get_by_normalized_title(self, normalized_title: str) -> League | None:
         result = await self._session.execute(
             select(LeagueORM)
-            .options(selectinload(LeagueORM.players), selectinload(LeagueORM.teams))
+            .options(*self._LEAGUE_LOAD_OPTIONS)
             .where(LeagueORM.title_normalized == normalized_title)
         )
         orm = result.scalar_one_or_none()
@@ -105,3 +117,14 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             team_orm = await self._session.get(TeamORM, team_id.value)
             if team_orm is not None:
                 await self._session.delete(team_orm)
+
+        for ep in league.eligible_players:
+            ep_orm = await self._session.get(EligiblePlayerORM, ep.eligible_player_id.value)
+            if ep_orm is None:
+                ep_orm = eligible_player_to_orm(ep, league.league_id)
+                self._session.add(ep_orm)
+
+        for ep_id in league.pending_deleted_eligible_player_ids:
+            ep_orm = await self._session.get(EligiblePlayerORM, ep_id.value)
+            if ep_orm is not None:
+                await self._session.delete(ep_orm)

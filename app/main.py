@@ -9,6 +9,9 @@ from app.api.routers.league_router import router as league_router
 from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     DuplicateTeamPairMatchError,
+    EligiblePlayerNicknameAlreadyExistsError,
+    EligiblePlayerNotFoundError,
+    IneligiblePlayerError,
     InvalidLeagueRulesError,
     InvalidSetScoreError,
     LeagueNotFoundError,
@@ -125,3 +128,40 @@ async def invalid_score_handler(request: Request, exc: InvalidSetScoreError) -> 
 @app.exception_handler(InvalidLeagueRulesError)
 async def invalid_league_rules_handler(request: Request, exc: InvalidLeagueRulesError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "InvalidLeagueRulesError", "detail": str(exc)})
+
+
+@app.exception_handler(EligiblePlayerNotFoundError)
+async def eligible_player_not_found_handler(
+    request: Request, exc: EligiblePlayerNotFoundError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"error": "EligiblePlayerNotFoundError", "detail": str(exc)},
+    )
+
+
+@app.exception_handler(EligiblePlayerNicknameAlreadyExistsError)
+async def eligible_player_nickname_exists_handler(
+    request: Request, exc: EligiblePlayerNicknameAlreadyExistsError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error": "EligiblePlayerNicknameAlreadyExistsError",
+            "detail": str(exc),
+        },
+    )
+
+
+@app.exception_handler(IneligiblePlayerError)
+async def ineligible_player_handler(
+    request: Request, exc: IneligiblePlayerError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "IneligiblePlayerError",
+            "detail": str(exc),
+            "missing_nicknames": list(exc.missing_nicknames),
+        },
+    )

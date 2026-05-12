@@ -11,6 +11,10 @@ import pytest
 from httpx import AsyncClient
 
 from app.application.use_cases.create_league_use_case import CreateLeagueResult
+from app.application.use_cases.get_eligible_players_use_case import (
+    EligiblePlayerEntry,
+    EligiblePlayersView,
+)
 from app.application.use_cases.search_leagues_by_title_prefix_use_case import LeagueListItem
 from app.application.use_cases.get_league_roster_use_case import PlayerEntry, RosterView, TeamEntry
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
@@ -18,6 +22,7 @@ from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultResult
 from app.domain.exceptions import (
     DuplicateTeamPairMatchError,
+    IneligiblePlayerError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
     PlayerNotFoundError,
@@ -78,6 +83,40 @@ class TestCreateLeague:
         )
         response = await client.post("/leagues", json={"title": "L", "description": "desc"})
         assert response.status_code == 201
+
+    async def test_eligible_players_field_is_forwarded_to_use_case(
+        self, client: AsyncClient, mock_create_league_uc: AsyncMock
+    ) -> None:
+        mock_create_league_uc.execute.return_value = CreateLeagueResult(
+            league_id="lid", host_token="tok"
+        )
+        response = await client.post(
+            "/leagues",
+            json={"title": "Seeded", "eligible_players": ["Alex", "Daniel"]},
+        )
+        assert response.status_code == 201
+        cmd = mock_create_league_uc.execute.call_args[0][0]
+        assert cmd.eligible_players == ["Alex", "Daniel"]
+
+    async def test_eligible_players_field_is_optional_and_defaults_to_empty(
+        self, client: AsyncClient, mock_create_league_uc: AsyncMock
+    ) -> None:
+        mock_create_league_uc.execute.return_value = CreateLeagueResult(
+            league_id="lid", host_token="tok"
+        )
+        response = await client.post("/leagues", json={"title": "No Seed"})
+        assert response.status_code == 201
+        cmd = mock_create_league_uc.execute.call_args[0][0]
+        assert cmd.eligible_players == []
+
+    async def test_blank_eligible_player_nickname_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        response = await client.post(
+            "/leagues",
+            json={"title": "Bad Seed", "eligible_players": ["Alex", "   "]},
+        )
+        assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +233,24 @@ class TestSubmitMatchResult:
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 409
         assert response.json()["error"] == "DuplicateTeamPairMatchError"
+
+    async def test_ineligible_player_returns_422_with_missing_nicknames_payload(
+        self, client: AsyncClient, mock_submit_match_uc: AsyncMock
+    ) -> None:
+        """v4: when LeagueRules.require_eligible_players is on, the use case
+        raises IneligiblePlayerError. The HTTP layer must return 422 and
+        include the structured `missing_nicknames` array verbatim — the chat
+        agent and frontend depend on this contract."""
+        mock_submit_match_uc.execute.side_effect = IneligiblePlayerError(
+            "Match submission contains nicknames not in eligible_players: michael, ryan",
+            missing_nicknames=["michael", "ryan"],
+        )
+        response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"] == "IneligiblePlayerError"
+        assert body["missing_nicknames"] == ["michael", "ryan"]
+        assert "michael" in body["detail"]
 
     async def test_team1_with_one_nickname_returns_422(
         self, client: AsyncClient
@@ -536,3 +593,55 @@ class TestGetLeagueRoster:
         assert data["title"] == "Empty League"
         assert data["players"] == []
         assert data["teams"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /leagues/{league_id}/eligible-players
+# ---------------------------------------------------------------------------
+
+
+class TestGetEligiblePlayers:
+    async def test_returns_200_with_entries(
+        self, client: AsyncClient, mock_get_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_get_eligible_players_uc.execute.return_value = EligiblePlayersView(
+            eligible_players=[
+                EligiblePlayerEntry(eligible_player_id="ep-1", nickname="alex"),
+                EligiblePlayerEntry(eligible_player_id="ep-2", nickname="daniel"),
+            ]
+        )
+        response = await client.get("/leagues/lid/eligible-players")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["eligible_players"]) == 2
+        assert data["eligible_players"][0]["nickname"] == "alex"
+        assert data["eligible_players"][0]["eligible_player_id"] == "ep-1"
+
+    async def test_empty_list_returns_empty_array(
+        self, client: AsyncClient, mock_get_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_get_eligible_players_uc.execute.return_value = EligiblePlayersView(
+            eligible_players=[]
+        )
+        response = await client.get("/leagues/lid/eligible-players")
+        assert response.status_code == 200
+        assert response.json() == {"eligible_players": []}
+
+    async def test_league_not_found_returns_404(
+        self, client: AsyncClient, mock_get_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_get_eligible_players_uc.execute.side_effect = LeagueNotFoundError(
+            "not found"
+        )
+        response = await client.get("/leagues/bad-id/eligible-players")
+        assert response.status_code == 404
+
+    async def test_passes_league_id_to_use_case(
+        self, client: AsyncClient, mock_get_eligible_players_uc: AsyncMock
+    ) -> None:
+        mock_get_eligible_players_uc.execute.return_value = EligiblePlayersView(
+            eligible_players=[]
+        )
+        await client.get("/leagues/some-league-id/eligible-players")
+        call_args = mock_get_eligible_players_uc.execute.call_args[0][0]
+        assert call_args.league_id == "some-league-id"

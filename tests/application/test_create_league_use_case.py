@@ -90,3 +90,54 @@ class TestCreateLeagueUseCase:
 
         assert r1.league_id != r2.league_id
         assert r1.host_token != r2.host_token
+
+    async def test_seeds_eligible_players_in_same_save_call(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        """When `eligible_players` is non-empty, the use case populates the
+        aggregate's allowlist before `save`, so both rows reach the DB in
+        the same UoW transaction (no second commit)."""
+        mock_league_repo.get_by_normalized_title.return_value = None
+        saved_leagues: list = []
+        mock_league_repo.save.side_effect = (
+            lambda league: saved_leagues.append(league) or None
+        )
+        use_case = self._use_case(mock_league_repo)
+
+        await use_case.execute(
+            CreateLeagueCommand(
+                title="Allowlist League",
+                description=None,
+                eligible_players=["Alex", "Daniel", "Jason"],
+            )
+        )
+
+        mock_league_repo.save.assert_awaited_once()
+        assert len(saved_leagues) == 1
+        league = saved_leagues[0]
+        assert [ep.nickname.value for ep in league.eligible_players] == [
+            "alex",
+            "daniel",
+            "jason",
+        ]
+
+    async def test_empty_eligible_players_list_is_a_noop(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        mock_league_repo.get_by_normalized_title.return_value = None
+        saved_leagues: list = []
+        mock_league_repo.save.side_effect = (
+            lambda league: saved_leagues.append(league) or None
+        )
+        use_case = self._use_case(mock_league_repo)
+
+        await use_case.execute(
+            CreateLeagueCommand(
+                title="Empty Allowlist League",
+                description=None,
+                eligible_players=[],
+            )
+        )
+
+        mock_league_repo.save.assert_awaited_once()
+        assert saved_leagues[0].eligible_players == []

@@ -16,36 +16,65 @@ RankingMetricLiteral = Literal[
 ]
 
 
-class LeagueRulesV3Request(BaseModel):
+class LeagueRulesV4Request(BaseModel):
     """Shape of `rules` on create-league.
 
-    `version` accepts 1, 2, or 3: v1 and v2 inputs are upgraded transparently
-    in `LeagueRules.from_dict`. v3 strict-validates ranking fields and adds
-    a cross-rule: `ranking_subject = "player"` requires
-    `one_team_per_player = false`. The combo `(player, OTPP=true)` is rejected
-    with `InvalidLeagueRulesError` (mapped to 422). The pydantic model accepts
-    plain `bool` for `one_team_per_player` so the cross-rule rejection
-    surfaces as the domain-level error code rather than a generic pydantic
-    validation error.
+    `version` accepts 1, 2, 3, or 4: v1, v2, and v3 inputs are upgraded
+    transparently in `LeagueRules.from_dict`. v4 adds the optional
+    `require_eligible_players: bool` flag (default `false`) which gates
+    match-submission rejection against the host-curated eligible-players
+    allowlist; see
+    `Design_Doc/TLMB_Design_doc/20_eligible_players.md`.
+
+    The v3 cross-rule (`(player, OTPP=true)` is rejected) is preserved.
+    The pydantic model accepts plain `bool` for `one_team_per_player` so
+    the cross-rule rejection surfaces as the domain-level error code
+    rather than a generic pydantic validation error.
     """
 
-    version: Literal[1, 2, 3]
+    version: Literal[1, 2, 3, 4]
     match_pair_idempotency: Literal["none", "once_per_league"]
     one_team_per_player: bool = True
     ranking_subject: Literal["team", "player"] | None = None
     tie_breakers: list[RankingMetricLiteral] | None = None
+    require_eligible_players: bool = False
+
+
+# Back-compat alias for any callers still importing the v3 name.
+LeagueRulesV3Request = LeagueRulesV4Request
 
 
 class CreateLeagueRequest(BaseModel):
+    """Body for `POST /leagues`.
+
+    `eligible_players` is an optional bootstrap list — when non-empty the
+    nicknames are inserted into the league's eligible-players allowlist as
+    part of the same DB transaction that creates the league row. The list
+    may be present even when `rules.require_eligible_players` is False
+    (the allowlist is still populated, it just isn't enforced on match
+    submission). Validation mirrors `AddEligiblePlayersRequest`: entries
+    must be non-blank strings; the aggregate handles in-batch / against-
+    existing duplicate detection and raises domain errors that map to 409.
+    """
+
     title: str
     description: str | None = None
-    rules: LeagueRulesV3Request | None = None # has default
+    rules: LeagueRulesV4Request | None = None # has default
+    eligible_players: list[str] = []
 
     @field_validator("title")
     @classmethod
     def title_must_not_be_blank(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("title must not be blank")
+        return v
+
+    @field_validator("eligible_players")
+    @classmethod
+    def eligible_player_nicknames_must_be_non_blank(cls, v: list[str]) -> list[str]:
+        for entry in v:
+            if not isinstance(entry, str) or not entry.strip():
+                raise ValueError("eligible_players entries must be non-blank strings")
         return v
 
 
@@ -153,3 +182,12 @@ class GetLeagueRosterResponse(BaseModel):
     title: str
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]
+
+
+class EligiblePlayerEntrySchema(BaseModel):
+    eligible_player_id: str
+    nickname: str
+
+
+class GetEligiblePlayersResponse(BaseModel):
+    eligible_players: list[EligiblePlayerEntrySchema]

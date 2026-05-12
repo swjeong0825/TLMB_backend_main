@@ -60,3 +60,27 @@ class InvalidLeagueRulesError(DomainError):
 
 class DuplicateTeamPairMatchError(DomainError):
     pass
+
+
+class EligiblePlayerNotFoundError(DomainError):
+    pass
+
+
+class EligiblePlayerNicknameAlreadyExistsError(DomainError):
+    pass
+
+
+class IneligiblePlayerError(DomainError):
+    """Raised by `League.validate_match_participants_eligible` when match-
+    submission nicknames are not present in the league's `eligible_players`
+    allowlist.
+
+    `missing_nicknames` is the structured payload (list of normalized
+    nicknames) that the API layer surfaces to clients verbatim, so the chat
+    server / frontend can render the missing names without re-parsing the
+    `detail` string.
+    """
+
+    def __init__(self, message: str, missing_nicknames: list[str]) -> None:
+        super().__init__(message)
+        self.missing_nicknames = missing_nicknames

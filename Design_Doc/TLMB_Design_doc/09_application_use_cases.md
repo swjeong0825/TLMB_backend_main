@@ -28,28 +28,29 @@ flowchart TD
 
 ## Use Case: CreateLeagueUseCase
 
-- Business action: Create League
-- Inputs: CreateLeagueCommand(title: str, description: str | None, rules: LeagueRules | None) — when `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md))
+- Business action: Create League (optionally seeded with an eligible-players allowlist in the same transaction)
+- Inputs: CreateLeagueCommand(title: str, description: str | None, rules: LeagueRules | None, eligible_players: list[str] = []) — when `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). `eligible_players` defaults to an empty list; when non-empty, the entries are inserted into the new league's allowlist before the single `save` call so the league row and every eligible-player row reach the database in one transaction. See [20_eligible_players.md](20_eligible_players.md) → "Modified use case: `CreateLeagueUseCase`" for the rationale and error semantics.
 - Output: CreateLeagueResult(league_id: str, host_token: str)
 - State-changing or calculation-only?: State-changing
-- Unit of Work needed?: No — single repository save
+- Unit of Work needed?: No — single repository save (the repository's `save` writes the league row, players, teams, and eligible_players through the same `AsyncSession`, so atomicity is provided by the request-scoped session commit)
 - Aggregate(s) loaded: none (new aggregate created)
 - Aggregate(s) loaded through which repository?: N/A
 - Domain service used?: No
 - Repository calls: LeagueRepository.get_by_normalized_title (uniqueness pre-check), LeagueRepository.save
 - Port calls: none
 - Persistence required?: Yes
-- Transaction notes: single save; inherently atomic
+- Transaction notes: single `save`; both the league row and any seeded `eligible_players` rows flow through the same session and commit together — partial state is impossible
 - Steps:
   1. Normalize title to lowercase
   2. Call LeagueRepository.get_by_normalized_title(normalized_title) — raise LeagueTitleAlreadyExistsError if a league already exists with that normalized title
   3. Generate host_token as str(uuid.uuid4())
   4. Resolve `LeagueRules` from command.rules or product defaults
   5. Call League.create(title, description, host_token, rules) — constructs new aggregate with empty roster and persisted rules
-  6. Save via LeagueRepository.save(league)
-  7. Return league_id and host_token
-- Domain rules enforced where: League.create (title must be non-empty); title uniqueness pre-check at application layer via repository; LeagueRules validation on construction
-- Errors: LeagueTitleAlreadyExistsError, ValidationError (blank title), invalid rules payload
+  6. If `command.eligible_players` is non-empty, call `league.add_eligible_players(command.eligible_players)` — populates the aggregate's allowlist; raises `EligiblePlayerNicknameAlreadyExistsError` (mapped to 409) if any input nickname duplicates another inside the same batch, in which case no `save` is performed and the league is not persisted
+  7. Save via LeagueRepository.save(league) — persists the league plus any seeded eligible_player rows in the same DB transaction
+  8. Return league_id and host_token
+- Domain rules enforced where: League.create (title must be non-empty); title uniqueness pre-check at application layer via repository; LeagueRules validation on construction; League.add_eligible_players (in-batch and against-existing nickname uniqueness)
+- Errors: LeagueTitleAlreadyExistsError, EligiblePlayerNicknameAlreadyExistsError (only when `eligible_players` contains in-batch duplicates), ValidationError (blank title, blank `eligible_players` entry), invalid rules payload
 
 ---
 

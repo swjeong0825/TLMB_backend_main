@@ -6,16 +6,19 @@ from functools import partial
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.use_cases.add_eligible_players_use_case import AddEligiblePlayersUseCase
 from app.application.use_cases.create_league_use_case import CreateLeagueUseCase
 from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
 from app.application.use_cases.delete_team_use_case import DeleteTeamUseCase
 from app.application.use_cases.edit_match_score_use_case import EditMatchScoreUseCase
 from app.application.use_cases.edit_player_nickname_use_case import EditPlayerNicknameUseCase
+from app.application.use_cases.get_eligible_players_use_case import GetEligiblePlayersUseCase
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryUseCase
 from app.application.use_cases.get_match_history_by_player_use_case import GetMatchHistoryByPlayerUseCase
 from app.application.use_cases.get_standings_by_player_use_case import GetStandingsByPlayerUseCase
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
+from app.application.use_cases.remove_eligible_player_use_case import RemoveEligiblePlayerUseCase
 from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
     SearchLeaguesByTitlePrefixUseCase,
 )
@@ -126,3 +129,21 @@ def get_delete_match_use_case(
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
 ) -> DeleteMatchUseCase:
     return DeleteMatchUseCase(league_repo, match_repo)
+
+
+def get_add_eligible_players_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> AddEligiblePlayersUseCase:
+    return AddEligiblePlayersUseCase(league_repo)
+
+
+def get_remove_eligible_player_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> RemoveEligiblePlayerUseCase:
+    return RemoveEligiblePlayerUseCase(league_repo)
+
+
+def get_get_eligible_players_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> GetEligiblePlayersUseCase:
+    return GetEligiblePlayersUseCase(league_repo)

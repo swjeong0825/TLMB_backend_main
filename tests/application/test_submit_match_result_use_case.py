@@ -11,13 +11,35 @@ from app.application.use_cases.submit_match_result_use_case import (
     SubmitMatchResultCommand,
     SubmitMatchResultUseCase,
 )
+from app.domain.aggregates.league.aggregate_root import League
+from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
+    IneligiblePlayerError,
     LeagueNotFoundError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
 )
 from tests.application.conftest import make_league
+
+
+def _league_require_eligible() -> League:
+    rules = LeagueRules.from_dict(
+        {
+            "version": 4,
+            "match_pair_idempotency": "once_per_league",
+            "one_team_per_player": True,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+            "require_eligible_players": True,
+        }
+    )
+    return League.create(
+        title="Allowlist League",
+        description=None,
+        host_token="test-host-token",
+        rules=rules,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -181,3 +203,85 @@ class TestSubmitMatchResultUseCase:
                     team2_score="3",
                 )
             )
+
+
+# ---------------------------------------------------------------------------
+# v4: eligible-players gate via LeagueRules.require_eligible_players
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitMatchResultEligibleGate:
+    async def test_default_league_with_flag_off_does_not_check_eligibility(self) -> None:
+        """Default leagues are require_eligible_players=False; submission must
+        succeed even though the eligible list is empty (backwards compat)."""
+        league = make_league()
+        factory, _ = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        result = await use_case.execute(
+            SubmitMatchResultCommand(
+                league_id=str(league.league_id),
+                team1_nicknames=("alice", "bob"),
+                team2_nicknames=("charlie", "diana"),
+                team1_score="6",
+                team2_score="3",
+            )
+        )
+        assert result.match_id is not None
+
+    async def test_flag_on_and_all_eligible_succeeds(self) -> None:
+        league = _league_require_eligible()
+        league.add_eligible_players(["alice", "bob", "charlie", "diana"])
+        factory, _ = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        result = await use_case.execute(
+            SubmitMatchResultCommand(
+                league_id=str(league.league_id),
+                team1_nicknames=("alice", "bob"),
+                team2_nicknames=("charlie", "diana"),
+                team1_score="6",
+                team2_score="3",
+            )
+        )
+        assert result.match_id is not None
+
+    async def test_flag_on_and_missing_nickname_raises_with_payload(self) -> None:
+        league = _league_require_eligible()
+        league.add_eligible_players(["alice", "bob"])
+        factory, uow = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        with pytest.raises(IneligiblePlayerError) as exc:
+            await use_case.execute(
+                SubmitMatchResultCommand(
+                    league_id=str(league.league_id),
+                    team1_nicknames=("alice", "bob"),
+                    team2_nicknames=("michael", "ryan"),
+                    team1_score="6",
+                    team2_score="3",
+                )
+            )
+
+        assert exc.value.missing_nicknames == ["michael", "ryan"]
+        # Rejection happens BEFORE any persistence — both saves stay untouched.
+        uow.league_repo.save.assert_not_awaited()
+        uow.match_repo.save.assert_not_awaited()
+
+    async def test_flag_on_input_normalized_before_check(self) -> None:
+        league = _league_require_eligible()
+        league.add_eligible_players(["alice", "bob", "charlie", "diana"])
+        factory, _ = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        # Mixed-case input should normalize to the lowercase eligible names.
+        result = await use_case.execute(
+            SubmitMatchResultCommand(
+                league_id=str(league.league_id),
+                team1_nicknames=("ALICE", "Bob"),
+                team2_nicknames=("Charlie", "DIANA"),
+                team1_score="6",
+                team2_score="3",
+            )
+        )
+        assert result.match_id is not None

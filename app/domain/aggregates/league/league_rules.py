@@ -23,13 +23,19 @@ ALLOWED_METRICS: tuple[RankingMetric, ...] = get_args(RankingMetric)
 class LeagueRules:
     """Versioned per-league configuration stored as JSONB on the league row.
 
-    v3 (current) accepts `one_team_per_player = false` and enforces the
+    v4 (current) adds `require_eligible_players: bool` (default `false`).
+    When `true`, `SubmitMatchResultUseCase` rejects matches whose nicknames
+    are not in the league's `eligible_players` allowlist. See
+    `Design_Doc/TLMB_Design_doc/20_eligible_players.md`.
+
+    v3 introduced `one_team_per_player = false` legality and the
     `(ranking_subject = "player", one_team_per_player = true)` cross-rule
-    rejection. v1 and v2 inputs are accepted on read and upgraded transparently
-    to v3 — v1 inputs additionally have the v2 ranking defaults injected before
-    the v3 upgrade. See the design docs
-    `Design_Doc/TLMB_Design_doc/17_configurable_ranking.md` (v2) and
-    `Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md` (v3).
+    rejection. See `Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md`.
+
+    v1, v2, and v3 inputs are accepted on read and upgraded transparently to
+    v4 — v1 inputs additionally have the v2 ranking defaults injected before
+    the v3 + v4 upgrades. The v4 `require_eligible_players` field defaults to
+    `false` for any v1/v2/v3 input that omits it.
     """
 
     version: int
@@ -37,6 +43,7 @@ class LeagueRules:
     one_team_per_player: bool
     ranking_subject: RankingSubject
     tie_breakers: tuple[RankingMetric, ...]
+    require_eligible_players: bool
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +52,7 @@ class LeagueRules:
             "one_team_per_player": self.one_team_per_player,
             "ranking_subject": self.ranking_subject,
             "tie_breakers": list(self.tie_breakers),
+            "require_eligible_players": self.require_eligible_players,
         }
 
     @classmethod
@@ -53,7 +61,7 @@ class LeagueRules:
             raise InvalidLeagueRulesError("League rules must be a JSON object")
 
         version = data.get("version")
-        if version not in (1, 2, 3):
+        if version not in (1, 2, 3, 4):
             raise InvalidLeagueRulesError(f"Unsupported league rules version: {version!r}")
 
         mpi = data.get("match_pair_idempotency")
@@ -79,13 +87,30 @@ class LeagueRules:
                 "pick (team, OTPP=true) or (player, OTPP=false)"
             )
 
+        require_eligible_players = cls._parse_require_eligible_players(
+            data.get("require_eligible_players")
+        )
+
         return cls(
-            version=3,
+            version=4,
             match_pair_idempotency=mpi,
             one_team_per_player=otpp,
             ranking_subject=ranking_subject,
             tie_breakers=tie_breakers,
+            require_eligible_players=require_eligible_players,
         )
+
+    @staticmethod
+    def _parse_require_eligible_players(value: Any) -> bool:
+        # Defaults False when missing so v1/v2/v3 inputs upgrade cleanly to v4
+        # without requiring callers to know about the new field.
+        if value is None:
+            return False
+        if not isinstance(value, bool):
+            raise InvalidLeagueRulesError(
+                "require_eligible_players must be a boolean"
+            )
+        return value
 
     @staticmethod
     def _parse_ranking_subject(value: Any) -> RankingSubject:
@@ -122,15 +147,17 @@ class LeagueRules:
         """Product default when POST /leagues omits `rules` (new leagues only).
 
         Migrated existing DB rows use match_pair_idempotency \"none\" via Alembic 002,
-        ranking_subject=\"team\" / tie_breakers=[\"matches_won\"] via Alembic 003, and
+        ranking_subject=\"team\" / tie_breakers=[\"matches_won\"] via Alembic 003,
         version=3 (with `(player, OTPP=true)` rewritten to `(team, OTPP=true)`) via
-        Alembic 004 — which together reproduce v1/v2 behavior byte-for-byte for
-        every legal combo carried over from v2.
+        Alembic 004, and require_eligible_players=false / version=4 via Alembic 005
+        — which together reproduce v1/v2/v3 behavior byte-for-byte for every legal
+        combo carried over from v3.
         """
         return cls(
-            version=3,
+            version=4,
             match_pair_idempotency="once_per_league",
             one_team_per_player=True,
             ranking_subject="team",
             tie_breakers=("matches_won",),
+            require_eligible_players=False,
         )

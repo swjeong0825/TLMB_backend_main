@@ -62,6 +62,8 @@ class SubmitMatchResultUseCase:
             if league is None:
                 raise LeagueNotFoundError(f"League '{command.league_id}' not found")
 
+            league.validate_match_participants_eligible([t1_n1, t1_n2, t2_n1, t2_n2])
+
             _, team1 = league.register_players_and_team(t1_n1, t1_n2)
             _, team2 = league.register_players_and_team(t2_n1, t2_n2)
 

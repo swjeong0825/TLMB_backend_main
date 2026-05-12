@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.domain.aggregates.league.aggregate_root import League
@@ -15,6 +15,7 @@ class CreateLeagueCommand:
     title: str
     description: str | None
     rules: dict[str, Any] | None = None
+    eligible_players: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -24,6 +25,17 @@ class CreateLeagueResult:
 
 
 class CreateLeagueUseCase:
+    """Create a league and (optionally) seed its eligible-players allowlist.
+
+    When `command.eligible_players` is non-empty, the use case populates the
+    allowlist on the freshly-built aggregate before persisting. A single
+    `repo.save(...)` then writes the league row and every eligible-player
+    row through the same `AsyncSession`, so both reach the database in
+    one transaction — partial state is impossible: any in-batch duplicate
+    surfaces as `EligiblePlayerNicknameAlreadyExistsError` from the
+    aggregate before `save` runs.
+    """
+
     def __init__(self, league_repo: LeagueRepository) -> None:
         self._league_repo = league_repo
 
@@ -41,6 +53,10 @@ class CreateLeagueUseCase:
             LeagueRules.from_dict(command.rules) if command.rules is not None else None
         )
         league = League.create(command.title, command.description, host_token, rules=rules_vo)
+
+        if command.eligible_players:
+            league.add_eligible_players(command.eligible_players)
+
         await self._league_repo.save(league)
 
         return CreateLeagueResult(

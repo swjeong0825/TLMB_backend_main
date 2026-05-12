@@ -108,3 +108,64 @@ async def test_different_titles_both_succeed(session: AsyncSession) -> None:
 
     assert r1.league_id != r2.league_id
     assert r1.host_token != r2.host_token
+
+
+async def test_persists_league_and_seeded_eligible_players_atomically(
+    session: AsyncSession,
+) -> None:
+    """Seeding `eligible_players` on create must reach the DB in the same
+    transaction as the league row — after a single commit, both queries
+    succeed."""
+    repo = SqlAlchemyLeagueRepository(session)
+    result = await CreateLeagueUseCase(repo).execute(
+        CreateLeagueCommand(
+            "Seeded Allowlist League",
+            None,
+            rules={
+                "version": 4,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": True,
+                "ranking_subject": "team",
+                "tie_breakers": ["matches_won"],
+                "require_eligible_players": True,
+            },
+            eligible_players=["Alex", "Daniel", "Jason"],
+        )
+    )
+    await session.commit()
+    session.expire_all()
+
+    from app.domain.aggregates.league.value_objects import LeagueId
+
+    found = await repo.get_by_id(LeagueId.from_str(result.league_id))
+    assert found is not None
+    assert found.rules.require_eligible_players is True
+    assert sorted(ep.nickname.value for ep in found.eligible_players) == [
+        "alex",
+        "daniel",
+        "jason",
+    ]
+
+
+async def test_duplicate_seeded_eligible_player_rejects_whole_creation(
+    session: AsyncSession,
+) -> None:
+    """If the bootstrap list contains an in-batch duplicate, the aggregate
+    raises before `save` — the league itself must not be persisted."""
+    from app.domain.exceptions import EligiblePlayerNicknameAlreadyExistsError
+
+    repo = SqlAlchemyLeagueRepository(session)
+    use_case = CreateLeagueUseCase(repo)
+
+    with pytest.raises(EligiblePlayerNicknameAlreadyExistsError):
+        await use_case.execute(
+            CreateLeagueCommand(
+                "Dup-Bootstrap League",
+                None,
+                eligible_players=["Alex", "ALEX"],
+            )
+        )
+    await session.rollback()
+
+    found = await repo.get_by_normalized_title("dup-bootstrap league")
+    assert found is None

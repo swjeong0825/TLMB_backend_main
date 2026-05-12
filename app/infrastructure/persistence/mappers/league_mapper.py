@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from app.domain.aggregates.league.aggregate_root import League
-from app.domain.aggregates.league.entities import Player, Team
+from app.domain.aggregates.league.entities import EligiblePlayer, Player, Team
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.value_objects import HostToken, LeagueId
 from app.infrastructure.persistence.models.orm_models import LeagueORM
+from app.infrastructure.persistence.mappers.eligible_player_mapper import (
+    eligible_player_to_domain,
+)
 from app.infrastructure.persistence.mappers.player_mapper import player_to_domain
 from app.infrastructure.persistence.mappers.team_mapper import team_to_domain
 
@@ -12,6 +15,7 @@ from app.infrastructure.persistence.mappers.team_mapper import team_to_domain
 def league_to_domain(orm: LeagueORM) -> League:
     players = [player_to_domain(p) for p in orm.players]
     teams = [team_to_domain(t) for t in orm.teams]
+    eligible_players = [eligible_player_to_domain(ep) for ep in orm.eligible_players]
     return League(
         league_id=LeagueId(value=orm.league_id),
         host_token=HostToken(value=orm.host_token),
@@ -20,7 +24,9 @@ def league_to_domain(orm: LeagueORM) -> League:
         rules=LeagueRules.from_dict(orm.rules),
         players=players,
         teams=teams,
+        eligible_players=eligible_players,
         pending_deleted_team_ids=[],
+        pending_deleted_eligible_player_ids=[],
     )
 
 

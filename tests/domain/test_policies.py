@@ -1,15 +1,25 @@
 """Unit tests for domain policies.
 
-NicknameUniquenessPolicy and OneTeamPerPlayerPolicy are pure in-memory objects;
-no database or async I/O is involved.
+NicknameUniquenessPolicy, OneTeamPerPlayerPolicy and
+EligiblePlayerAllowlistPolicy are pure in-memory objects; no database or
+async I/O is involved.
 """
 from __future__ import annotations
 
 import pytest
 
-from app.domain.aggregates.league.entities import Player, Team
-from app.domain.aggregates.league.policies import NicknameUniquenessPolicy, OneTeamPerPlayerPolicy
-from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname, TeamId
+from app.domain.aggregates.league.entities import EligiblePlayer, Player, Team
+from app.domain.aggregates.league.policies import (
+    EligiblePlayerAllowlistPolicy,
+    NicknameUniquenessPolicy,
+    OneTeamPerPlayerPolicy,
+)
+from app.domain.aggregates.league.value_objects import (
+    EligiblePlayerId,
+    PlayerId,
+    PlayerNickname,
+    TeamId,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +33,13 @@ def _player(nickname: str) -> Player:
 
 def _team(p1: Player, p2: Player) -> Team:
     return Team(team_id=TeamId.generate(), player_id_1=p1.player_id, player_id_2=p2.player_id)
+
+
+def _eligible(nickname: str) -> EligiblePlayer:
+    return EligiblePlayer(
+        eligible_player_id=EligiblePlayerId.generate(),
+        nickname=PlayerNickname(nickname),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -136,3 +153,91 @@ class TestOneTeamPerPlayerPolicy:
         team2 = _team(self.charlie, _player("diana"))
         eve = _player("eve")
         assert self.policy.can_join_team(eve.player_id, [team1, team2]) is True
+
+
+# ---------------------------------------------------------------------------
+# EligiblePlayerAllowlistPolicy
+# ---------------------------------------------------------------------------
+
+
+class TestEligiblePlayerAllowlistPolicy:
+    def setup_method(self) -> None:
+        self.policy = EligiblePlayerAllowlistPolicy()
+
+    def test_all_candidates_present_returns_empty_list(self) -> None:
+        eligible = [_eligible("alice"), _eligible("bob")]
+        candidates = [PlayerNickname("alice"), PlayerNickname("bob")]
+        assert self.policy.find_missing_nicknames(candidates, eligible) == []
+
+    def test_partial_overlap_returns_only_missing(self) -> None:
+        eligible = [_eligible("alice"), _eligible("bob")]
+        candidates = [
+            PlayerNickname("alice"),
+            PlayerNickname("bob"),
+            PlayerNickname("michael"),
+            PlayerNickname("ryan"),
+        ]
+        assert self.policy.find_missing_nicknames(candidates, eligible) == [
+            "michael",
+            "ryan",
+        ]
+
+    def test_empty_eligible_list_returns_all_candidates(self) -> None:
+        candidates = [
+            PlayerNickname("alice"),
+            PlayerNickname("bob"),
+            PlayerNickname("charlie"),
+            PlayerNickname("diana"),
+        ]
+        assert self.policy.find_missing_nicknames(candidates, []) == [
+            "alice",
+            "bob",
+            "charlie",
+            "diana",
+        ]
+
+    def test_empty_candidates_returns_empty(self) -> None:
+        eligible = [_eligible("alice"), _eligible("bob")]
+        assert self.policy.find_missing_nicknames([], eligible) == []
+
+    def test_dedupes_repeated_missing_in_input(self) -> None:
+        """Same missing nickname appearing twice is reported once, in input
+        order of first appearance."""
+        eligible = [_eligible("alice")]
+        candidates = [
+            PlayerNickname("alice"),
+            PlayerNickname("michael"),
+            PlayerNickname("michael"),
+            PlayerNickname("ryan"),
+        ]
+        assert self.policy.find_missing_nicknames(candidates, eligible) == [
+            "michael",
+            "ryan",
+        ]
+
+    def test_relies_on_value_object_normalization(self) -> None:
+        """Policy compares on PlayerNickname.value, which is already normalized
+        (lowercased + stripped) by the value object's constructor."""
+        eligible = [_eligible("alice")]
+        # PlayerNickname("ALICE ") normalizes to "alice"; should NOT be missing.
+        candidates = [PlayerNickname("ALICE "), PlayerNickname(" Bob")]
+        assert self.policy.find_missing_nicknames(candidates, eligible) == ["bob"]
+
+    def test_preserves_input_order_of_first_appearance(self) -> None:
+        eligible: list[EligiblePlayer] = []
+        candidates = [
+            PlayerNickname("zed"),
+            PlayerNickname("aime"),
+            PlayerNickname("mike"),
+        ]
+        assert self.policy.find_missing_nicknames(candidates, eligible) == [
+            "zed",
+            "aime",
+            "mike",
+        ]
+
+    def test_iterable_input_supported(self) -> None:
+        """Signature accepts Iterable[PlayerNickname], not just list."""
+        eligible = [_eligible("alice")]
+        candidates = (PlayerNickname(n) for n in ["alice", "michael"])
+        assert self.policy.find_missing_nicknames(candidates, eligible) == ["michael"]
