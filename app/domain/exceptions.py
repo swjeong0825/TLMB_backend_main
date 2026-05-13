@@ -62,18 +62,17 @@ class DuplicateTeamPairMatchError(DomainError):
     pass
 
 
-class EligiblePlayerNotFoundError(DomainError):
+class AllowlistEntryNotFoundError(DomainError):
     pass
 
 
-class EligiblePlayerNicknameAlreadyExistsError(DomainError):
+class AllowlistNicknameAlreadyExistsError(DomainError):
     pass
 
 
-class IneligiblePlayerError(DomainError):
-    """Raised by `League.validate_match_participants_eligible` when match-
-    submission nicknames are not present in the league's `eligible_players`
-    allowlist.
+class NotInAllowlistError(DomainError):
+    """Raised by `League.validate_match_participants_allowed` when match-
+    submission nicknames are not present in the league's allowlist.
 
     `missing_nicknames` is the structured payload (list of normalized
     nicknames) that the API layer surfaces to clients verbatim, so the chat

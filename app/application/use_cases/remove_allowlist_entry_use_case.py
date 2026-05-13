@@ -8,24 +8,24 @@ from app.domain.exceptions import LeagueNotFoundError, UnauthorizedError
 
 
 @dataclass
-class RemoveEligiblePlayerCommand:
+class RemoveAllowlistEntryCommand:
     host_token: str
     league_id: str
-    eligible_player_id: str
+    allowlist_entry_id: str
 
 
-class RemoveEligiblePlayerUseCase:
-    """Remove a single nickname from the eligible-players allowlist.
+class RemoveAllowlistEntryUseCase:
+    """Remove a single nickname from the league's allowlist.
 
-    Does NOT delete any roster `Player` row — the eligible list and the
-    roster are decoupled by design (see
-    `Design_Doc/TLMB_Design_doc/20_eligible_players.md`).
+    Does NOT delete any roster `Player` row — the allowlist and the roster
+    are decoupled by design (see
+    `Design_Doc/TLMB_Design_doc/20_allowlist.md`).
     """
 
     def __init__(self, league_repo: LeagueRepository) -> None:
         self._league_repo = league_repo
 
-    async def execute(self, command: RemoveEligiblePlayerCommand) -> None:
+    async def execute(self, command: RemoveAllowlistEntryCommand) -> None:
         league_id = LeagueId.from_str(command.league_id)
 
         league = await self._league_repo.get_by_id_with_lock(league_id)
@@ -35,5 +35,5 @@ class RemoveEligiblePlayerUseCase:
         if league.host_token.value != command.host_token:
             raise UnauthorizedError("Invalid host token")
 
-        league.remove_eligible_player(command.eligible_player_id)
+        league.remove_allowlist_entry(command.allowlist_entry_id)
         await self._league_repo.save(league)

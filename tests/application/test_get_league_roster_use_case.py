@@ -141,5 +141,5 @@ class TestGetLeagueRosterUseCase:
             "one_team_per_player",
             "ranking_subject",
             "tie_breakers",
-            "require_eligible_players",
+            "require_allowlist",
         }

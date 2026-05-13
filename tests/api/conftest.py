@@ -18,19 +18,19 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.dependencies import (
-    get_add_eligible_players_use_case,
+    get_add_allowlist_entries_use_case,
     get_create_league_use_case,
     get_delete_match_use_case,
     get_delete_team_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
-    get_get_eligible_players_use_case,
+    get_get_allowlist_use_case,
     get_get_league_roster_use_case,
     get_get_match_history_use_case,
     get_get_match_history_by_player_use_case,
     get_get_standings_by_player_use_case,
     get_get_standings_use_case,
-    get_remove_eligible_player_use_case,
+    get_remove_allowlist_entry_use_case,
     get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
 )
@@ -100,17 +100,17 @@ def mock_get_standings_by_player_uc() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_add_eligible_players_uc() -> AsyncMock:
+def mock_add_allowlist_entries_uc() -> AsyncMock:
     return AsyncMock()
 
 
 @pytest.fixture
-def mock_remove_eligible_player_uc() -> AsyncMock:
+def mock_remove_allowlist_entry_uc() -> AsyncMock:
     return AsyncMock()
 
 
 @pytest.fixture
-def mock_get_eligible_players_uc() -> AsyncMock:
+def mock_get_allowlist_uc() -> AsyncMock:
     return AsyncMock()
 
 
@@ -128,9 +128,9 @@ async def client(
     mock_delete_match_uc: AsyncMock,
     mock_get_match_history_by_player_uc: AsyncMock,
     mock_get_standings_by_player_uc: AsyncMock,
-    mock_add_eligible_players_uc: AsyncMock,
-    mock_remove_eligible_player_uc: AsyncMock,
-    mock_get_eligible_players_uc: AsyncMock,
+    mock_add_allowlist_entries_uc: AsyncMock,
+    mock_remove_allowlist_entry_uc: AsyncMock,
+    mock_get_allowlist_uc: AsyncMock,
 ) -> AsyncClient:
     app.dependency_overrides[get_create_league_use_case] = lambda: mock_create_league_uc
     app.dependency_overrides[get_search_leagues_by_title_prefix_use_case] = (
@@ -152,14 +152,14 @@ async def client(
     app.dependency_overrides[get_get_standings_by_player_use_case] = (
         lambda: mock_get_standings_by_player_uc
     )
-    app.dependency_overrides[get_add_eligible_players_use_case] = (
-        lambda: mock_add_eligible_players_uc
+    app.dependency_overrides[get_add_allowlist_entries_use_case] = (
+        lambda: mock_add_allowlist_entries_uc
     )
-    app.dependency_overrides[get_remove_eligible_player_use_case] = (
-        lambda: mock_remove_eligible_player_uc
+    app.dependency_overrides[get_remove_allowlist_entry_use_case] = (
+        lambda: mock_remove_allowlist_entry_uc
     )
-    app.dependency_overrides[get_get_eligible_players_use_case] = (
-        lambda: mock_get_eligible_players_uc
+    app.dependency_overrides[get_get_allowlist_use_case] = (
+        lambda: mock_get_allowlist_uc
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

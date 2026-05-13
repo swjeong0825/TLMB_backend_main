@@ -1,17 +1,21 @@
-"""Behavior test for alembic 005 (eligible_players table + leagues.rules v3 -> v4 backfill).
+"""Behavior test for alembic 006 (allowlist rename + leagues.rules v4 -> v5).
 
-The integration test database is at HEAD when tests run, so v3-shaped rows
-are not present. This test inserts v3 rows directly, executes the same SQL
-that alembic 005 runs in `upgrade()`, and asserts:
+The integration test database is at HEAD when tests run, so v4-shaped rows
+are not present and the table is already named `allowlist_entries`. This
+test inserts v4-shaped JSONB rows directly and executes the same JSONB
+update statements that alembic 006 runs in `upgrade()` / `downgrade()`,
+asserting that:
 
-1. Every v3 row is bumped to v4 with `require_eligible_players: false`.
-2. v4 rows are untouched (idempotent re-run).
-3. Other rule fields (`one_team_per_player`, `ranking_subject`, `tie_breakers`,
-   `match_pair_idempotency`) are preserved verbatim through the bump.
-4. Downgrade resets `version` to `3`; the `require_eligible_players` key is
-   left in place (extra keys are ignored by the v3 parser).
-5. The `eligible_players` table is created by the migration's `op.create_table`
-   call — exercised structurally via insert + uniqueness assertions.
+1. Every v4 row is bumped to v5: the `require_eligible_players` key is
+   dropped and `require_allowlist` is set to the same boolean value.
+2. v5 rows are untouched (idempotent re-run).
+3. Other rule fields (`one_team_per_player`, `ranking_subject`,
+   `tie_breakers`, `match_pair_idempotency`) are preserved verbatim.
+4. Downgrade restores the legacy `require_eligible_players` key with the
+   same boolean value, drops `require_allowlist`, and resets `version` to 4.
+5. The `allowlist_entries` table (the renamed shape) accepts inserts under
+   the new `allowlist_entry_id` column, enforces the renamed unique
+   constraint, and cascades deletes when the parent league row is removed.
 """
 from __future__ import annotations
 
@@ -25,18 +29,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
-_BUMP_SQL = (
+_UPGRADE_SQL = (
     "UPDATE leagues "
-    "SET rules = rules || CAST(:patch AS jsonb) "
-    "WHERE (rules->>'version')::int = 3"
-)
-_DOWNGRADE_SQL = (
-    "UPDATE leagues "
-    "SET rules = rules || CAST(:patch AS jsonb) "
+    "SET rules = (rules - 'require_eligible_players') "
+    "       || jsonb_build_object("
+    "              'version', 5, "
+    "              'require_allowlist', "
+    "              COALESCE((rules->>'require_eligible_players')::bool, false)"
+    "          ) "
     "WHERE (rules->>'version')::int = 4"
 )
-_BUMP_PATCH = {"version": 4, "require_eligible_players": False}
-_DOWNGRADE_PATCH = {"version": 3}
+
+_DOWNGRADE_SQL = (
+    "UPDATE leagues "
+    "SET rules = (rules - 'require_allowlist') "
+    "       || jsonb_build_object("
+    "              'version', 4, "
+    "              'require_eligible_players', "
+    "              COALESCE((rules->>'require_allowlist')::bool, false)"
+    "          ) "
+    "WHERE (rules->>'version')::int = 5"
+)
 
 
 async def _insert_league_with_raw_rules(
@@ -72,16 +85,16 @@ async def _read_rules(session: AsyncSession, league_id: uuid.UUID) -> dict:
 
 
 async def _run_upgrade(session: AsyncSession) -> None:
-    await session.execute(text(_BUMP_SQL), {"patch": json.dumps(_BUMP_PATCH)})
+    await session.execute(text(_UPGRADE_SQL))
     await session.commit()
 
 
 async def _run_downgrade(session: AsyncSession) -> None:
-    await session.execute(text(_DOWNGRADE_SQL), {"patch": json.dumps(_DOWNGRADE_PATCH)})
+    await session.execute(text(_DOWNGRADE_SQL))
     await session.commit()
 
 
-class TestMigration005Rules:
+class TestMigration006Rules:
     @pytest_asyncio.fixture
     async def session(
         self, session_factory: async_sessionmaker[AsyncSession]
@@ -89,59 +102,82 @@ class TestMigration005Rules:
         async with session_factory() as s:
             yield s
 
-    async def test_v3_row_is_bumped_to_v4_with_flag_false(
+    async def test_v4_row_with_flag_false_is_renamed_and_bumped(
         self, session: AsyncSession
     ) -> None:
-        v3_row = {
-            "version": 3,
+        v4_row = {
+            "version": 4,
             "match_pair_idempotency": "once_per_league",
             "one_team_per_player": True,
             "ranking_subject": "team",
             "tie_breakers": ["matches_won"],
+            "require_eligible_players": False,
         }
         league_id = await _insert_league_with_raw_rules(
-            session, v3_row, "V3 Default League"
+            session, v4_row, "V4 False Flag League"
         )
 
         await _run_upgrade(session)
 
         rules = await _read_rules(session, league_id)
-        assert rules["version"] == 4
-        assert rules["require_eligible_players"] is False
-        # Other fields preserved verbatim.
+        assert rules["version"] == 5
+        assert rules["require_allowlist"] is False
+        assert "require_eligible_players" not in rules
         assert rules["match_pair_idempotency"] == "once_per_league"
         assert rules["one_team_per_player"] is True
         assert rules["ranking_subject"] == "team"
         assert rules["tie_breakers"] == ["matches_won"]
 
-    async def test_custom_v3_rules_preserved_through_bump(
+    async def test_v4_row_with_flag_true_preserves_value(
         self, session: AsyncSession
     ) -> None:
-        custom_v3 = {
-            "version": 3,
+        v4_row = {
+            "version": 4,
             "match_pair_idempotency": "none",
             "one_team_per_player": False,
             "ranking_subject": "player",
             "tie_breakers": ["games_won", "games_diff"],
+            "require_eligible_players": True,
         }
         league_id = await _insert_league_with_raw_rules(
-            session, custom_v3, "V3 Custom League"
+            session, v4_row, "V4 True Flag Custom League"
         )
 
         await _run_upgrade(session)
 
         rules = await _read_rules(session, league_id)
-        assert rules["version"] == 4
-        assert rules["require_eligible_players"] is False
+        assert rules["version"] == 5
+        assert rules["require_allowlist"] is True
+        assert "require_eligible_players" not in rules
         assert rules["match_pair_idempotency"] == "none"
         assert rules["one_team_per_player"] is False
         assert rules["ranking_subject"] == "player"
         assert rules["tie_breakers"] == ["games_won", "games_diff"]
 
-    async def test_upgrade_is_idempotent_for_v4_rows(
+    async def test_upgrade_is_idempotent_for_v5_rows(
         self, session: AsyncSession
     ) -> None:
-        existing_v4 = {
+        existing_v5 = {
+            "version": 5,
+            "match_pair_idempotency": "once_per_league",
+            "one_team_per_player": True,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+            "require_allowlist": True,
+        }
+        league_id = await _insert_league_with_raw_rules(
+            session, existing_v5, "Already V5"
+        )
+
+        await _run_upgrade(session)
+
+        rules = await _read_rules(session, league_id)
+        assert rules == existing_v5
+
+    async def test_downgrade_restores_legacy_key_and_v4(
+        self, session: AsyncSession
+    ) -> None:
+        v4_row = {
             "version": 4,
             "match_pair_idempotency": "once_per_league",
             "one_team_per_player": True,
@@ -150,43 +186,20 @@ class TestMigration005Rules:
             "require_eligible_players": True,
         }
         league_id = await _insert_league_with_raw_rules(
-            session, existing_v4, "Already V4"
-        )
-
-        await _run_upgrade(session)
-
-        rules = await _read_rules(session, league_id)
-        # Filter on version=3 keeps v4 rows untouched, including a True flag.
-        assert rules == existing_v4
-
-    async def test_downgrade_resets_version_to_3_but_does_not_drop_flag(
-        self, session: AsyncSession
-    ) -> None:
-        v3_row = {
-            "version": 3,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
-            "tie_breakers": ["matches_won"],
-        }
-        league_id = await _insert_league_with_raw_rules(
-            session, v3_row, "Downgrade Test League"
+            session, v4_row, "Roundtrip Test League"
         )
 
         await _run_upgrade(session)
         await _run_downgrade(session)
 
         rules = await _read_rules(session, league_id)
-        # Version reset.
-        assert rules["version"] == 3
-        # The flag is intentionally NOT dropped on downgrade — extra keys are
-        # ignored by the v3 parser, so leaving it in place is harmless and
-        # keeps the migration cheap.
-        assert rules["require_eligible_players"] is False
+        assert rules["version"] == 4
+        assert rules["require_eligible_players"] is True
+        assert "require_allowlist" not in rules
 
 
-class TestMigration005EligiblePlayersTable:
-    """Smoke checks that the new table exists with the right shape."""
+class TestMigration006AllowlistTable:
+    """Smoke checks that the renamed table has the expected shape at HEAD."""
 
     @pytest_asyncio.fixture
     async def session(
@@ -196,36 +209,36 @@ class TestMigration005EligiblePlayersTable:
             yield s
 
     async def test_table_accepts_insert(self, session: AsyncSession) -> None:
-        # Need a real league to satisfy the FK.
         league_id = await _insert_league_with_raw_rules(
             session,
             {
-                "version": 4,
+                "version": 5,
                 "match_pair_idempotency": "once_per_league",
                 "one_team_per_player": True,
                 "ranking_subject": "team",
                 "tie_breakers": ["matches_won"],
-                "require_eligible_players": False,
+                "require_allowlist": False,
             },
-            "FK Test League",
+            "FK Allowlist Test League",
         )
 
-        ep_id = uuid.uuid4()
+        entry_id = uuid.uuid4()
         await session.execute(
             text(
-                "INSERT INTO eligible_players (eligible_player_id, league_id, nickname_normalized) "
-                "VALUES (:epid, :lid, :nick)"
+                "INSERT INTO allowlist_entries "
+                "(allowlist_entry_id, league_id, nickname_normalized) "
+                "VALUES (:eid, :lid, :nick)"
             ),
-            {"epid": ep_id, "lid": league_id, "nick": "alex"},
+            {"eid": entry_id, "lid": league_id, "nick": "alex"},
         )
         await session.commit()
 
         row = await session.execute(
             text(
-                "SELECT nickname_normalized FROM eligible_players "
-                "WHERE eligible_player_id = :epid"
+                "SELECT nickname_normalized FROM allowlist_entries "
+                "WHERE allowlist_entry_id = :eid"
             ),
-            {"epid": ep_id},
+            {"eid": entry_id},
         )
         assert row.scalar_one() == "alex"
 
@@ -235,58 +248,61 @@ class TestMigration005EligiblePlayersTable:
         league_id = await _insert_league_with_raw_rules(
             session,
             {
-                "version": 4,
+                "version": 5,
                 "match_pair_idempotency": "once_per_league",
                 "one_team_per_player": True,
                 "ranking_subject": "team",
                 "tie_breakers": ["matches_won"],
-                "require_eligible_players": False,
+                "require_allowlist": False,
             },
-            "Uniq Test League",
+            "Uniq Allowlist Test League",
         )
 
         await session.execute(
             text(
-                "INSERT INTO eligible_players (eligible_player_id, league_id, nickname_normalized) "
-                "VALUES (:epid, :lid, :nick)"
+                "INSERT INTO allowlist_entries "
+                "(allowlist_entry_id, league_id, nickname_normalized) "
+                "VALUES (:eid, :lid, :nick)"
             ),
-            {"epid": uuid.uuid4(), "lid": league_id, "nick": "alex"},
+            {"eid": uuid.uuid4(), "lid": league_id, "nick": "alex"},
         )
         await session.commit()
 
         with pytest.raises(IntegrityError):
             await session.execute(
                 text(
-                    "INSERT INTO eligible_players (eligible_player_id, league_id, nickname_normalized) "
-                    "VALUES (:epid, :lid, :nick)"
+                    "INSERT INTO allowlist_entries "
+                    "(allowlist_entry_id, league_id, nickname_normalized) "
+                    "VALUES (:eid, :lid, :nick)"
                 ),
-                {"epid": uuid.uuid4(), "lid": league_id, "nick": "alex"},
+                {"eid": uuid.uuid4(), "lid": league_id, "nick": "alex"},
             )
             await session.commit()
         await session.rollback()
 
-    async def test_cascade_delete_on_league_removes_eligible_rows(
+    async def test_cascade_delete_on_league_removes_allowlist_rows(
         self, session: AsyncSession
     ) -> None:
         league_id = await _insert_league_with_raw_rules(
             session,
             {
-                "version": 4,
+                "version": 5,
                 "match_pair_idempotency": "once_per_league",
                 "one_team_per_player": True,
                 "ranking_subject": "team",
                 "tie_breakers": ["matches_won"],
-                "require_eligible_players": False,
+                "require_allowlist": False,
             },
-            "Cascade Test League",
+            "Cascade Allowlist Test League",
         )
 
         await session.execute(
             text(
-                "INSERT INTO eligible_players (eligible_player_id, league_id, nickname_normalized) "
-                "VALUES (:epid, :lid, :nick)"
+                "INSERT INTO allowlist_entries "
+                "(allowlist_entry_id, league_id, nickname_normalized) "
+                "VALUES (:eid, :lid, :nick)"
             ),
-            {"epid": uuid.uuid4(), "lid": league_id, "nick": "alex"},
+            {"eid": uuid.uuid4(), "lid": league_id, "nick": "alex"},
         )
         await session.commit()
 
@@ -297,7 +313,7 @@ class TestMigration005EligiblePlayersTable:
 
         row = await session.execute(
             text(
-                "SELECT COUNT(*) FROM eligible_players WHERE league_id = :lid"
+                "SELECT COUNT(*) FROM allowlist_entries WHERE league_id = :lid"
             ),
             {"lid": league_id},
         )

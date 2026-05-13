@@ -3,15 +3,15 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from app.domain.aggregates.league.entities import EligiblePlayer, Player, Team
+from app.domain.aggregates.league.entities import AllowlistEntry, Player, Team
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.policies import (
-    EligiblePlayerAllowlistPolicy,
+    AllowlistPolicy,
     NicknameUniquenessPolicy,
     OneTeamPerPlayerPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
-    EligiblePlayerId,
+    AllowlistEntryId,
     HostToken,
     LeagueId,
     PlayerId,
@@ -19,10 +19,10 @@ from app.domain.aggregates.league.value_objects import (
     TeamId,
 )
 from app.domain.exceptions import (
-    EligiblePlayerNicknameAlreadyExistsError,
-    EligiblePlayerNotFoundError,
-    IneligiblePlayerError,
+    AllowlistNicknameAlreadyExistsError,
+    AllowlistEntryNotFoundError,
     NicknameAlreadyInUseError,
+    NotInAllowlistError,
     PlayerNotFoundError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
@@ -39,9 +39,9 @@ class League:
     rules: LeagueRules
     players: list[Player]
     teams: list[Team]
-    eligible_players: list[EligiblePlayer] = field(default_factory=list)
+    allowlist: list[AllowlistEntry] = field(default_factory=list)
     pending_deleted_team_ids: list[TeamId] = field(default_factory=list)
-    pending_deleted_eligible_player_ids: list[EligiblePlayerId] = field(default_factory=list)
+    pending_deleted_allowlist_entry_ids: list[AllowlistEntryId] = field(default_factory=list)
 
     @classmethod
     def create(
@@ -62,9 +62,9 @@ class League:
             rules=resolved_rules,
             players=[],
             teams=[],
-            eligible_players=[],
+            allowlist=[],
             pending_deleted_team_ids=[],
-            pending_deleted_eligible_player_ids=[],
+            pending_deleted_allowlist_entry_ids=[],
         )
 
     def register_players_and_team(
@@ -145,80 +145,78 @@ class League:
         self.teams = [t for t in self.teams if t.team_id != tid]
         self.pending_deleted_team_ids.append(tid)
 
-    def add_eligible_players(self, nicknames: list[str]) -> list[EligiblePlayer]:
-        """Atomic batch add to the eligible-players allowlist.
+    def add_allowlist_entries(self, nicknames: list[str]) -> list[AllowlistEntry]:
+        """Atomic batch add to the league's allowlist.
 
-        Raises `EligiblePlayerNicknameAlreadyExistsError` if any input nickname
-        (after normalization) duplicates an existing eligible nickname or
+        Raises `AllowlistNicknameAlreadyExistsError` if any input nickname
+        (after normalization) duplicates an existing allowlist nickname or
         another nickname inside the same batch. On error, no entries are added.
         """
         if not nicknames:
             raise ValueError("nicknames must be a non-empty list")
 
-        # Normalize once. Use a set for in-batch duplicate detection so the
-        # error fires before we touch league state.
         normalized: list[PlayerNickname] = []
         seen_in_batch: set[str] = set()
         for raw in nicknames:
             nick = PlayerNickname(raw)
             if nick.value in seen_in_batch:
-                raise EligiblePlayerNicknameAlreadyExistsError(
+                raise AllowlistNicknameAlreadyExistsError(
                     f"Nickname '{raw}' is duplicated within the same add request"
                 )
             seen_in_batch.add(nick.value)
             normalized.append(nick)
 
-        existing = {ep.nickname.value for ep in self.eligible_players}
+        existing = {entry.nickname.value for entry in self.allowlist}
         for nick in normalized:
             if nick.value in existing:
-                raise EligiblePlayerNicknameAlreadyExistsError(
-                    f"Nickname '{nick.value}' is already in the eligible-players list"
+                raise AllowlistNicknameAlreadyExistsError(
+                    f"Nickname '{nick.value}' is already in the allowlist"
                 )
 
         new_entries = [
-            EligiblePlayer(eligible_player_id=EligiblePlayerId.generate(), nickname=nick)
+            AllowlistEntry(allowlist_entry_id=AllowlistEntryId.generate(), nickname=nick)
             for nick in normalized
         ]
-        self.eligible_players.extend(new_entries)
+        self.allowlist.extend(new_entries)
         return new_entries
 
-    def remove_eligible_player(self, eligible_player_id: str) -> None:
-        epid = EligiblePlayerId.from_str(eligible_player_id)
+    def remove_allowlist_entry(self, allowlist_entry_id: str) -> None:
+        entry_id = AllowlistEntryId.from_str(allowlist_entry_id)
         entry = next(
-            (ep for ep in self.eligible_players if ep.eligible_player_id == epid),
+            (e for e in self.allowlist if e.allowlist_entry_id == entry_id),
             None,
         )
         if entry is None:
-            raise EligiblePlayerNotFoundError(
-                f"Eligible player '{eligible_player_id}' not found in this league"
+            raise AllowlistEntryNotFoundError(
+                f"Allowlist entry '{allowlist_entry_id}' not found in this league"
             )
-        self.eligible_players = [
-            ep for ep in self.eligible_players if ep.eligible_player_id != epid
+        self.allowlist = [
+            e for e in self.allowlist if e.allowlist_entry_id != entry_id
         ]
-        self.pending_deleted_eligible_player_ids.append(epid)
+        self.pending_deleted_allowlist_entry_ids.append(entry_id)
 
-    def validate_match_participants_eligible(self, nicknames: Iterable[str]) -> None:
-        """Cross-check the four match-submission nicknames against
-        `eligible_players`.
+    def validate_match_participants_allowed(self, nicknames: Iterable[str]) -> None:
+        """Cross-check the four match-submission nicknames against the
+        league's allowlist.
 
-        No-op when `rules.require_eligible_players` is False. When True,
-        delegates to `EligiblePlayerAllowlistPolicy` to compute the set of
-        missing nicknames; raises `IneligiblePlayerError` if any are missing.
-        The rule-flag gate lives here (not inside the policy) so future call
-        sites — e.g. `edit_player_nickname` — can decide independently whether
-        and how to consult the same policy.
+        No-op when `rules.require_allowlist` is False. When True, delegates
+        to `AllowlistPolicy` to compute the set of missing nicknames; raises
+        `NotInAllowlistError` if any are missing. The rule-flag gate lives
+        here (not inside the policy) so future call sites — e.g.
+        `edit_player_nickname` — can decide independently whether and how to
+        consult the same policy.
         """
-        if not self.rules.require_eligible_players:
+        if not self.rules.require_allowlist:
             return
 
         candidates = [PlayerNickname(raw) for raw in nicknames]
-        missing = EligiblePlayerAllowlistPolicy().find_missing_nicknames(
-            candidates, self.eligible_players
+        missing = AllowlistPolicy().find_missing_nicknames(
+            candidates, self.allowlist
         )
 
         if missing:
-            raise IneligiblePlayerError(
-                "Match submission contains nicknames not in eligible_players: "
+            raise NotInAllowlistError(
+                "Match submission contains nicknames not in the allowlist: "
                 + ", ".join(missing),
                 missing_nicknames=missing,
             )

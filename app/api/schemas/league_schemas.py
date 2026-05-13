@@ -16,15 +16,14 @@ RankingMetricLiteral = Literal[
 ]
 
 
-class LeagueRulesV4Request(BaseModel):
+class LeagueRulesV5Request(BaseModel):
     """Shape of `rules` on create-league.
 
-    `version` accepts 1, 2, 3, or 4: v1, v2, and v3 inputs are upgraded
-    transparently in `LeagueRules.from_dict`. v4 adds the optional
-    `require_eligible_players: bool` flag (default `false`) which gates
-    match-submission rejection against the host-curated eligible-players
-    allowlist; see
-    `Design_Doc/TLMB_Design_doc/20_eligible_players.md`.
+    `version` accepts 1, 2, 3, 4, or 5: v1, v2, v3, and v4 inputs are
+    upgraded transparently in `LeagueRules.from_dict`. v5 is the current
+    canonical version and uses `require_allowlist: bool` (default `false`)
+    to gate match-submission rejection against the host-curated allowlist;
+    see `Design_Doc/TLMB_Design_doc/20_allowlist.md`.
 
     The v3 cross-rule (`(player, OTPP=true)` is rejected) is preserved.
     The pydantic model accepts plain `bool` for `one_team_per_player` so
@@ -32,35 +31,36 @@ class LeagueRulesV4Request(BaseModel):
     rather than a generic pydantic validation error.
     """
 
-    version: Literal[1, 2, 3, 4]
+    version: Literal[1, 2, 3, 4, 5]
     match_pair_idempotency: Literal["none", "once_per_league"]
     one_team_per_player: bool = True
     ranking_subject: Literal["team", "player"] | None = None
     tie_breakers: list[RankingMetricLiteral] | None = None
-    require_eligible_players: bool = False
+    require_allowlist: bool = False
 
 
-# Back-compat alias for any callers still importing the v3 name.
-LeagueRulesV3Request = LeagueRulesV4Request
+# Back-compat aliases for any callers still importing the older names.
+LeagueRulesV4Request = LeagueRulesV5Request
+LeagueRulesV3Request = LeagueRulesV5Request
 
 
 class CreateLeagueRequest(BaseModel):
     """Body for `POST /leagues`.
 
-    `eligible_players` is an optional bootstrap list — when non-empty the
-    nicknames are inserted into the league's eligible-players allowlist as
-    part of the same DB transaction that creates the league row. The list
-    may be present even when `rules.require_eligible_players` is False
-    (the allowlist is still populated, it just isn't enforced on match
-    submission). Validation mirrors `AddEligiblePlayersRequest`: entries
-    must be non-blank strings; the aggregate handles in-batch / against-
-    existing duplicate detection and raises domain errors that map to 409.
+    `allowlist` is an optional bootstrap list — when non-empty the
+    nicknames are inserted into the league's allowlist as part of the
+    same DB transaction that creates the league row. The list may be
+    present even when `rules.require_allowlist` is False (the allowlist
+    is still populated, it just isn't enforced on match submission).
+    Validation mirrors `AddAllowlistEntriesRequest`: entries must be
+    non-blank strings; the aggregate handles in-batch / against-existing
+    duplicate detection and raises domain errors that map to 409.
     """
 
     title: str
     description: str | None = None
-    rules: LeagueRulesV4Request | None = None # has default
-    eligible_players: list[str] = []
+    rules: LeagueRulesV5Request | None = None # has default
+    allowlist: list[str] = []
 
     @field_validator("title")
     @classmethod
@@ -69,12 +69,12 @@ class CreateLeagueRequest(BaseModel):
             raise ValueError("title must not be blank")
         return v
 
-    @field_validator("eligible_players")
+    @field_validator("allowlist")
     @classmethod
-    def eligible_player_nicknames_must_be_non_blank(cls, v: list[str]) -> list[str]:
+    def allowlist_nicknames_must_be_non_blank(cls, v: list[str]) -> list[str]:
         for entry in v:
             if not isinstance(entry, str) or not entry.strip():
-                raise ValueError("eligible_players entries must be non-blank strings")
+                raise ValueError("allowlist entries must be non-blank strings")
         return v
 
 
@@ -183,7 +183,7 @@ class LeagueRulesResponseSchema(BaseModel):
 
     Mirrors `LeagueRules.to_dict()` so the frontend can render and gate UI on
     the active rule configuration without an additional round-trip. All fields
-    are always populated — v4 is the canonical response version (older inputs
+    are always populated — v5 is the canonical response version (older inputs
     are upgraded by `LeagueRules.from_dict` before they are returned).
     """
 
@@ -192,7 +192,7 @@ class LeagueRulesResponseSchema(BaseModel):
     one_team_per_player: bool
     ranking_subject: Literal["team", "player"]
     tie_breakers: list[RankingMetricLiteral]
-    require_eligible_players: bool
+    require_allowlist: bool
 
 
 class GetLeagueRosterResponse(BaseModel):
@@ -202,10 +202,10 @@ class GetLeagueRosterResponse(BaseModel):
     teams: list[TeamEntrySchema]
 
 
-class EligiblePlayerEntrySchema(BaseModel):
-    eligible_player_id: str
+class AllowlistEntrySchema(BaseModel):
+    allowlist_entry_id: str
     nickname: str
 
 
-class GetEligiblePlayersResponse(BaseModel):
-    eligible_players: list[EligiblePlayerEntrySchema]
+class GetAllowlistResponse(BaseModel):
+    allowlist: list[AllowlistEntrySchema]

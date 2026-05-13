@@ -1,25 +1,25 @@
-"""Unit tests for AddEligiblePlayersUseCase."""
+"""Unit tests for AddAllowlistEntriesUseCase."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
 import pytest
 
-from app.application.use_cases.add_eligible_players_use_case import (
-    AddEligiblePlayersCommand,
-    AddEligiblePlayersUseCase,
+from app.application.use_cases.add_allowlist_entries_use_case import (
+    AddAllowlistEntriesCommand,
+    AddAllowlistEntriesUseCase,
 )
 from app.domain.exceptions import (
-    EligiblePlayerNicknameAlreadyExistsError,
+    AllowlistNicknameAlreadyExistsError,
     LeagueNotFoundError,
     UnauthorizedError,
 )
 from tests.application.conftest import make_league
 
 
-class TestAddEligiblePlayersUseCase:
-    def _use_case(self, league_repo: AsyncMock) -> AddEligiblePlayersUseCase:
-        return AddEligiblePlayersUseCase(league_repo)
+class TestAddAllowlistEntriesUseCase:
+    def _use_case(self, league_repo: AsyncMock) -> AddAllowlistEntriesUseCase:
+        return AddAllowlistEntriesUseCase(league_repo)
 
     async def test_happy_path_returns_new_entries(
         self, mock_league_repo: AsyncMock
@@ -29,15 +29,15 @@ class TestAddEligiblePlayersUseCase:
         use_case = self._use_case(mock_league_repo)
 
         result = await use_case.execute(
-            AddEligiblePlayersCommand(
+            AddAllowlistEntriesCommand(
                 host_token="valid-token",
                 league_id=str(league.league_id),
                 nicknames=["Alex", "Daniel"],
             )
         )
 
-        assert [e.nickname for e in result.eligible_players] == ["alex", "daniel"]
-        assert all(e.eligible_player_id for e in result.eligible_players)
+        assert [e.nickname for e in result.allowlist] == ["alex", "daniel"]
+        assert all(e.allowlist_entry_id for e in result.allowlist)
 
     async def test_persists_via_save(self, mock_league_repo: AsyncMock) -> None:
         league = make_league(host_token="valid-token")
@@ -45,7 +45,7 @@ class TestAddEligiblePlayersUseCase:
         use_case = self._use_case(mock_league_repo)
 
         await use_case.execute(
-            AddEligiblePlayersCommand(
+            AddAllowlistEntriesCommand(
                 host_token="valid-token",
                 league_id=str(league.league_id),
                 nicknames=["alex"],
@@ -60,7 +60,7 @@ class TestAddEligiblePlayersUseCase:
 
         with pytest.raises(LeagueNotFoundError):
             await use_case.execute(
-                AddEligiblePlayersCommand(
+                AddAllowlistEntriesCommand(
                     host_token="any",
                     league_id="00000000-0000-0000-0000-000000000000",
                     nicknames=["alex"],
@@ -76,7 +76,7 @@ class TestAddEligiblePlayersUseCase:
 
         with pytest.raises(UnauthorizedError):
             await use_case.execute(
-                AddEligiblePlayersCommand(
+                AddAllowlistEntriesCommand(
                     host_token="wrong-token",
                     league_id=str(league.league_id),
                     nicknames=["alex"],
@@ -90,7 +90,7 @@ class TestAddEligiblePlayersUseCase:
 
         with pytest.raises(UnauthorizedError):
             await use_case.execute(
-                AddEligiblePlayersCommand(
+                AddAllowlistEntriesCommand(
                     host_token="wrong-token",
                     league_id=str(league.league_id),
                     nicknames=["alex"],
@@ -103,13 +103,13 @@ class TestAddEligiblePlayersUseCase:
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        league.add_eligible_players(["alex"])
+        league.add_allowlist_entries(["alex"])
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
 
-        with pytest.raises(EligiblePlayerNicknameAlreadyExistsError):
+        with pytest.raises(AllowlistNicknameAlreadyExistsError):
             await use_case.execute(
-                AddEligiblePlayersCommand(
+                AddAllowlistEntriesCommand(
                     host_token="valid-token",
                     league_id=str(league.league_id),
                     nicknames=["alex"],
@@ -123,9 +123,9 @@ class TestAddEligiblePlayersUseCase:
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
 
-        with pytest.raises(EligiblePlayerNicknameAlreadyExistsError):
+        with pytest.raises(AllowlistNicknameAlreadyExistsError):
             await use_case.execute(
-                AddEligiblePlayersCommand(
+                AddAllowlistEntriesCommand(
                     host_token="valid-token",
                     league_id=str(league.league_id),
                     nicknames=["Alex", "ALEX"],
@@ -136,16 +136,16 @@ class TestAddEligiblePlayersUseCase:
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        league.add_eligible_players(["alex"])
+        league.add_allowlist_entries(["alex"])
         mock_league_repo.get_by_id_with_lock.return_value = league
         # Reset the call count to ignore the in-test setup save above (it
-        # didn't happen here — make_league + add_eligible_players is in-memory).
+        # didn't happen here — make_league + add_allowlist_entries is in-memory).
         mock_league_repo.save.reset_mock()
         use_case = self._use_case(mock_league_repo)
 
-        with pytest.raises(EligiblePlayerNicknameAlreadyExistsError):
+        with pytest.raises(AllowlistNicknameAlreadyExistsError):
             await use_case.execute(
-                AddEligiblePlayersCommand(
+                AddAllowlistEntriesCommand(
                     host_token="valid-token",
                     league_id=str(league.league_id),
                     nicknames=["daniel", "alex"],

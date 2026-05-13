@@ -8,23 +8,23 @@ from app.domain.exceptions import LeagueNotFoundError
 
 
 @dataclass
-class GetEligiblePlayersQuery:
+class GetAllowlistQuery:
     league_id: str
 
 
 @dataclass
-class EligiblePlayerEntry:
-    eligible_player_id: str
+class AllowlistEntry:
+    allowlist_entry_id: str
     nickname: str
 
 
 @dataclass
-class EligiblePlayersView:
-    eligible_players: list[EligiblePlayerEntry]
+class AllowlistView:
+    allowlist: list[AllowlistEntry]
 
 
-class GetEligiblePlayersUseCase:
-    """Read the host-curated eligible-players allowlist.
+class GetAllowlistUseCase:
+    """Read the host-curated allowlist.
 
     Public read (league_id only) — mirrors `GetLeagueRosterUseCase`. Sorted
     alphabetically by nickname for stable display ordering.
@@ -33,7 +33,7 @@ class GetEligiblePlayersUseCase:
     def __init__(self, league_repo: LeagueRepository) -> None:
         self._league_repo = league_repo
 
-    async def execute(self, query: GetEligiblePlayersQuery) -> EligiblePlayersView:
+    async def execute(self, query: GetAllowlistQuery) -> AllowlistView:
         league_id = LeagueId.from_str(query.league_id)
 
         league = await self._league_repo.get_by_id(league_id)
@@ -42,13 +42,13 @@ class GetEligiblePlayersUseCase:
 
         entries = sorted(
             [
-                EligiblePlayerEntry(
-                    eligible_player_id=str(ep.eligible_player_id.value),
-                    nickname=ep.nickname.value,
+                AllowlistEntry(
+                    allowlist_entry_id=str(entry.allowlist_entry_id.value),
+                    nickname=entry.nickname.value,
                 )
-                for ep in league.eligible_players
+                for entry in league.allowlist
             ],
             key=lambda e: e.nickname,
         )
 
-        return EligiblePlayersView(eligible_players=entries)
+        return AllowlistView(allowlist=entries)

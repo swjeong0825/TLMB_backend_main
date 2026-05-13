@@ -47,12 +47,12 @@ def _rules(
     one_team_per_player: bool = True,
 ) -> LeagueRules:
     return LeagueRules(
-        version=4,
+        version=5,
         match_pair_idempotency="once_per_league",
         one_team_per_player=one_team_per_player,
         ranking_subject=ranking_subject,  # type: ignore[arg-type]
         tie_breakers=tie_breakers,
-        require_eligible_players=False,
+        require_allowlist=False,
     )
 
 

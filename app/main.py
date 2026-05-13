@@ -8,16 +8,16 @@ from app.api.routers.admin_router import router as admin_router
 from app.api.routers.league_router import router as league_router
 from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
+    AllowlistEntryNotFoundError,
+    AllowlistNicknameAlreadyExistsError,
     DuplicateTeamPairMatchError,
-    EligiblePlayerNicknameAlreadyExistsError,
-    EligiblePlayerNotFoundError,
-    IneligiblePlayerError,
     InvalidLeagueRulesError,
     InvalidSetScoreError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
     MatchNotFoundError,
     NicknameAlreadyInUseError,
+    NotInAllowlistError,
     PlayerNotFoundError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
@@ -130,37 +130,37 @@ async def invalid_league_rules_handler(request: Request, exc: InvalidLeagueRules
     return JSONResponse(status_code=422, content={"error": "InvalidLeagueRulesError", "detail": str(exc)})
 
 
-@app.exception_handler(EligiblePlayerNotFoundError)
-async def eligible_player_not_found_handler(
-    request: Request, exc: EligiblePlayerNotFoundError
+@app.exception_handler(AllowlistEntryNotFoundError)
+async def allowlist_entry_not_found_handler(
+    request: Request, exc: AllowlistEntryNotFoundError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=404,
-        content={"error": "EligiblePlayerNotFoundError", "detail": str(exc)},
+        content={"error": "AllowlistEntryNotFoundError", "detail": str(exc)},
     )
 
 
-@app.exception_handler(EligiblePlayerNicknameAlreadyExistsError)
-async def eligible_player_nickname_exists_handler(
-    request: Request, exc: EligiblePlayerNicknameAlreadyExistsError
+@app.exception_handler(AllowlistNicknameAlreadyExistsError)
+async def allowlist_nickname_exists_handler(
+    request: Request, exc: AllowlistNicknameAlreadyExistsError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
         content={
-            "error": "EligiblePlayerNicknameAlreadyExistsError",
+            "error": "AllowlistNicknameAlreadyExistsError",
             "detail": str(exc),
         },
     )
 
 
-@app.exception_handler(IneligiblePlayerError)
-async def ineligible_player_handler(
-    request: Request, exc: IneligiblePlayerError
+@app.exception_handler(NotInAllowlistError)
+async def not_in_allowlist_handler(
+    request: Request, exc: NotInAllowlistError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=422,
         content={
-            "error": "IneligiblePlayerError",
+            "error": "NotInAllowlistError",
             "detail": str(exc),
             "missing_nicknames": list(exc.missing_nicknames),
         },

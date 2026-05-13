@@ -18,11 +18,11 @@
 | **E2E** | `tests/e2e/` | **Yes** | Yes (ASGI in-process) | Top-to-bottom: HTTP → router → use case → repository → real Postgres → response. |
 
 The layering deliberately overlaps so the *same* business rule (e.g. "match
-submission must reject ineligible nicknames when the rule is on") is verified
-multiple times: once in pure-domain unit tests, once in mocked-application
-unit tests, once in API-router unit tests with the use case mocked, and once
-end-to-end against real Postgres. Each layer confirms a different slice of
-"this still works" and they catch different bug classes.
+submission must reject not-in-allowlist nicknames when the rule is on") is
+verified multiple times: once in pure-domain unit tests, once in
+mocked-application unit tests, once in API-router unit tests with the use case
+mocked, and once end-to-end against real Postgres. Each layer confirms a
+different slice of "this still works" and they catch different bug classes.
 
 ---
 
@@ -60,7 +60,7 @@ Every child table FKs into `leagues.league_id` with `ON DELETE CASCADE`:
 - `players.league_id`
 - `teams.league_id`
 - `matches.league_id`
-- `eligible_players.league_id` (added in alembic 005)
+- `allowlist_entries.league_id` (added in alembic 005, renamed in alembic 006)
 
 So one statement clears the entire app's data set. When a new table is added,
 the only thing the test maintainer needs to confirm is that its FK to
@@ -126,8 +126,8 @@ the empty DB.
 
 **Repository test — bulk insert, expect specific set back.**
 
-```22:42:tests/integration/repositories/test_league_repository_eligible.py
-async def test_save_persists_added_eligible_players(session: AsyncSession) -> None:
+```24:43:tests/integration/repositories/test_league_repository_allowlist.py
+async def test_save_persists_added_allowlist_entries(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
 
     league = _make_league()
@@ -138,14 +138,14 @@ async def test_save_persists_added_eligible_players(session: AsyncSession) -> No
     league = await repo.get_by_id(league.league_id)
     assert league is not None
 
-    league.add_eligible_players(["alex", "daniel", "jason"])
+    league.add_allowlist_entries(["alex", "daniel", "jason"])
     await repo.save(league)
     await session.commit()
     session.expire_all()
 
     reloaded = await repo.get_by_id(league.league_id)
     assert reloaded is not None
-    nicks = {ep.nickname.value for ep in reloaded.eligible_players}
+    nicks = {entry.nickname.value for entry in reloaded.allowlist}
     assert nicks == {"alex", "daniel", "jason"}
 ```
 
@@ -155,28 +155,28 @@ broken `save()` would make `nicks == set()` and the assertion would fail.
 **E2E test — arranges league + allowlist, exercises the rule, asserts on the
 structured error payload.**
 
-```174:200:tests/e2e/test_eligible_players_api.py
-async def test_match_submission_rejected_when_participants_not_eligible(
+```174:200:tests/e2e/test_allowlist_api.py
+async def test_match_submission_rejected_when_participants_not_allowlisted(
     client: AsyncClient,
 ) -> None:
     league = await _create_league(
-        client, "Allowlist League", require_eligible_players=True
+        client, "Allowlist League", require_allowlist=True
     )
     league_id, host_token = league["league_id"], league["host_token"]
 
     # Allowlist only two of the four submitting players.
     resp = await client.post(
-        f"/admin/leagues/{league_id}/eligible-players",
+        f"/admin/leagues/{league_id}/allowlist",
         json={"nicknames": ["alice", "bob"]},
         headers={"X-Host-Token": host_token},
     )
     assert resp.status_code == 201
 
-    # Submit a match with two ineligible participants → 422 ...
+    # Submit a match with two participants not on the allowlist → 422 ...
     resp = await _submit_match(client, league_id)
     assert resp.status_code == 422
     body = resp.json()
-    assert body["error"] == "IneligiblePlayerError"
+    assert body["error"] == "NotInAllowlistError"
     assert sorted(body["missing_nicknames"]) == ["charlie", "diana"]
 ```
 
@@ -195,20 +195,20 @@ The one place we deliberately use the "expect empty list" shape is when the
 empty list itself *is* the contract being tested, and we always pair it with
 at least one other concrete assertion. Example:
 
-```247:262:tests/e2e/test_eligible_players_api.py
-async def test_default_league_does_not_enforce_eligible_check(
+```247:262:tests/e2e/test_allowlist_api.py
+async def test_default_league_does_not_enforce_allowlist_check(
     client: AsyncClient,
 ) -> None:
-    """The default rules carry require_eligible_players=False, so submitting
-    a match against an empty eligible list must succeed — preserves byte-for-
-    byte compatibility for every league that existed before this feature."""
+    """The default rules carry require_allowlist=False, so submitting a match
+    against an empty allowlist must succeed — preserves byte-for-byte
+    compatibility for every league that existed before this feature."""
     league = await _create_league(client, "Default League")
     league_id = league["league_id"]
 
-    # Eligible list is empty.
-    resp = await client.get(f"/leagues/{league_id}/eligible-players")
+    # Allowlist is empty.
+    resp = await client.get(f"/leagues/{league_id}/allowlist")
     assert resp.status_code == 200
-    assert resp.json() == {"eligible_players": []}
+    assert resp.json() == {"allowlist": []}
 
     # Match submission still succeeds.
     resp = await _submit_match(client, league_id)
@@ -228,9 +228,9 @@ supposed to cover, then re-run the test. Examples:
 | Mutation | Tests that should fail |
 |---|---|
 | Make `LeagueRepository.save()` an empty `pass` | Most integration repository tests. |
-| Make `validate_match_participants_eligible` an unconditional no-op | `test_flag_on_and_missing_nickname_raises_with_payload` (application) and `test_match_submission_rejected_when_participants_not_eligible` (e2e). |
-| Make the GET eligible-players endpoint always return `{"eligible_players": []}` | `test_host_can_add_list_and_remove_eligible_players` (the post-add list assertion expects 3 sorted names). |
-| Make `from_dict` ignore the `require_eligible_players` key | `test_from_dict_v4_round_trip`, `test_from_dict_v4_require_eligible_players_true`, `test_v4_rules_round_trip_with_require_eligible_players_true`. |
+| Make `validate_match_participants_allowed` an unconditional no-op | `test_flag_on_and_missing_nickname_raises_with_payload` (application) and `test_match_submission_rejected_when_participants_not_allowlisted` (e2e). |
+| Make the GET allowlist endpoint always return `{"allowlist": []}` | `test_host_can_add_list_and_remove_allowlist_entries` (the post-add list assertion expects 3 sorted names). |
+| Make `from_dict` ignore the `require_allowlist` key | `test_from_dict_v5_round_trip`, `test_from_dict_v5_require_allowlist_true`, `test_v5_rules_round_trip_with_require_allowlist_true`. |
 
 If a candidate mutation passes every test, the suite is missing coverage for
 that code path.
@@ -312,7 +312,7 @@ tests:
    ```bash
    rg "LeagueRules\(\s*\n\s*version=" backend_main
    ```
-2. `EligiblePlayer(...)`, `Player(...)`, `Team(...)` (entity dataclasses) —
+2. `AllowlistEntry(...)`, `Player(...)`, `Team(...)` (entity dataclasses) —
    currently only used inside aggregate methods, not in tests directly.
 
 Production code constructs `LeagueRules` only via:
@@ -329,10 +329,10 @@ So any new field must be:
 5. Added to the two test sites that call `LeagueRules(...)` directly, OR
    given a default in step 1.
 
-For the v4 `require_eligible_players` field, the choice was **no default**
-on the dataclass + explicit `require_eligible_players=False` at the two test
-call sites. This forces every future site that builds a `LeagueRules` to
-think about the flag, instead of silently inheriting `False`.
+For the v5 `require_allowlist` field, the choice was **no default** on the
+dataclass + explicit `require_allowlist=False` at the two test call sites.
+This forces every future site that builds a `LeagueRules` to think about the
+flag, instead of silently inheriting `False`.
 
 ---
 
@@ -340,11 +340,11 @@ think about the flag, instead of silently inheriting `False`.
 
 | Pitfall | Why it happens | Test that guards against it |
 |---|---|---|
-| Schema migration silently leaves rows partially upgraded | `WHERE` clause too narrow | [`test_v3_row_is_bumped_to_v4_with_flag_false`](integration/test_migration_005_eligible_players_and_rules_v4.py) |
-| Migration is not idempotent (re-run corrupts data) | Forgot to filter by `version` | [`test_upgrade_is_idempotent_for_v4_rows`](integration/test_migration_005_eligible_players_and_rules_v4.py) |
-| New ORM table not loaded with `selectinload`, causing `MissingGreenlet` at access time | Forgetting to extend the `_LEAGUE_LOAD_OPTIONS` tuple | [`test_save_persists_added_eligible_players`](integration/repositories/test_league_repository_eligible.py) — would raise on the second `get_by_id` |
+| Schema migration silently leaves rows partially upgraded | `WHERE` clause too narrow | [`test_v4_row_with_flag_false_is_renamed_and_bumped`](integration/test_migration_006_allowlist_rename_and_rules_v5.py) |
+| Migration is not idempotent (re-run corrupts data) | Forgot to filter by `version` | [`test_upgrade_is_idempotent_for_v5_rows`](integration/test_migration_006_allowlist_rename_and_rules_v5.py) |
+| New ORM table not loaded with `selectinload`, causing `MissingGreenlet` at access time | Forgetting to extend the `_LEAGUE_LOAD_OPTIONS` tuple | [`test_save_persists_added_allowlist_entries`](integration/repositories/test_league_repository_allowlist.py) — would raise on the second `get_by_id` |
 | Domain method that should not write still writes | Forgot guard | Application tests follow the pattern `with pytest.raises(...): ...` followed by `mock.save.assert_not_awaited()` |
-| Exception → HTTP status mapping silently broken | Forgot to register handler in `app/main.py` | API tests assert both `response.status_code == 422` AND `response.json()["error"] == "IneligiblePlayerError"` |
+| Exception → HTTP status mapping silently broken | Forgot to register handler in `app/main.py` | API tests assert both `response.status_code == 422` AND `response.json()["error"] == "NotInAllowlistError"` |
 | Use case rejects valid input due to over-strict validation | Schema field validator too narrow | API tests include positive-path cases (`test_returns_201_on_success`) alongside negative ones |
 | Cross-cutting flag added to one path but missed in another | Lots of paths touch `LeagueRules` | The **layered overlap** — same scenario covered in domain, application, and e2e tests — surfaces the gap. |
 
@@ -352,8 +352,8 @@ think about the flag, instead of silently inheriting `False`.
 
 ## 7. Adding a new feature — minimum test menu
 
-When adding a feature in the style of the v4 eligible-players work, the
-expected test additions are:
+When adding a feature in the style of the v5 allowlist work, the expected
+test additions are:
 
 1. **Domain** — one `Test{Method}` class per new aggregate method, with
    happy path + every distinct exception path.
@@ -375,5 +375,5 @@ expected test additions are:
 8. **E2E** — at minimum: full host-managed flow, rule-on rejection with
    structured payload assertion, rule-off no-op (backwards compatibility).
 
-The v4 work in this iteration is a worked example of all eight, and a useful
-template for the next feature.
+The v5 allowlist work (and the original v4 eligible-players work it renamed)
+is a worked example of all eight, and a useful template for the next feature.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.aggregates.league.entities import EligiblePlayer, Player, Team
+from app.domain.aggregates.league.entities import AllowlistEntry, Player, Team
 from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname, TeamId
 
 
@@ -35,16 +35,16 @@ class OneTeamPerPlayerPolicy:
         return True
 
 
-class EligiblePlayerAllowlistPolicy:
-    """Pure predicate over the eligible-players allowlist.
+class AllowlistPolicy:
+    """Pure predicate over the league's allowlist.
 
     Returns the *list of missing nicknames* (normalized, de-duplicated, in
     input order of first appearance) instead of a bool, because every current
     and anticipated caller needs the diff to construct a structured error
-    payload (`IneligiblePlayerError(missing_nicknames=...)`).
+    payload (`NotInAllowlistError(missing_nicknames=...)`).
 
-    The "should I check at all?" gate (`LeagueRules.require_eligible_players`)
-    is intentionally NOT consulted here. Each call site decides whether to
+    The "should I check at all?" gate (`LeagueRules.require_allowlist`) is
+    intentionally NOT consulted here. Each call site decides whether to
     invoke the policy based on its own semantics — mirrors how
     `OneTeamPerPlayerPolicy` is gated by `LeagueRules.one_team_per_player`
     inside `League.register_players_and_team`. See
@@ -54,14 +54,14 @@ class EligiblePlayerAllowlistPolicy:
     def find_missing_nicknames(
         self,
         candidates: Iterable[PlayerNickname],
-        eligible_players: list[EligiblePlayer],
+        allowlist: list[AllowlistEntry],
     ) -> list[str]:
-        eligible_set = {ep.nickname.value for ep in eligible_players}
+        allowed_set = {entry.nickname.value for entry in allowlist}
         missing: list[str] = []
         seen_missing: set[str] = set()
         for nick in candidates:
             value = nick.value
-            if value in eligible_set or value in seen_missing:
+            if value in allowed_set or value in seen_missing:
                 continue
             missing.append(value)
             seen_missing.add(value)

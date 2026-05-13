@@ -8,27 +8,27 @@ from app.domain.exceptions import LeagueNotFoundError, UnauthorizedError
 
 
 @dataclass
-class AddEligiblePlayersCommand:
+class AddAllowlistEntriesCommand:
     host_token: str
     league_id: str
     nicknames: list[str]
 
 
 @dataclass
-class EligiblePlayerEntry:
-    eligible_player_id: str
+class AllowlistEntry:
+    allowlist_entry_id: str
     nickname: str
 
 
 @dataclass
-class AddEligiblePlayersResult:
-    eligible_players: list[EligiblePlayerEntry]
+class AddAllowlistEntriesResult:
+    allowlist: list[AllowlistEntry]
 
 
-class AddEligiblePlayersUseCase:
-    """Bulk-add nicknames to the league's eligible-players allowlist.
+class AddAllowlistEntriesUseCase:
+    """Bulk-add nicknames to the league's allowlist.
 
-    The use case is admin-gated; any duplicate (vs an existing eligible
+    The use case is admin-gated; any duplicate (vs an existing allowlist
     nickname or another nickname inside the same batch) rejects the entire
     request via the aggregate (no partial inserts).
     """
@@ -36,7 +36,7 @@ class AddEligiblePlayersUseCase:
     def __init__(self, league_repo: LeagueRepository) -> None:
         self._league_repo = league_repo
 
-    async def execute(self, command: AddEligiblePlayersCommand) -> AddEligiblePlayersResult:
+    async def execute(self, command: AddAllowlistEntriesCommand) -> AddAllowlistEntriesResult:
         league_id = LeagueId.from_str(command.league_id)
 
         league = await self._league_repo.get_by_id_with_lock(league_id)
@@ -46,13 +46,13 @@ class AddEligiblePlayersUseCase:
         if league.host_token.value != command.host_token:
             raise UnauthorizedError("Invalid host token")
 
-        new_entries = league.add_eligible_players(command.nicknames)
+        new_entries = league.add_allowlist_entries(command.nicknames)
         await self._league_repo.save(league)
 
-        return AddEligiblePlayersResult(
-            eligible_players=[
-                EligiblePlayerEntry(
-                    eligible_player_id=str(e.eligible_player_id.value),
+        return AddAllowlistEntriesResult(
+            allowlist=[
+                AllowlistEntry(
+                    allowlist_entry_id=str(e.allowlist_entry_id.value),
                     nickname=e.nickname.value,
                 )
                 for e in new_entries

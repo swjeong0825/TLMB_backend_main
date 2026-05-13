@@ -1,4 +1,4 @@
-"""Unit tests for RemoveEligiblePlayerUseCase."""
+"""Unit tests for RemoveAllowlistEntryUseCase."""
 from __future__ import annotations
 
 import uuid
@@ -6,39 +6,39 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.application.use_cases.remove_eligible_player_use_case import (
-    RemoveEligiblePlayerCommand,
-    RemoveEligiblePlayerUseCase,
+from app.application.use_cases.remove_allowlist_entry_use_case import (
+    RemoveAllowlistEntryCommand,
+    RemoveAllowlistEntryUseCase,
 )
 from app.domain.exceptions import (
-    EligiblePlayerNotFoundError,
+    AllowlistEntryNotFoundError,
     LeagueNotFoundError,
     UnauthorizedError,
 )
 from tests.application.conftest import make_league
 
 
-class TestRemoveEligiblePlayerUseCase:
-    def _use_case(self, league_repo: AsyncMock) -> RemoveEligiblePlayerUseCase:
-        return RemoveEligiblePlayerUseCase(league_repo)
+class TestRemoveAllowlistEntryUseCase:
+    def _use_case(self, league_repo: AsyncMock) -> RemoveAllowlistEntryUseCase:
+        return RemoveAllowlistEntryUseCase(league_repo)
 
     async def test_happy_path_removes_and_saves(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        added = league.add_eligible_players(["alex", "daniel"])
+        added = league.add_allowlist_entries(["alex", "daniel"])
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
 
         await use_case.execute(
-            RemoveEligiblePlayerCommand(
+            RemoveAllowlistEntryCommand(
                 host_token="valid-token",
                 league_id=str(league.league_id),
-                eligible_player_id=str(added[0].eligible_player_id.value),
+                allowlist_entry_id=str(added[0].allowlist_entry_id.value),
             )
         )
 
-        nicks = {e.nickname.value for e in league.eligible_players}
+        nicks = {e.nickname.value for e in league.allowlist}
         assert nicks == {"daniel"}
         mock_league_repo.save.assert_awaited_once_with(league)
 
@@ -48,10 +48,10 @@ class TestRemoveEligiblePlayerUseCase:
 
         with pytest.raises(LeagueNotFoundError):
             await use_case.execute(
-                RemoveEligiblePlayerCommand(
+                RemoveAllowlistEntryCommand(
                     host_token="any",
                     league_id="00000000-0000-0000-0000-000000000000",
-                    eligible_player_id=str(uuid.uuid4()),
+                    allowlist_entry_id=str(uuid.uuid4()),
                 )
             )
 
@@ -59,49 +59,49 @@ class TestRemoveEligiblePlayerUseCase:
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="correct-token")
-        added = league.add_eligible_players(["alex"])
+        added = league.add_allowlist_entries(["alex"])
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
 
         with pytest.raises(UnauthorizedError):
             await use_case.execute(
-                RemoveEligiblePlayerCommand(
+                RemoveAllowlistEntryCommand(
                     host_token="wrong-token",
                     league_id=str(league.league_id),
-                    eligible_player_id=str(added[0].eligible_player_id.value),
+                    allowlist_entry_id=str(added[0].allowlist_entry_id.value),
                 )
             )
 
     async def test_unauthorized_does_not_save(self, mock_league_repo: AsyncMock) -> None:
         league = make_league(host_token="correct-token")
-        added = league.add_eligible_players(["alex"])
+        added = league.add_allowlist_entries(["alex"])
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
 
         with pytest.raises(UnauthorizedError):
             await use_case.execute(
-                RemoveEligiblePlayerCommand(
+                RemoveAllowlistEntryCommand(
                     host_token="wrong-token",
                     league_id=str(league.league_id),
-                    eligible_player_id=str(added[0].eligible_player_id.value),
+                    allowlist_entry_id=str(added[0].allowlist_entry_id.value),
                 )
             )
 
         mock_league_repo.save.assert_not_awaited()
 
-    async def test_unknown_eligible_player_id_raises_404_class(
+    async def test_unknown_allowlist_entry_id_raises_404_class(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        league.add_eligible_players(["alex"])
+        league.add_allowlist_entries(["alex"])
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
 
-        with pytest.raises(EligiblePlayerNotFoundError):
+        with pytest.raises(AllowlistEntryNotFoundError):
             await use_case.execute(
-                RemoveEligiblePlayerCommand(
+                RemoveAllowlistEntryCommand(
                     host_token="valid-token",
                     league_id=str(league.league_id),
-                    eligible_player_id=str(uuid.uuid4()),
+                    allowlist_entry_id=str(uuid.uuid4()),
                 )
             )

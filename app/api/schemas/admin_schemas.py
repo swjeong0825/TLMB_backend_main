@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, field_validator
 
-from app.api.schemas.league_schemas import EligiblePlayerEntrySchema
+from app.api.schemas.league_schemas import AllowlistEntrySchema
 
 
 class EditPlayerNicknameRequest(BaseModel):
@@ -32,7 +32,7 @@ class EditMatchScoreResponse(BaseModel):
     team2_score: str
 
 
-class AddEligiblePlayersRequest(BaseModel):
+class AddAllowlistEntriesRequest(BaseModel):
     nicknames: list[str]
 
     @field_validator("nicknames")
@@ -46,5 +46,5 @@ class AddEligiblePlayersRequest(BaseModel):
         return v
 
 
-class AddEligiblePlayersResponse(BaseModel):
-    eligible_players: list[EligiblePlayerEntrySchema]
+class AddAllowlistEntriesResponse(BaseModel):
+    allowlist: list[AllowlistEntrySchema]

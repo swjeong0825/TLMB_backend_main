@@ -4,17 +4,17 @@ from fastapi import APIRouter, Depends, Header, status
 from starlette.requests import Request
 
 from app.api.schemas.admin_schemas import (
-    AddEligiblePlayersRequest,
-    AddEligiblePlayersResponse,
+    AddAllowlistEntriesRequest,
+    AddAllowlistEntriesResponse,
     EditMatchScoreRequest,
     EditMatchScoreResponse,
     EditPlayerNicknameRequest,
     EditPlayerNicknameResponse,
 )
-from app.api.schemas.league_schemas import EligiblePlayerEntrySchema
-from app.application.use_cases.add_eligible_players_use_case import (
-    AddEligiblePlayersCommand,
-    AddEligiblePlayersUseCase,
+from app.api.schemas.league_schemas import AllowlistEntrySchema
+from app.application.use_cases.add_allowlist_entries_use_case import (
+    AddAllowlistEntriesCommand,
+    AddAllowlistEntriesUseCase,
 )
 from app.application.use_cases.delete_match_use_case import DeleteMatchCommand, DeleteMatchUseCase
 from app.application.use_cases.delete_team_use_case import DeleteTeamCommand, DeleteTeamUseCase
@@ -26,17 +26,17 @@ from app.application.use_cases.edit_player_nickname_use_case import (
     EditPlayerNicknameCommand,
     EditPlayerNicknameUseCase,
 )
-from app.application.use_cases.remove_eligible_player_use_case import (
-    RemoveEligiblePlayerCommand,
-    RemoveEligiblePlayerUseCase,
+from app.application.use_cases.remove_allowlist_entry_use_case import (
+    RemoveAllowlistEntryCommand,
+    RemoveAllowlistEntryUseCase,
 )
 from app.dependencies import (
-    get_add_eligible_players_use_case,
+    get_add_allowlist_entries_use_case,
     get_delete_match_use_case,
     get_delete_team_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
-    get_remove_eligible_player_use_case,
+    get_remove_allowlist_entry_use_case,
 )
 from app.rate_limit import limiter
 
@@ -143,52 +143,52 @@ async def delete_match(
 
 
 @router.post(
-    "/leagues/{league_id}/eligible-players",
+    "/leagues/{league_id}/allowlist",
     status_code=status.HTTP_201_CREATED,
-    response_model=AddEligiblePlayersResponse,
+    response_model=AddAllowlistEntriesResponse,
 )
 @limiter.limit("60/minute")
-async def add_eligible_players(
+async def add_allowlist_entries(
     request: Request,
     league_id: str,
-    body: AddEligiblePlayersRequest,
+    body: AddAllowlistEntriesRequest,
     x_host_token: str = Header(..., alias="X-Host-Token"),
-    use_case: AddEligiblePlayersUseCase = Depends(get_add_eligible_players_use_case),
-) -> AddEligiblePlayersResponse:
+    use_case: AddAllowlistEntriesUseCase = Depends(get_add_allowlist_entries_use_case),
+) -> AddAllowlistEntriesResponse:
     result = await use_case.execute(
-        AddEligiblePlayersCommand(
+        AddAllowlistEntriesCommand(
             host_token=x_host_token,
             league_id=league_id,
             nicknames=body.nicknames,
         )
     )
-    return AddEligiblePlayersResponse(
-        eligible_players=[
-            EligiblePlayerEntrySchema(
-                eligible_player_id=e.eligible_player_id,
+    return AddAllowlistEntriesResponse(
+        allowlist=[
+            AllowlistEntrySchema(
+                allowlist_entry_id=e.allowlist_entry_id,
                 nickname=e.nickname,
             )
-            for e in result.eligible_players
+            for e in result.allowlist
         ],
     )
 
 
 @router.delete(
-    "/leagues/{league_id}/eligible-players/{eligible_player_id}",
+    "/leagues/{league_id}/allowlist/{allowlist_entry_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @limiter.limit("60/minute")
-async def remove_eligible_player(
+async def remove_allowlist_entry(
     request: Request,
     league_id: str,
-    eligible_player_id: str,
+    allowlist_entry_id: str,
     x_host_token: str = Header(..., alias="X-Host-Token"),
-    use_case: RemoveEligiblePlayerUseCase = Depends(get_remove_eligible_player_use_case),
+    use_case: RemoveAllowlistEntryUseCase = Depends(get_remove_allowlist_entry_use_case),
 ) -> None:
     await use_case.execute(
-        RemoveEligiblePlayerCommand(
+        RemoveAllowlistEntryCommand(
             host_token=x_host_token,
             league_id=league_id,
-            eligible_player_id=eligible_player_id,
+            allowlist_entry_id=allowlist_entry_id,
         )
     )

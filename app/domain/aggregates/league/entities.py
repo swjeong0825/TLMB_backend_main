@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.domain.aggregates.league.value_objects import (
-    EligiblePlayerId,
+    AllowlistEntryId,
     PlayerId,
     PlayerNickname,
     TeamId,
@@ -24,6 +24,6 @@ class Team:
 
 
 @dataclass(frozen=True)
-class EligiblePlayer:
-    eligible_player_id: EligiblePlayerId
+class AllowlistEntry:
+    allowlist_entry_id: AllowlistEntryId
     nickname: PlayerNickname
