@@ -120,6 +120,14 @@ class TestCreateLeagueUseCase:
             "daniel",
             "jason",
         ]
+        # The allowlist seed also creates Player rows on the same aggregate,
+        # which the single repo.save call persists in the same DB transaction
+        # (link-to-existing rule — see 20_allowlist.md).
+        assert {p.nickname.value for p in league.players} == {
+            "alex",
+            "daniel",
+            "jason",
+        }
 
     async def test_empty_allowlist_is_a_noop(
         self, mock_league_repo: AsyncMock
@@ -141,3 +149,4 @@ class TestCreateLeagueUseCase:
 
         mock_league_repo.save.assert_awaited_once()
         assert saved_leagues[0].allowlist == []
+        assert saved_leagues[0].players == []

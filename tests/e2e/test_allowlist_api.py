@@ -286,3 +286,128 @@ async def test_default_league_with_allowlist_entries_still_does_not_block(
 
     resp = await _submit_match(client, league_id)
     assert resp.status_code == 201, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Scenario 4: allowlist add eagerly creates roster Player rows
+# ---------------------------------------------------------------------------
+
+
+async def test_allowlist_add_creates_roster_player_rows(
+    client: AsyncClient,
+) -> None:
+    """`POST /admin/leagues/{id}/allowlist` must surface the new nicknames
+    in `GET /leagues/{id}/roster`'s `players` array — even though no match
+    has been submitted yet. Teams are NOT created on this path."""
+    league = await _create_league(client, "Roster From Allowlist League")
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    # Roster is empty before any allowlist add.
+    resp = await client.get(f"/leagues/{league_id}/roster")
+    assert resp.status_code == 200
+    assert resp.json()["players"] == []
+    assert resp.json()["teams"] == []
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/allowlist",
+        json={"nicknames": ["Alex", "Daniel", "Jason"]},
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 201
+
+    resp = await client.get(f"/leagues/{league_id}/roster")
+    assert resp.status_code == 200
+    roster = resp.json()
+    assert {p["nickname"] for p in roster["players"]} == {
+        "alex",
+        "daniel",
+        "jason",
+    }
+    assert roster["teams"] == []
+
+
+async def test_create_league_with_seeded_allowlist_creates_roster_players(
+    client: AsyncClient,
+) -> None:
+    """Seeding `allowlist` on `POST /leagues` must also surface those
+    nicknames as roster Players in the same transaction as the league row."""
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Seeded Roster League",
+            "allowlist": ["Alex", "Daniel"],
+        },
+    )
+    assert resp.status_code == 201
+    league_id = resp.json()["league_id"]
+
+    resp = await client.get(f"/leagues/{league_id}/roster")
+    assert resp.status_code == 200
+    roster = resp.json()
+    assert {p["nickname"] for p in roster["players"]} == {"alex", "daniel"}
+    assert roster["teams"] == []
+
+
+async def test_match_submission_reuses_allowlist_seeded_player_ids(
+    client: AsyncClient,
+) -> None:
+    """When match participants were previously created via allowlist add,
+    submitting a match for those nicknames must reuse the existing Player
+    rows (no duplicate insert) and only create the new Team."""
+    league = await _create_league(
+        client, "Reuse Player IDs League", require_allowlist=True
+    )
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/allowlist",
+        json={"nicknames": ["alice", "bob", "charlie", "diana"]},
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 201
+
+    roster_before = (await client.get(f"/leagues/{league_id}/roster")).json()
+    pid_before = {p["nickname"]: p["player_id"] for p in roster_before["players"]}
+    assert set(pid_before.keys()) == {"alice", "bob", "charlie", "diana"}
+
+    resp = await _submit_match(client, league_id)
+    assert resp.status_code == 201, resp.text
+
+    roster_after = (await client.get(f"/leagues/{league_id}/roster")).json()
+    pid_after = {p["nickname"]: p["player_id"] for p in roster_after["players"]}
+    # Same four nicknames, same player_ids — no duplicates were inserted.
+    assert pid_after == pid_before
+    # Exactly two teams were created by match submission.
+    assert len(roster_after["teams"]) == 2
+
+
+async def test_allowlist_remove_does_not_delete_player_row(
+    client: AsyncClient,
+) -> None:
+    """Removing an allowlist entry must NOT delete the Player row that was
+    created when the entry was added — the lifecycle asymmetry is by
+    design (see 20_allowlist.md)."""
+    league = await _create_league(client, "Remove Asymmetry League")
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/allowlist",
+        json={"nicknames": ["alex"]},
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 201
+    entry_id = resp.json()["allowlist"][0]["allowlist_entry_id"]
+
+    # Remove the entry.
+    resp = await client.delete(
+        f"/admin/leagues/{league_id}/allowlist/{entry_id}",
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 204
+
+    # Allowlist is empty, but the Player row remains.
+    assert (await client.get(f"/leagues/{league_id}/allowlist")).json() == {
+        "allowlist": []
+    }
+    roster = (await client.get(f"/leagues/{league_id}/roster")).json()
+    assert {p["nickname"] for p in roster["players"]} == {"alex"}

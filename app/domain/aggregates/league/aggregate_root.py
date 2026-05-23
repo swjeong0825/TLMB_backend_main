@@ -150,7 +150,16 @@ class League:
 
         Raises `AllowlistNicknameAlreadyExistsError` if any input nickname
         (after normalization) duplicates an existing allowlist nickname or
-        another nickname inside the same batch. On error, no entries are added.
+        another nickname inside the same batch. On error, no entries are added
+        and no Player rows are created.
+
+        Side effect: for every input nickname that does not already resolve
+        to an existing roster Player (case-insensitive via
+        `_find_player_by_nickname`), a fresh `Player` is appended to
+        `self.players`. Nicknames that already match an existing Player are
+        silently linked — no duplicate Player is created and no error is
+        raised. See `Design_Doc/TLMB_Design_doc/20_allowlist.md` ->
+        "Player creation on allowlist add".
         """
         if not nicknames:
             raise ValueError("nicknames must be a non-empty list")
@@ -178,6 +187,13 @@ class League:
             for nick in normalized
         ]
         self.allowlist.extend(new_entries)
+
+        for nick in normalized:
+            if self._find_player_by_nickname(nick) is None:
+                self.players.append(
+                    Player(player_id=PlayerId.generate(), nickname=nick)
+                )
+
         return new_entries
 
     def remove_allowlist_entry(self, allowlist_entry_id: str) -> None:

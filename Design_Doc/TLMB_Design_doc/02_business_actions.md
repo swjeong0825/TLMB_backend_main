@@ -93,6 +93,7 @@ flowchart LR
 - Failure cases:
   - A new player nickname conflicts with an existing player already in a different team in the same league (team conflict invariant still applies after registration)
 - Related context: League Management
+- Notes: This is **one of two** implicit Player-creation paths. The other is the allowlist-add path (see [20_allowlist.md](20_allowlist.md)): when the host calls `POST /leagues` with an `allowlist` field or `POST /admin/leagues/{league_id}/allowlist`, every nickname that does not already match a roster Player triggers an implicit Player creation in the same transaction (no Team is created on the allowlist-add path). When match submission later observes a nickname that was already seeded by allowlist add, `register_players_and_team` reuses the existing Player and only creates the Team.
 
 ---
 

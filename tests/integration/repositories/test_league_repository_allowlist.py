@@ -111,11 +111,14 @@ async def test_resave_without_changes_does_not_duplicate(
     assert len(final.allowlist) == 2
 
 
-async def test_allowlist_independent_of_roster_persistence(
+async def test_allowlist_add_creates_players_in_same_save(
     session: AsyncSession,
 ) -> None:
-    """A nickname can live in the allowlist without ever having been promoted
-    to a roster Player row (the two tables have no FK relationship)."""
+    """Allowlist add eagerly creates Player rows, and the repository's
+    existing save() loop persists both tables in a single transaction.
+    Teams are NOT created on the allowlist-add path. The two tables
+    remain decoupled by FK — the link is purely the shared normalized
+    nickname value (see 20_allowlist.md)."""
     repo = SqlAlchemyLeagueRepository(session)
 
     league = _make_league()
@@ -126,7 +129,7 @@ async def test_allowlist_independent_of_roster_persistence(
 
     reloaded = await repo.get_by_id(league.league_id)
     assert reloaded is not None
-    assert reloaded.players == []
+    assert {p.nickname.value for p in reloaded.players} == {"alex", "daniel"}
     assert reloaded.teams == []
     assert {entry.nickname.value for entry in reloaded.allowlist} == {"alex", "daniel"}
 

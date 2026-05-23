@@ -44,14 +44,25 @@
 
 ---
 
-## Invariant: Players and Teams Are Created Only Through Match Submission
+## Invariant: Teams Are Created Only Through Match Submission
 
-- Statement: No player or team record may exist in the league unless it was created as part of a confirmed match submission.
-- Why it exists: Explicit pre-registration is out of scope in V1. Allowing orphaned player/team records (not linked to any match) would pollute the roster and create ambiguous state.
+- Statement: No team record may exist in the league unless it was created as part of a confirmed match submission.
+- Why it exists: Explicit team pre-registration is out of scope in V1. Allowing orphaned team records (not linked to any match) would pollute the roster and create ambiguous state.
 - Scope / context: League Management
-- Likely owner: League aggregate root (the SubmitMatchResult application use case is the only path through which players/teams are created; it invokes League aggregate methods and saves through LeagueRepository)
-- Violated when: A player or team is inserted into the league outside of the match submission flow (e.g. via a direct admin create-player endpoint, if one ever existed).
-- Notes: In V1, there is no explicit player or team creation endpoint. The only creation path is implicit registration triggered by a match submission. Admin operations may edit or delete existing records but cannot create new ones outside this flow.
+- Likely owner: League aggregate root (the SubmitMatchResult application use case is the only path through which teams are created; it invokes `League.register_players_and_team` and saves through LeagueRepository)
+- Violated when: A team is inserted into the league outside of the match submission flow.
+- Notes: In V1, there is no explicit team creation endpoint. The only team creation path is implicit registration triggered by a match submission. Admin operations may edit or delete existing teams but cannot create new ones outside this flow.
+
+---
+
+## Invariant: Players Are Created Through Match Submission Or Allowlist Add
+
+- Statement: Every `Player` record in the league originates from one of exactly two paths — `League.register_players_and_team` (called by `SubmitMatchResultUseCase` on first match submission for a new nickname) or `League.add_allowlist_entries` (called by `CreateLeagueUseCase` with a seeded allowlist or by `AddAllowlistEntriesUseCase` when the host pre-registers an allowed nickname).
+- Why it exists: There is still no explicit per-player registration endpoint or login flow; players are created only by host actions that either record a match or pre-declare an allowed nickname. Constraining the creation paths keeps the roster congruent with either match participation or host curation.
+- Scope / context: League Management
+- Likely owner: League aggregate root (the only two methods that append to `self.players` are `register_players_and_team` and `add_allowlist_entries`).
+- Violated when: A `Player` row is inserted via any other code path (e.g. a hypothetical direct admin create-player endpoint, or a use case that bypasses the aggregate).
+- Notes: Adding a nickname to the allowlist that already matches an existing roster Player is a silent no-op for the roster — the existing Player is reused (link-to-existing rule). Removing an allowlist entry never deletes the corresponding `Player`, so a Player can outlive the allowlist entry that originally created it. Full specification: [20_allowlist.md](20_allowlist.md). Pre-existing leagues created before this rule shipped may have allowlist entries without matching `Player` rows; there is no backfill migration, so the directional invariant `allowlist ⊆ players` only holds **forward**.
 
 ---
 
@@ -119,4 +130,4 @@
 - Scope / context: Cross-aggregate: League Management (player/team creation) and Match Recording (match creation)
 - Owner: SubmitMatchResult application use case — loads the League aggregate through LeagueRepository, invokes League domain behavior to register any new players/teams, creates the Match aggregate, and persists both through their repositories within a single database transaction
 - Violated when: Player/team records are committed to the database without the associated match record, or vice versa.
-- Notes: This constraint is enforced at the application layer via a single transaction boundary, not inside either aggregate root individually. The use case is the coordination point. All nickname lookups are scoped to the leagueId from the incoming command — cross-league resolution is impossible by design, since unknown nicknames trigger implicit registration within the target league rather than a global lookup.
+- Notes: This constraint is enforced at the application layer via a single transaction boundary, not inside either aggregate root individually. The use case is the coordination point. All nickname lookups are scoped to the leagueId from the incoming command — cross-league resolution is impossible by design, since unknown nicknames trigger implicit registration within the target league rather than a global lookup. The allowlist-add path also creates Player rows, but it does **not** create matches, so this atomicity constraint is specific to match submission. The allowlist path's own atomicity is owned by `CreateLeagueUseCase` / `AddAllowlistEntriesUseCase` (see [20_allowlist.md](20_allowlist.md) → "Modified use case: `CreateLeagueUseCase`").

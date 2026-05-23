@@ -11,7 +11,7 @@ specific recorded match):
 | Concept | Meaning | Owner |
 |---|---|---|
 | `allowlist` | Pre-declared, host-curated allowlist of nicknames who *may* participate. | League aggregate (this doc). |
-| `players` (roster) | Players who have already been implicitly registered through a match submission. | League aggregate (existing). |
+| `players` (roster) | Players who have been implicitly registered — either through `add_allowlist_entries` (host pre-registers an allowed nickname) or on first confirmed match submission. | League aggregate (existing). |
 | `match_participants` | The four nicknames recorded on a single `Match`. | Match aggregate (existing). |
 
 Source guide: [allowlist_ai_agent_guide.md](../../../allowlist_ai_agent_guide.md).
@@ -68,6 +68,7 @@ flowchart TD
     end
     ROOT -->|"creates / removes"| AE
     ROOT -->|"validates against"| AE
+    ROOT -->|"creates Player on add_allowlist_entries (link-to-existing on collision)"| PE
     ROOT -->|"holds"| LR
     AE -->|"identified by"| AEI
     AE -->|"holds"| PN
@@ -84,12 +85,24 @@ flowchart TD
 
 ### Why a separate entity instead of folding into `Player`
 
-- Allowlist membership is **prospective**; a `Player` row implies past
-  participation.
-- Allowed nicknames may never play and should not pollute roster / standings
-  reads.
-- Removing a nickname from the allowlist must not delete a `Player`
-  record (which is FK'd by `Team` and `Match`).
+`add_allowlist_entries` now **eagerly creates** a `Player` row for every
+new allowlist nickname (linking to the existing `Player` when one with
+the same normalized nickname already exists — see "Player creation on
+allowlist add" below). Even so, `AllowlistEntry` and `Player` remain two
+separate entities, for one load-bearing reason:
+
+- **Removal is asymmetric.** `remove_allowlist_entry` must *not* delete
+  the corresponding `Player` row. Once a `Player` exists it persists
+  regardless of allowlist status, so the host can remove an invitation
+  without rewriting history (the `Player` may already be FK'd by `Team`
+  and `Match`, and even before any match has been recorded the product
+  decision is to keep the `Player` row — see
+  `harness_notes` / Q&A on the allowlist iteration). Two entities with
+  asymmetric lifecycles cannot be folded into one.
+
+A `Player` row no longer implies past participation; it now means
+"this nickname has been registered on the league roster", regardless
+of whether the host pre-registered it or it appeared via a match.
 
 ### `League` aggregate methods (added in this iteration)
 
@@ -98,12 +111,20 @@ def add_allowlist_entries(self, nicknames: list[str]) -> list[AllowlistEntry]:
     """Atomic batch add. Raises AllowlistNicknameAlreadyExistsError if any
     input nickname (after normalization) duplicates an existing allowlist
     nickname or another nickname inside the same batch. On error, no entries
-    are added."""
+    are added.
+
+    Side effect (this iteration): for every input nickname that does not
+    already resolve to an existing roster Player (case-insensitive), a new
+    Player row is appended to `self.players`. Nicknames that already match
+    an existing Player are silently linked — no duplicate Player is created
+    and no error is raised."""
 
 def remove_allowlist_entry(self, allowlist_entry_id: str) -> None:
     """Raises AllowlistEntryNotFoundError if the id is not in the league.
     Removed ids are appended to `pending_deleted_allowlist_entry_ids` so the
-    repository can DELETE the row on save."""
+    repository can DELETE the row on save. The corresponding Player row
+    (if one was created by add_allowlist_entries) is NOT deleted — once a
+    Player exists it persists for the lifetime of the league."""
 
 def validate_match_participants_allowed(self, nicknames: Iterable[str]) -> None:
     """No-op when self.rules.require_allowlist is False. When True,
@@ -157,14 +178,69 @@ decision rule.
 
 - **Nickname uniqueness within the allowlist (case-insensitive).** Two
   entries with the same normalized nickname cannot coexist.
-- **Allowlist is independent of the roster.** A nickname may be on the
-  `allowlist` without being in `players`, and vice versa. (The latter is
-  possible for any league created before the host populates the list, or
-  for any league with `require_allowlist=false`.)
+- **Allowlist add eagerly creates Player rows; allowlist remove never
+  deletes them.** After `add_allowlist_entries` returns, every nickname
+  in the input batch resolves to a `Player` in `self.players` — either
+  newly created or pre-existing under the same normalized nickname.
+  After `remove_allowlist_entry` returns, the `Player` row (if any) is
+  untouched. The two entities remain separately persisted because of
+  this lifecycle asymmetry.
+- **Forward-only invariant: every allowlist entry has a corresponding
+  Player.** For any league created or modified after this iteration
+  ships, every nickname in `allowlist` has a `Player` in `players` with
+  the same normalized nickname. Pre-existing leagues that already have
+  allowlist entries without matching Player rows are left untouched
+  (no backfill migration); the invariant therefore holds *forward only*.
+- **A Player can exist without an allowlist entry.** Match submission
+  still creates Players for any match-participant nickname that is not
+  already on the roster (e.g. when `require_allowlist=false`), and an
+  allowlist entry can be removed without removing the Player. So
+  `players ⊇ allowlist` (after this iteration ships, modulo the
+  forward-only caveat above).
 - **`require_allowlist` is consulted only at match submission.** Add /
   remove operations on the allowlist are always allowed regardless of the
   flag; the flag only changes whether `SubmitMatchResultUseCase` calls
   `validate_match_participants_allowed`.
+
+### Player creation on allowlist add (link-to-existing rule)
+
+For each input nickname `n` to `add_allowlist_entries`, after the
+allowlist-side duplicate check has passed:
+
+1. **No matching Player exists** (i.e.
+   `_find_player_by_nickname(n) is None`): a fresh
+   `Player(player_id=PlayerId.generate(), nickname=n)` is appended to
+   `self.players`. The repository's existing `save(league)` loop picks
+   it up and inserts a `players` row in the same transaction as the
+   `allowlist_entries` row.
+2. **A matching Player already exists** (e.g. they previously played
+   a match, or were added to the allowlist earlier): the new
+   `AllowlistEntry` is appended *without* creating a duplicate
+   `Player`. The two records are linked implicitly by the shared
+   normalized nickname — there is no FK and no link column.
+
+Rationale for "link to existing" rather than "reject 409":
+
+- Allowlist add is a host operation, not a player operation; the host
+  may have just added someone who already showed up in an early match.
+  Forcing them to delete the match or the player to add the allowlist
+  entry would be hostile UX.
+- The roster nickname uniqueness invariant is preserved: at most one
+  `Player` per normalized nickname per league.
+- Idempotent semantics: re-adding a nickname that is *not* on the
+  allowlist but *is* on the roster will succeed (it adds the
+  `AllowlistEntry`); re-adding a nickname that *is* already on the
+  allowlist still raises `AllowlistNicknameAlreadyExistsError` from
+  the existing duplicate check.
+
+Known nickname drift: `edit_player_nickname` does *not* update the
+matching `AllowlistEntry`. After a host edits a Player created via
+allowlist add, the allowlist still holds the old nickname. This is
+documented and accepted for V1 — the host can `remove_allowlist_entry`
++ `add_allowlist_entries` to realign, and `require_allowlist=true`
+match validation uses the (stale) allowlist nickname unchanged. A
+future iteration may auto-realign or enforce uniqueness across the
+union; out of scope here.
 
 ## `LeagueRules` v5
 
@@ -208,7 +284,9 @@ CREATE INDEX ix_allowlist_entries_league_id ON allowlist_entries(league_id);
 
 Schema mirrors `players`: same FK/cascade semantics, same case-insensitive
 uniqueness shape. There is **no** FK from `allowlist_entries` to `players`;
-the two are decoupled by design.
+the two tables are linked only by the shared normalized nickname value,
+not by a foreign key. This keeps the lifecycle asymmetry (add creates a
+Player, remove never deletes one) representable without cascade rules.
 
 ### `leagues.rules` JSONB
 
@@ -341,11 +419,14 @@ await self._league_repo.save(league)
 ```
 
 Single-transaction guarantee: the FastAPI request scope owns the
-`AsyncSession`. Both the new `LeagueORM` row and every `AllowlistEntryORM`
-row are added to that session by one `repo.save(league)` call, and the
-session commits at request completion. Either both reach the database or
-neither does. There is no second admin call, so the host token returned
-to the client is **already** backed by a populated allowlist.
+`AsyncSession`. The new `LeagueORM` row, every `AllowlistEntryORM` row,
+**and every `PlayerORM` row that `add_allowlist_entries` eagerly created**
+are added to that session by one `repo.save(league)` call, and the
+session commits at request completion. Either all of them reach the
+database or none do. There is no second admin call, so the host token
+returned to the client is **already** backed by a populated allowlist
+*and* a populated roster (in the new common case where
+`add_allowlist_entries` had no link-to-existing collisions).
 
 Validation / error shape (delegated entirely to existing layers — nothing
 new in the use case):
@@ -382,6 +463,13 @@ _, team1 = league.register_players_and_team(t1_n1, t1_n2)
 When `require_allowlist=false` (every existing league after the
 migration) this is a no-op and behavior is byte-identical to today.
 
+Interaction with the allowlist-creates-Player rule: when match
+participants were previously seeded via `add_allowlist_entries`,
+`register_players_and_team` finds them via `_find_player_by_nickname`
+and reuses the existing `Player` IDs (no double-insert). Submitted
+nicknames not seeded by the allowlist follow the original implicit-
+registration path and create fresh `Player` rows; this is unchanged.
+
 ## API
 
 ### New endpoints
@@ -416,11 +504,15 @@ gains an optional `allowlist: list[str]` field with default `[]`:
 Behavior summary:
 
 - Default `[]`: identical to the pre-iteration behavior (no allowlist
-  rows created, no migration churn).
+  rows created, no migration churn, no Player rows created).
 - Non-empty list: persisted in the same transaction as the league row.
+  **Side effect:** also creates a `Player` row for every input nickname
+  (no link-to-existing case is possible at create time because the
+  league has no roster yet).
 - Validation: each entry must be a non-blank string (422 from pydantic);
   in-batch duplicates after `PlayerNickname` normalization → 409
-  `AllowlistNicknameAlreadyExistsError` (league row not created).
+  `AllowlistNicknameAlreadyExistsError` (league row not created, no
+  Player rows created).
 
 ### Request / response shapes
 
@@ -455,6 +547,12 @@ workflow and is atomic — any duplicate (vs existing entries or within the
 batch) rejects the entire request with 409. Single-add is just a one-element
 list.
 
+**Side effect on the roster:** every nickname in the request that does
+not already match a `Player` causes a new `Player` row to be created
+in the same transaction (link-to-existing rule — see "Player creation
+on allowlist add"). The response shape is unchanged; clients that need
+the new `Player` IDs can re-fetch `GET /leagues/{league_id}/roster`.
+
 `DELETE /admin/leagues/{league_id}/allowlist/{allowlist_entry_id}` → `204`
 
 ### New error → HTTP status mapping
@@ -486,7 +584,10 @@ for the future chat-server clarification flow described in
 
 1. **Domain.** Add `AllowlistEntryId`, `AllowlistEntry`, `League`
    methods, `LeagueRules` v5 with `require_allowlist`, three new
-   exception classes.
+   exception classes. **Subsequent iteration:** extend
+   `add_allowlist_entries` to eagerly append a `Player` (with a fresh
+   `PlayerId`) for every input nickname not already in `self.players`,
+   reusing `_find_player_by_nickname` for the link-to-existing check.
 2. **Application.** Three new use cases; modify
    `SubmitMatchResultUseCase` to call `validate_match_participants_allowed`;
    extend `CreateLeagueUseCase` with the optional `allowlist`

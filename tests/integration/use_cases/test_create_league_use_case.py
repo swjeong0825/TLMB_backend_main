@@ -145,6 +145,14 @@ async def test_persists_league_and_seeded_allowlist_atomically(
         "daniel",
         "jason",
     ]
+    # Allowlist seed also creates Player rows in the same DB transaction
+    # (link-to-existing rule — see 20_allowlist.md). No teams are created.
+    assert sorted(p.nickname.value for p in found.players) == [
+        "alex",
+        "daniel",
+        "jason",
+    ]
+    assert found.teams == []
 
 
 async def test_duplicate_seeded_allowlist_entry_rejects_whole_creation(

@@ -54,7 +54,8 @@ flowchart TD
 - Player nickname uniqueness within a league: case-insensitive, enforced on `register_players_and_team` and `edit_player_nickname`
 - One team per player per league: conditional on `LeagueRules.one_team_per_player`. When `true` (the default for new leagues), a player may belong to at most one team; enforced on `register_players_and_team` via `OneTeamPerPlayerPolicy`. When `false` (legal under v3), the policy is skipped and a player may belong to multiple teams; the by-player read models (`GetStandingsByPlayerUseCase`, `GetMatchHistoryByPlayerUseCase`) aggregate across every team the player belongs to. See [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md).
 - Team has exactly two distinct players: enforced on team creation inside `register_players_and_team`
-- Players and teams are created only through match submission: no standalone player/team creation endpoint; the only path is `register_players_and_team` called by the SubmitMatchResult use case
+- Teams are created only through match submission: no standalone team creation endpoint; the only path is `register_players_and_team` called by the SubmitMatchResult use case.
+- Players are created through match submission OR `add_allowlist_entries`: no standalone player creation endpoint. A `Player` row is appended either by `register_players_and_team` (implicit on first match submission) or by `add_allowlist_entries` (when the host pre-registers an allowed nickname; see [20_allowlist.md](../20_allowlist.md) → "Player creation on allowlist add"). After this iteration, every entry in `allowlist` resolves to a `Player` in `players` (forward only — pre-existing leagues may violate, by design: no backfill migration).
 - **Match pair idempotency** is **not** enforced inside the League aggregate: it is a cross-aggregate check in `SubmitMatchResultUseCase` using `League.rules` and `MatchRepository` (see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md))
 
 ---
@@ -96,20 +97,22 @@ flowchart TD
 ### `add_allowlist_entries(nicknames: list[str]) -> list[AllowlistEntry]`
 - Purpose: Atomically extend the host-managed allowlist with one or more nicknames. Used by the host (admin) to pre-declare who is allowed to participate. Full feature specification: [20_allowlist.md](../20_allowlist.md).
 - Inputs: list of raw nicknames (normalization applied inside via `PlayerNickname`).
-- State changes: appends one new `AllowlistEntry` per input nickname.
-- Invariants checked: each input nickname (after normalization) must be unique against existing allowlist nicknames AND against other entries in the same batch; otherwise raises `AllowlistNicknameAlreadyExistsError` and no entries are added.
-- Returns: the list of newly created `AllowlistEntry` objects, in input order.
+- State changes:
+  - Appends one new `AllowlistEntry` per input nickname.
+  - Appends one new `Player` per input nickname **that does not already resolve to an existing roster Player** (case-insensitive match via `_find_player_by_nickname`). When a roster Player with the same normalized nickname already exists, the allowlist entry is added but no duplicate Player is created (link-to-existing rule).
+- Invariants checked: each input nickname (after normalization) must be unique against existing allowlist nicknames AND against other entries in the same batch; otherwise raises `AllowlistNicknameAlreadyExistsError` and no entries are added (and no Players are created). The method does NOT raise on roster-side collisions — those are handled silently via the link-to-existing rule.
+- Returns: the list of newly created `AllowlistEntry` objects, in input order. Newly created Players are NOT returned; callers that need them re-read `league.players` or fetch the roster.
 - Callers:
   - `AddAllowlistEntriesUseCase` — post-create host action via `POST /admin/leagues/{league_id}/allowlist`.
   - `CreateLeagueUseCase` — when the optional `allowlist` field is supplied on `POST /leagues`, the use case calls this method on the freshly-built aggregate **before** the single `save`, so the seeded entries persist in the same DB transaction as the league row (see [20_allowlist.md](../20_allowlist.md) → "Modified use case: `CreateLeagueUseCase`").
-- Notes: independent of the roster — adding `"alex"` here does NOT create a `Player` row, and does not require an existing `Player` row. The method itself does not consult `LeagueRules.require_allowlist`; both callers may populate the allowlist regardless of whether the rule will be enforced on match submission.
+- Notes: the method does not consult `LeagueRules.require_allowlist`; both callers may populate the allowlist regardless of whether the rule will be enforced on match submission. The matching `Player` rows are persisted by the existing `LeagueRepository.save` loop in the same transaction; no repository-side change is needed for this iteration. See [20_allowlist.md](../20_allowlist.md) → "Player creation on allowlist add" for the link-to-existing rationale and the known nickname-drift caveat with `edit_player_nickname`.
 
 ### `remove_allowlist_entry(allowlist_entry_id: str) -> None`
 - Purpose: Remove a single entry from the allowlist.
 - Inputs: `allowlist_entry_id` (must exist in this league).
 - State changes: removes the entry from `allowlist` and appends the id to `pending_deleted_allowlist_entry_ids` so the repository can DELETE the row on next save (mirrors the existing `delete_team` pattern).
 - Invariants checked: id must resolve to an entry in this league; otherwise raises `AllowlistEntryNotFoundError`.
-- Notes: removing an allowlist nickname does NOT delete any `Player` row; the two are decoupled by design.
+- Notes: removing an allowlist nickname does NOT delete the corresponding `Player` row, even one created by `add_allowlist_entries`. Once a Player exists it persists for the lifetime of the league. This lifecycle asymmetry — add creates a Player, remove never deletes one — is the load-bearing reason `AllowlistEntry` and `Player` remain two separate entities (see [20_allowlist.md](../20_allowlist.md) → "Why a separate entity instead of folding into `Player`").
 
 ### `validate_match_participants_allowed(nicknames: Iterable[str]) -> None`
 - Purpose: Cross-check the four match-submission nicknames against the allowlist. Called by `SubmitMatchResultUseCase` immediately after `get_by_id_with_lock`.
@@ -125,7 +128,7 @@ flowchart TD
 ### Entity: Player
 - Identity: playerId (UUID, generated on first implicit registration)
 - Purpose: Represent a participant in the league, identified by a unique normalized nickname
-- Lifecycle: created by `register_players_and_team`; nickname may be updated by `edit_player_nickname`; never deleted individually (only indirectly if the league is deleted)
+- Lifecycle: created by `register_players_and_team` (implicit on first match submission) OR by `add_allowlist_entries` (when the host pre-registers an allowed nickname not yet on the roster); nickname may be updated by `edit_player_nickname`; never deleted individually (not even when the matching `AllowlistEntry` is removed — see [20_allowlist.md](../20_allowlist.md))
 - Owned by root because: player nickname uniqueness and one-team-per-player membership must be checked atomically within the League consistency boundary
 - Behavior: exposes normalized nickname for comparison; does not hold team reference directly (membership is tracked via Team entity)
 

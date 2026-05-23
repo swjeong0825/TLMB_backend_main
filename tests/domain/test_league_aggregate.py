@@ -411,12 +411,73 @@ class TestAddAllowlistEntries:
         with pytest.raises(ValueError):
             league.add_allowlist_entries([])
 
-    def test_allowlist_independent_of_roster(self) -> None:
-        """A nickname can be in the allowlist without being on the roster."""
+    def test_allowlist_add_also_creates_players(self) -> None:
+        """Allowlist add eagerly creates a Player row for every new nickname.
+
+        Teams are NOT created on the allowlist-add path — only
+        register_players_and_team creates Teams.
+        """
         league = _league()
         league.add_allowlist_entries(["alex", "daniel"])
-        assert league.players == []
+        roster = {p.nickname.value for p in league.players}
+        assert roster == {"alex", "daniel"}
         assert league.teams == []
+
+    def test_allowlist_add_links_to_existing_player(self) -> None:
+        """When a Player with the same normalized nickname already exists
+        (e.g. created via match submission), the allowlist add reuses it
+        rather than creating a duplicate Player."""
+        league = _league()
+        league.register_players_and_team("alex", "daniel")
+        existing_ids = {p.player_id for p in league.players}
+        assert len(existing_ids) == 2
+
+        league.add_allowlist_entries(["alex"])
+
+        roster_ids = {p.player_id for p in league.players}
+        assert roster_ids == existing_ids
+        assert len([p for p in league.players if p.nickname.value == "alex"]) == 1
+
+    def test_allowlist_add_creates_only_missing_players(self) -> None:
+        """Mixed batch: one nickname is already a roster Player, the other
+        is new. Only the new one should produce a fresh Player row; the
+        existing Player is reused."""
+        league = _league()
+        league.register_players_and_team("alex", "daniel")
+        before_count = len(league.players)
+
+        league.add_allowlist_entries(["alex", "jason"])
+
+        roster_nicks = {p.nickname.value for p in league.players}
+        assert roster_nicks == {"alex", "daniel", "jason"}
+        assert len(league.players) == before_count + 1
+
+    def test_allowlist_add_normalizes_player_nickname(self) -> None:
+        """A casing/whitespace variant of an existing Player must still
+        link-to-existing (case-insensitive match)."""
+        league = _league()
+        league.register_players_and_team("alex", "daniel")
+
+        league.add_allowlist_entries(["ALEX"])
+
+        nicks = [p.nickname.value for p in league.players]
+        assert nicks.count("alex") == 1
+        assert "ALEX" not in nicks
+
+    def test_allowlist_add_failure_creates_no_players(self) -> None:
+        """If the batch is rejected (in-batch duplicate or duplicate against
+        existing allowlist), neither AllowlistEntries nor Players are
+        appended."""
+        league = _league()
+        league.add_allowlist_entries(["alex"])
+        existing_player_ids = {p.player_id for p in league.players}
+
+        with pytest.raises(AllowlistNicknameAlreadyExistsError):
+            league.add_allowlist_entries(["jason", "alex"])
+
+        roster_ids = {p.player_id for p in league.players}
+        assert roster_ids == existing_player_ids
+        assert "jason" not in {p.nickname.value for p in league.players}
 
 
 # ---------------------------------------------------------------------------
@@ -444,12 +505,33 @@ class TestRemoveAllowlistEntry:
             league.remove_allowlist_entry(str(uuid.uuid4()))
 
     def test_remove_does_not_touch_roster(self) -> None:
-        """Removing an allowlist nickname must NOT delete a roster Player
-        record with the same nickname (the two are decoupled by design)."""
+        """Removing an allowlist nickname must NOT delete the roster Player
+        row, even one that was originally created BY add_allowlist_entries.
+
+        This lifecycle asymmetry (add creates a Player; remove never deletes
+        one) is the load-bearing reason AllowlistEntry and Player remain
+        separate entities. See 20_allowlist.md.
+        """
         league = _league()
-        league.register_players_and_team("alex", "daniel")  # creates Player rows
         added = league.add_allowlist_entries(["alex", "daniel"])
+        roster_before = {p.player_id for p in league.players}
+        assert len(roster_before) == 2
+
         league.remove_allowlist_entry(str(added[0].allowlist_entry_id.value))
+
+        roster_after = {p.player_id for p in league.players}
+        assert roster_after == roster_before
+        assert {p.nickname.value for p in league.players} == {"alex", "daniel"}
+
+    def test_remove_does_not_touch_roster_when_player_is_match_seeded(self) -> None:
+        """When the Player row was created via match submission (not via
+        allowlist add), allowlist remove still leaves the Player intact."""
+        league = _league()
+        league.register_players_and_team("alex", "daniel")
+        added = league.add_allowlist_entries(["alex", "daniel"])
+
+        league.remove_allowlist_entry(str(added[0].allowlist_entry_id.value))
+
         roster = {p.nickname.value for p in league.players}
         assert roster == {"alex", "daniel"}
 

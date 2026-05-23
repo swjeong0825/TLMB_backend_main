@@ -64,7 +64,7 @@ flowchart LR
 - Purpose: Create a new league and receive access credentials. Optionally seed the host-managed allowlist in the same transaction.
 - Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null, "allowlist": ["str", ...] }`
   - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, or v5 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_allowlist.md](20_allowlist.md)). v1, v2, v3, and v4 inputs are upgraded to v5 transparently (the v4 `require_eligible_players` key is mapped to `require_allowlist`). Rules are **not** mutable after creation in this API version.
-  - **`allowlist` optional**, default `[]`. When non-empty, each entry must be a non-blank string; entries are inserted into the league's allowlist as part of the same DB transaction that creates the league row (see [20_allowlist.md](20_allowlist.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.require_allowlist` — when the flag is `false`, the allowlist is still populated, just not enforced on match submission. In-batch or against-existing duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row is persisted.
+  - **`allowlist` optional**, default `[]`. When non-empty, each entry must be a non-blank string; entries are inserted into the league's allowlist as part of the same DB transaction that creates the league row (see [20_allowlist.md](20_allowlist.md) → "Modified use case: `CreateLeagueUseCase`"). **Side effect:** every nickname in the seed list also creates a `Player` row in the same transaction (link-to-existing rule — see [20_allowlist.md](20_allowlist.md) → "Player creation on allowlist add"; at create time the roster is empty so every entry creates a fresh Player). The list may be supplied independently of `rules.require_allowlist` — when the flag is `false`, the allowlist is still populated, just not enforced on match submission. In-batch or against-existing duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row, allowlist row, or player row is persisted.
 - Example `rules` (v5): `{ "version": 5, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "require_allowlist": false }`
 - Example request with inline seeding:
   ```json
@@ -404,6 +404,7 @@ flowchart LR
   - 409 AllowlistNicknameAlreadyExistsError (any input nickname duplicates an existing allowlist nickname OR another nickname inside the same batch — entire request rejected, no partial inserts)
   - 422 validation (empty list, blank nickname)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header
+- Side effect: every input nickname that does not already match an existing roster Player (case-insensitive) creates a new `Player` row in the same transaction. Input nicknames whose normalized value already matches a Player are silently linked — no duplicate Player is created and no error is raised. The response shape is unchanged; clients that need the new `Player` IDs should re-fetch `GET /leagues/{league_id}/roster`. See [20_allowlist.md](20_allowlist.md) → "Player creation on allowlist add" for the link-to-existing rule.
 
 ---
 
@@ -411,7 +412,7 @@ flowchart LR
 
 - Method: DELETE
 - Path: `/admin/leagues/{league_id}/allowlist/{allowlist_entry_id}`
-- Purpose: Remove a single nickname from the allowlist. Does NOT delete any roster `Player` row.
+- Purpose: Remove a single nickname from the allowlist. Does NOT delete any roster `Player` row, even one that was originally created by `add_allowlist_entries` — the lifecycle asymmetry (add creates a Player, remove never deletes one) is by design. See [20_allowlist.md](20_allowlist.md).
 - Request shape: —
 - Response shape: 204 No Content
 - Use case called: RemoveAllowlistEntryUseCase
