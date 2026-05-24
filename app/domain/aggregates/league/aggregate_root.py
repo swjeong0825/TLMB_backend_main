@@ -11,6 +11,7 @@ from app.domain.aggregates.league.policies import (
     RosterMembershipPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
+    HostEmail,
     HostToken,
     LeagueId,
     PlayerId,
@@ -32,6 +33,7 @@ from app.domain.exceptions import (
 class League:
     league_id: LeagueId
     host_token: HostToken
+    host_email: HostEmail
     title: str
     description: str | None
     rules: LeagueRules
@@ -46,6 +48,7 @@ class League:
         title: str,
         description: str | None,
         host_token: str,
+        host_email: str,
         rules: LeagueRules | None = None,
     ) -> League:
         if not title or not title.strip():
@@ -54,6 +57,7 @@ class League:
         return cls(
             league_id=LeagueId.generate(),
             host_token=HostToken(value=host_token),
+            host_email=HostEmail(value=host_email),
             title=title,
             description=description,
             rules=resolved_rules,

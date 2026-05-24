@@ -40,6 +40,7 @@ def _league_require_roster() -> League:
         title="Roster-Only League",
         description=None,
         host_token="test-host-token",
+        host_email="host@example.com",
         rules=rules,
     )
 

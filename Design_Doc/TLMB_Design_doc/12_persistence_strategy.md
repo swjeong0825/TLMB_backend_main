@@ -18,6 +18,7 @@ erDiagram
         TEXT title
         TEXT title_normalized
         TEXT host_token
+        TEXT host_email
         TEXT description
         JSONB rules
         TIMESTAMPTZ created_at
@@ -70,6 +71,7 @@ erDiagram
 - title (TEXT, NOT NULL) — stored as submitted; display value
 - title_normalized (TEXT, NOT NULL, UNIQUE) — lowercase; used for uniqueness checks and `get_by_normalized_title`
 - host_token (TEXT, NOT NULL) — plaintext UUID generated at use case level
+- host_email (TEXT, NOT NULL) — host contact email; stripped + lowercased on the way in via the `HostEmail` value object. Format is RFC-validated at the API edge by Pydantic `EmailStr` (the column itself stores any TEXT, but every insert from the application goes through `HostEmail` first). Added in alembic `008`, which backfills existing rows with `glhf0825@gmail.com` before tightening to `NOT NULL`. Never exposed on any read endpoint (private contact info).
 - description (TEXT, nullable)
 - rules (JSONB, NOT NULL) — versioned per-league configuration (`LeagueRules`); see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md); backfilled on migration for existing rows
 - created_at (TIMESTAMPTZ, server default NOW())
@@ -97,6 +99,7 @@ erDiagram
 - `PlayerNickname` → `nickname_normalized TEXT` — reconstructed through the PlayerNickname validator on load (which enforces lowercase and non-empty); never stored as raw input
 - `LeagueId`, `PlayerId`, `TeamId` → PostgreSQL `UUID` type
 - `HostToken` → `host_token TEXT` (plaintext UUID string)
+- `HostEmail` → `host_email TEXT` — reconstructed through the `HostEmail` validator on load (strip + lowercase + non-blank)
 - `LeagueRules` → `rules JSONB` — parse/validate on load; serialize on save
 
 **Concurrency / locking strategy**
@@ -161,6 +164,7 @@ erDiagram
 - `PlayerNickname` value object must be constructed through its validator on load — never assign the raw DB string directly to the domain field
 - `SetScore` value object must be reconstructed through its validator on load from the two score columns
 - All UUID columns map to the appropriate typed value object wrappers (`LeagueId`, `PlayerId`, `TeamId`, `MatchId`, `HostToken`) — raw UUID strings are never passed around naked inside the domain layer
+- `host_email TEXT` maps to the `HostEmail` value object; the mapper sets `host_email=HostEmail(value=orm.host_email)` on load and `host_email=domain.host_email.value` on save (mirroring the `HostToken` pattern, but normalised by the VO rather than opaque)
 
 ---
 

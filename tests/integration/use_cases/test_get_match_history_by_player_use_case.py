@@ -110,6 +110,7 @@ async def test_returns_only_matches_involving_player(
             "Filter Test League",
             None,
             "tok",
+            host_email="host@example.com",
             rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
@@ -141,6 +142,7 @@ async def test_returns_multiple_matches_for_player(
             "Multi Match League",
             None,
             "tok",
+            host_email="host@example.com",
             rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)

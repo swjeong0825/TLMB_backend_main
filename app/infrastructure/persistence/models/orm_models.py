@@ -28,6 +28,7 @@ class LeagueORM(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     title_normalized: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     host_token: Mapped[str] = mapped_column(String, nullable=False)
+    host_email: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     rules: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

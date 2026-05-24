@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 RankingMetricLiteral = Literal[
@@ -50,6 +50,10 @@ LeagueRulesV3Request = LeagueRulesV6Request
 class CreateLeagueRequest(BaseModel):
     """Body for `POST /leagues`.
 
+    `host_email` is mandatory contact for the league host. Pydantic
+    `EmailStr` rejects malformed addresses with 422 at the API edge;
+    no GET response surfaces this field (it stays private).
+
     `initial_players` is an optional bootstrap list — when non-empty the
     nicknames are inserted into the league's roster as `Player` rows as
     part of the same DB transaction that creates the league row. The
@@ -61,6 +65,7 @@ class CreateLeagueRequest(BaseModel):
     """
 
     title: str
+    host_email: EmailStr
     description: str | None = None
     rules: LeagueRulesV6Request | None = None
     initial_players: list[str] = []

@@ -23,7 +23,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 
 
 def _make_league(title: str = "Roster League", token: str = "tok") -> League:
-    return League.create(title, None, token)
+    return League.create(title, None, token, host_email="host@example.com")
 
 
 async def test_save_persists_added_players(session: AsyncSession) -> None:

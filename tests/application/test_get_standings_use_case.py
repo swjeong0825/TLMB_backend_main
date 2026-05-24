@@ -125,7 +125,11 @@ class TestGetStandingsUseCase:
             auto_register_players_on_match=True,
         )
         league = League.create(
-            title="Games-Won League", description=None, host_token="tok", rules=rules
+            title="Games-Won League",
+            description=None,
+            host_token="tok",
+            host_email="host@example.com",
+            rules=rules,
         )
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []

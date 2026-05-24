@@ -17,14 +17,19 @@ _DEFAULT_E2E_RULES = {
     "one_team_per_player": True,
 }
 
+# Default host email for e2e -- matches the backfill value used in
+# alembic 008 so dev-fixture data is consistent with migrated rows.
+_DEFAULT_HOST_EMAIL = "glhf0825@gmail.com"
+
 
 async def create_league(
     client: AsyncClient,
     title: str = "Test League",
     description: str | None = None,
     rules: dict | None = _DEFAULT_E2E_RULES,
+    host_email: str = _DEFAULT_HOST_EMAIL,
 ) -> dict:
-    payload: dict = {"title": title}
+    payload: dict = {"title": title, "host_email": host_email}
     if description is not None:
         payload["description"] = description
     if rules is not None:
@@ -61,7 +66,10 @@ async def submit_match(
 
 
 async def test_create_league_success(client: AsyncClient) -> None:
-    resp = await client.post("/leagues", json={"title": "Summer Open 2026"})
+    resp = await client.post(
+        "/leagues",
+        json={"title": "Summer Open 2026", "host_email": _DEFAULT_HOST_EMAIL},
+    )
 
     assert resp.status_code == 201
     body = resp.json()
@@ -69,12 +77,17 @@ async def test_create_league_success(client: AsyncClient) -> None:
     assert "host_token" in body
     assert len(body["league_id"]) == 36  # UUID format
     assert body["host_token"]
+    assert "host_email" not in body  # private: not echoed on the create response
 
 
 async def test_create_league_with_description(client: AsyncClient) -> None:
     resp = await client.post(
         "/leagues",
-        json={"title": "Autumn Cup", "description": "Annual autumn tournament"},
+        json={
+            "title": "Autumn Cup",
+            "host_email": _DEFAULT_HOST_EMAIL,
+            "description": "Annual autumn tournament",
+        },
     )
 
     assert resp.status_code == 201
@@ -86,7 +99,10 @@ async def test_create_league_with_description(client: AsyncClient) -> None:
 async def test_create_league_duplicate_title_returns_409(client: AsyncClient) -> None:
     await create_league(client, title="Unique League")
 
-    resp = await client.post("/leagues", json={"title": "Unique League"})
+    resp = await client.post(
+        "/leagues",
+        json={"title": "Unique League", "host_email": _DEFAULT_HOST_EMAIL},
+    )
 
     assert resp.status_code == 409
     assert resp.json()["error"] == "LeagueTitleAlreadyExistsError"
@@ -95,26 +111,52 @@ async def test_create_league_duplicate_title_returns_409(client: AsyncClient) ->
 async def test_create_league_duplicate_title_case_insensitive(client: AsyncClient) -> None:
     await create_league(client, title="Grand Slam")
 
-    resp = await client.post("/leagues", json={"title": "grand slam"})
+    resp = await client.post(
+        "/leagues",
+        json={"title": "grand slam", "host_email": _DEFAULT_HOST_EMAIL},
+    )
 
     assert resp.status_code == 409
     assert resp.json()["error"] == "LeagueTitleAlreadyExistsError"
 
 
 async def test_create_league_blank_title_returns_422(client: AsyncClient) -> None:
-    resp = await client.post("/leagues", json={"title": "   "})
+    resp = await client.post(
+        "/leagues",
+        json={"title": "   ", "host_email": _DEFAULT_HOST_EMAIL},
+    )
 
     assert resp.status_code == 422
 
 
 async def test_create_league_empty_title_returns_422(client: AsyncClient) -> None:
-    resp = await client.post("/leagues", json={"title": ""})
+    resp = await client.post(
+        "/leagues",
+        json={"title": "", "host_email": _DEFAULT_HOST_EMAIL},
+    )
 
     assert resp.status_code == 422
 
 
 async def test_create_league_missing_title_returns_422(client: AsyncClient) -> None:
-    resp = await client.post("/leagues", json={})
+    resp = await client.post("/leagues", json={"host_email": _DEFAULT_HOST_EMAIL})
+
+    assert resp.status_code == 422
+
+
+async def test_create_league_missing_host_email_returns_422(client: AsyncClient) -> None:
+    """host_email is mandatory; Pydantic returns 422 when absent."""
+    resp = await client.post("/leagues", json={"title": "No Email League"})
+
+    assert resp.status_code == 422
+
+
+async def test_create_league_malformed_host_email_returns_422(client: AsyncClient) -> None:
+    """Pydantic EmailStr rejects strings that aren't valid email addresses."""
+    resp = await client.post(
+        "/leagues",
+        json={"title": "Bad Email League", "host_email": "not-an-email"},
+    )
 
     assert resp.status_code == 422
 
@@ -124,6 +166,7 @@ async def test_create_league_invalid_rules_version_returns_422(client: AsyncClie
         "/leagues",
         json={
             "title": "Bad Rules",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 2,
                 "match_pair_idempotency": "none",
@@ -136,7 +179,7 @@ async def test_create_league_invalid_rules_version_returns_422(client: AsyncClie
 
 
 async def test_create_league_with_otpp_false_succeeds(client: AsyncClient) -> None:
-    """v3 unlocks `(team, OTPP=false)` — a player may belong to multiple teams.
+    """v3 unlocks `(team, OTPP=false)` -- a player may belong to multiple teams.
 
     See backend_main/Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md
     for the v3 cross-rule.
@@ -145,6 +188,7 @@ async def test_create_league_with_otpp_false_succeeds(client: AsyncClient) -> No
         "/leagues",
         json={
             "title": "OTPP False League",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 3,
                 "match_pair_idempotency": "once_per_league",
@@ -168,6 +212,7 @@ async def test_create_league_with_player_subject_and_otpp_true_returns_422(
         "/leagues",
         json={
             "title": "Player OTPP True League",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 3,
                 "match_pair_idempotency": "once_per_league",
@@ -189,6 +234,7 @@ async def test_create_league_with_player_subject_and_otpp_false_succeeds(
         "/leagues",
         json={
             "title": "Player OTPP False League",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 3,
                 "match_pair_idempotency": "once_per_league",
@@ -210,6 +256,7 @@ async def test_v2_rules_input_upgrades_to_v3(client: AsyncClient) -> None:
         "/leagues",
         json={
             "title": "V2 Upgrade Smoke Test",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 2,
                 "match_pair_idempotency": "once_per_league",
@@ -234,7 +281,10 @@ async def test_second_submit_same_team_pair_returns_409_with_default_league_rule
     client: AsyncClient,
 ) -> None:
     """POST /leagues without `rules` uses product default once_per_league."""
-    resp = await client.post("/leagues", json={"title": "Single Meeting League"})
+    resp = await client.post(
+        "/leagues",
+        json={"title": "Single Meeting League", "host_email": _DEFAULT_HOST_EMAIL},
+    )
     assert resp.status_code == 201
     league_id = resp.json()["league_id"]
     payload = {
@@ -257,6 +307,7 @@ async def test_second_submit_same_team_pair_allowed_when_rules_allow_duplicates(
         "/leagues",
         json={
             "title": "Rematch League",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 1,
                 "match_pair_idempotency": "none",
@@ -572,6 +623,7 @@ async def test_get_standings_response_echoes_league_tie_breakers(
         "/leagues",
         json={
             "title": "Games-Won League",
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 2,
                 "match_pair_idempotency": "once_per_league",

@@ -29,6 +29,28 @@ class HostToken:
 
 
 @dataclass(frozen=True)
+class HostEmail:
+    """Host contact email, normalized to stripped lowercase.
+
+    Format validation is performed at the API edge by Pydantic's
+    `EmailStr`; this VO is a typed wrapper that ensures non-blankness
+    and applies the same case-normalization other text VOs use
+    (mirroring `PlayerNickname`). Immutable after league creation in V1
+    — no admin endpoint mutates it.
+    """
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not self.value or not self.value.strip():
+            raise ValueError("HostEmail cannot be empty")
+        object.__setattr__(self, "value", self.value.strip().lower())
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
 class PlayerId:
     value: uuid.UUID
 

@@ -19,7 +19,11 @@ from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE
 async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     league = League.create(
-        "Empty", None, "tok", rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+        "Empty",
+        None,
+        "tok",
+        host_email="host@example.com",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
     )
     await repo.save(league)
 

@@ -15,9 +15,14 @@ from app.infrastructure.persistence.repositories.league_repository import (
 )
 
 
+_HOST_EMAIL = "host@example.com"
+
+
 async def test_creates_league_and_returns_ids(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
-    result = await CreateLeagueUseCase(repo).execute(CreateLeagueCommand("Spring Open", None))
+    result = await CreateLeagueUseCase(repo).execute(
+        CreateLeagueCommand("Spring Open", host_email=_HOST_EMAIL, description=None)
+    )
 
     assert result.league_id
     assert result.host_token
@@ -28,7 +33,9 @@ async def test_creates_league_and_returns_ids(session: AsyncSession) -> None:
 async def test_persists_league_to_db(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     result = await CreateLeagueUseCase(repo).execute(
-        CreateLeagueCommand("Summer Cup", "Annual summer tournament")
+        CreateLeagueCommand(
+            "Summer Cup", host_email="Host@Example.COM", description="Annual summer tournament"
+        )
     )
     await session.commit()
     session.expire_all()
@@ -40,6 +47,7 @@ async def test_persists_league_to_db(session: AsyncSession) -> None:
     assert found.title == "Summer Cup"
     assert found.description == "Annual summer tournament"
     assert found.host_token.value == result.host_token
+    assert found.host_email.value == "host@example.com"  # normalized
     assert found.rules == LeagueRules.default_for_new_league()
 
 
@@ -51,12 +59,12 @@ async def test_persists_explicit_rules(session: AsyncSession) -> None:
         "one_team_per_player": True,
     }
     await CreateLeagueUseCase(repo).execute(
-        CreateLeagueCommand("Custom Rules League", None, rules=custom)
+        CreateLeagueCommand(
+            "Custom Rules League", host_email=_HOST_EMAIL, description=None, rules=custom
+        )
     )
     await session.commit()
     session.expire_all()
-
-    from app.domain.aggregates.league.value_objects import LeagueId
 
     found = await repo.get_by_normalized_title("custom rules league")
     assert found is not None
@@ -69,7 +77,8 @@ async def test_invalid_rules_version_raises(session: AsyncSession) -> None:
         await CreateLeagueUseCase(repo).execute(
             CreateLeagueCommand(
                 "Bad Rules League",
-                None,
+                host_email=_HOST_EMAIL,
+                description=None,
                 rules={
                     "version": 99,
                     "match_pair_idempotency": "none",
@@ -83,28 +92,40 @@ async def test_raises_for_duplicate_title(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     use_case = CreateLeagueUseCase(repo)
 
-    await use_case.execute(CreateLeagueCommand("Autumn League", None))
+    await use_case.execute(
+        CreateLeagueCommand("Autumn League", host_email=_HOST_EMAIL, description=None)
+    )
 
     with pytest.raises(LeagueTitleAlreadyExistsError):
-        await use_case.execute(CreateLeagueCommand("Autumn League", None))
+        await use_case.execute(
+            CreateLeagueCommand("Autumn League", host_email=_HOST_EMAIL, description=None)
+        )
 
 
 async def test_duplicate_check_is_case_insensitive(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     use_case = CreateLeagueUseCase(repo)
 
-    await use_case.execute(CreateLeagueCommand("Grand Slam", None))
+    await use_case.execute(
+        CreateLeagueCommand("Grand Slam", host_email=_HOST_EMAIL, description=None)
+    )
 
     with pytest.raises(LeagueTitleAlreadyExistsError):
-        await use_case.execute(CreateLeagueCommand("grand slam", None))
+        await use_case.execute(
+            CreateLeagueCommand("grand slam", host_email=_HOST_EMAIL, description=None)
+        )
 
 
 async def test_different_titles_both_succeed(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     use_case = CreateLeagueUseCase(repo)
 
-    r1 = await use_case.execute(CreateLeagueCommand("League A", None))
-    r2 = await use_case.execute(CreateLeagueCommand("League B", None))
+    r1 = await use_case.execute(
+        CreateLeagueCommand("League A", host_email=_HOST_EMAIL, description=None)
+    )
+    r2 = await use_case.execute(
+        CreateLeagueCommand("League B", host_email=_HOST_EMAIL, description=None)
+    )
 
     assert r1.league_id != r2.league_id
     assert r1.host_token != r2.host_token
@@ -114,13 +135,14 @@ async def test_persists_league_and_seeded_initial_players_atomically(
     session: AsyncSession,
 ) -> None:
     """Seeding `initial_players` on create must reach the DB in the same
-    transaction as the league row — after a single commit, both queries
+    transaction as the league row -- after a single commit, both queries
     succeed."""
     repo = SqlAlchemyLeagueRepository(session)
     result = await CreateLeagueUseCase(repo).execute(
         CreateLeagueCommand(
             "Seeded Roster League",
-            None,
+            host_email=_HOST_EMAIL,
+            description=None,
             rules={
                 "version": 6,
                 "match_pair_idempotency": "once_per_league",
@@ -152,7 +174,7 @@ async def test_duplicate_seeded_player_rejects_whole_creation(
     session: AsyncSession,
 ) -> None:
     """If the bootstrap list contains an in-batch duplicate, the aggregate
-    raises before `save` — the league itself must not be persisted."""
+    raises before `save` -- the league itself must not be persisted."""
     from app.domain.exceptions import NicknameAlreadyInUseError
 
     repo = SqlAlchemyLeagueRepository(session)
@@ -162,7 +184,8 @@ async def test_duplicate_seeded_player_rejects_whole_creation(
         await use_case.execute(
             CreateLeagueCommand(
                 "Dup-Bootstrap League",
-                None,
+                host_email=_HOST_EMAIL,
+                description=None,
                 initial_players=["Alex", "ALEX"],
             )
         )

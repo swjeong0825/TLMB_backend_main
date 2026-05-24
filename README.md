@@ -36,7 +36,7 @@ Base URL: `http://localhost:8000`
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/leagues` | Create a new league → returns `league_id` + `host_token` |
+| `POST` | `/leagues` | Create a new league → returns `league_id` + `host_token`. Requires `title` and `host_email` (RFC-compliant email; immutable; never echoed on read endpoints). |
 | `POST` | `/leagues/{league_id}/matches` | Submit a confirmed match result (auto-registers new players/teams) |
 | `GET` | `/leagues/{league_id}/standings` | Ranked win/loss standings |
 | `GET` | `/leagues/{league_id}/matches` | Match history (most recent first) |

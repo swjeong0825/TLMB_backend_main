@@ -10,11 +10,17 @@ from httpx import AsyncClient
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_HOST_EMAIL = "glhf0825@gmail.com"
+
+
 async def create_league(
     client: AsyncClient,
     title: str = "Admin Test League",
+    host_email: str = _DEFAULT_HOST_EMAIL,
 ) -> dict:
-    resp = await client.post("/leagues", json={"title": title})
+    resp = await client.post(
+        "/leagues", json={"title": title, "host_email": host_email}
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()
 
@@ -572,6 +578,7 @@ async def _create_strict_roster_league(
         "/leagues",
         json={
             "title": title,
+            "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
                 "version": 6,
                 "match_pair_idempotency": "once_per_league",

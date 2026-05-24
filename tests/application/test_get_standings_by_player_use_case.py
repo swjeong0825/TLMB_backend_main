@@ -140,6 +140,7 @@ class TestGetStandingsByPlayerUseCase:
             title="Player-Ranked League",
             description=None,
             host_token="host",
+            host_email="host@example.com",
             rules=rules,
         )
         league.register_players_and_team("alice", "bob")
@@ -181,6 +182,7 @@ class TestGetStandingsByPlayerUseCase:
             title="OTPP-False Team-Ranked",
             description=None,
             host_token="host",
+            host_email="host@example.com",
             rules=rules,
         )
         # Alice is on two teams (Alice+Bob and Alice+Charlie).
@@ -226,6 +228,7 @@ class TestGetStandingsByPlayerUseCase:
             title="OTPP-False Player-Ranked",
             description=None,
             host_token="host",
+            host_email="host@example.com",
             rules=rules,
         )
         league.register_players_and_team("alice", "bob")

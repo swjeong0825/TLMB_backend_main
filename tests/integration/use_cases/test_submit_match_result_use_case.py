@@ -38,7 +38,11 @@ def _use_case(sf: async_sessionmaker) -> SubmitMatchResultUseCase:
 async def _create_league(sf: async_sessionmaker, title: str = "Test", token: str = "tok") -> League:
     async with sf() as s:
         league = League.create(
-            title, None, token, rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+            title,
+            None,
+            token,
+            host_email="host@example.com",
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
@@ -181,6 +185,7 @@ async def test_raises_duplicate_team_pair_when_once_per_league(
             "Dup Pair League",
             None,
             "tok",
+            host_email="host@example.com",
             rules=LeagueRules.default_for_new_league(),
         )
         await SqlAlchemyLeagueRepository(s).save(league)

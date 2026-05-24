@@ -4,7 +4,7 @@ import uuid
 
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
-from app.domain.aggregates.league.value_objects import HostToken, LeagueId
+from app.domain.aggregates.league.value_objects import HostEmail, HostToken, LeagueId
 from app.infrastructure.persistence.models.orm_models import LeagueORM
 from app.infrastructure.persistence.mappers.player_mapper import player_to_domain
 from app.infrastructure.persistence.mappers.team_mapper import team_to_domain
@@ -34,6 +34,7 @@ def league_to_domain(
     return League(
         league_id=LeagueId(value=orm.league_id),
         host_token=HostToken(value=orm.host_token),
+        host_email=HostEmail(value=orm.host_email),
         title=orm.title,
         description=orm.description,
         rules=LeagueRules.from_dict(orm.rules),
@@ -50,6 +51,7 @@ def league_to_orm(domain: League) -> LeagueORM:
         title=domain.title,
         title_normalized=domain.title.lower().strip(),
         host_token=domain.host_token.value,
+        host_email=domain.host_email.value,
         description=domain.description,
         rules=domain.rules.to_dict(),
     )

@@ -17,8 +17,15 @@ from app.infrastructure.persistence.repositories.league_repository import (
 # ---------------------------------------------------------------------------
 
 
-def _make_league(title: str = "Test League", token: str = "token-abc") -> League:
-    return League.create(title, None, token)
+_HOST_EMAIL = "host@example.com"
+
+
+def _make_league(
+    title: str = "Test League",
+    token: str = "token-abc",
+    host_email: str = _HOST_EMAIL,
+) -> League:
+    return League.create(title, None, token, host_email=host_email)
 
 
 # ---------------------------------------------------------------------------
@@ -44,12 +51,13 @@ async def test_save_and_get_by_id_round_trip(session: AsyncSession) -> None:
     assert found is not None
     assert found.title == "Round Trip League"
     assert found.host_token.value == "token-abc"
+    assert found.host_email.value == _HOST_EMAIL
     assert str(found.league_id) == str(league.league_id)
 
 
 async def test_save_league_with_description(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
-    league = League.create("Described League", "A great league", "tok")
+    league = League.create("Described League", "A great league", "tok", host_email=_HOST_EMAIL)
     await repo.save(league)
     await session.commit()
     session.expire_all()
@@ -58,6 +66,20 @@ async def test_save_league_with_description(session: AsyncSession) -> None:
 
     assert found is not None
     assert found.description == "A great league"
+
+
+async def test_save_persists_host_email_normalized(session: AsyncSession) -> None:
+    """`HostEmail` normalizes to lowercase; the repository must round-trip
+    the normalized value."""
+    repo = SqlAlchemyLeagueRepository(session)
+    league = _make_league("Email Round Trip", host_email="Host@EXAMPLE.com")
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    found = await repo.get_by_id(league.league_id)
+    assert found is not None
+    assert found.host_email.value == "host@example.com"
 
 
 # ---------------------------------------------------------------------------

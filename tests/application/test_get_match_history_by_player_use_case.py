@@ -222,7 +222,9 @@ class TestGetMatchHistoryByPlayerUseCase:
                 "tie_breakers": ["matches_won"],
             }
         )
-        league = League.create("OTPP-False League", None, "host", rules=rules)
+        league = League.create(
+            "OTPP-False League", None, "host", host_email="host@example.com", rules=rules
+        )
         league.register_players_and_team("alice", "bob")
         league.register_players_and_team("alice", "charlie")
         team_ab = league.teams[0]

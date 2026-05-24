@@ -34,6 +34,18 @@ from app.domain.services.standings_calculator import StandingsEntry
 # ---------------------------------------------------------------------------
 
 
+_HOST_EMAIL = "host@example.com"
+
+
+def _create_league_body(**overrides: object) -> dict:
+    """Return a minimal valid POST /leagues body, with `host_email` set so
+    individual tests don't have to repeat it. Override per-test as needed.
+    """
+    body: dict = {"title": "Summer League", "host_email": _HOST_EMAIL}
+    body.update(overrides)
+    return body
+
+
 class TestCreateLeague:
     async def test_returns_201_on_success(
         self, client: AsyncClient, mock_create_league_uc: AsyncMock
@@ -41,7 +53,7 @@ class TestCreateLeague:
         mock_create_league_uc.execute.return_value = CreateLeagueResult(
             league_id="league-uuid", host_token="host-token-value"
         )
-        response = await client.post("/leagues", json={"title": "Summer League"})
+        response = await client.post("/leagues", json=_create_league_body())
         assert response.status_code == 201
 
     async def test_response_contains_league_id_and_host_token(
@@ -50,26 +62,50 @@ class TestCreateLeague:
         mock_create_league_uc.execute.return_value = CreateLeagueResult(
             league_id="abc-123", host_token="tok-xyz"
         )
-        response = await client.post("/leagues", json={"title": "My League"})
+        response = await client.post("/leagues", json=_create_league_body(title="My League"))
         data = response.json()
         assert data["league_id"] == "abc-123"
         assert data["host_token"] == "tok-xyz"
+        assert "host_email" not in data  # private: never echoed on read
 
     async def test_duplicate_title_returns_409(
         self, client: AsyncClient, mock_create_league_uc: AsyncMock
     ) -> None:
         mock_create_league_uc.execute.side_effect = LeagueTitleAlreadyExistsError("already exists")
-        response = await client.post("/leagues", json={"title": "Summer League"})
+        response = await client.post("/leagues", json=_create_league_body())
         assert response.status_code == 409
         assert response.json()["error"] == "LeagueTitleAlreadyExistsError"
 
     async def test_blank_title_returns_422(self, client: AsyncClient) -> None:
-        response = await client.post("/leagues", json={"title": ""})
+        response = await client.post("/leagues", json=_create_league_body(title=""))
         assert response.status_code == 422
 
     async def test_missing_title_returns_422(self, client: AsyncClient) -> None:
-        response = await client.post("/leagues", json={})
+        response = await client.post("/leagues", json={"host_email": _HOST_EMAIL})
         assert response.status_code == 422
+
+    async def test_missing_host_email_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post("/leagues", json={"title": "No Email"})
+        assert response.status_code == 422
+
+    async def test_malformed_host_email_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/leagues", json=_create_league_body(host_email="not-an-email")
+        )
+        assert response.status_code == 422
+
+    async def test_host_email_is_forwarded_to_use_case(
+        self, client: AsyncClient, mock_create_league_uc: AsyncMock
+    ) -> None:
+        mock_create_league_uc.execute.return_value = CreateLeagueResult(
+            league_id="lid", host_token="tok"
+        )
+        response = await client.post(
+            "/leagues", json=_create_league_body(host_email="host@example.com")
+        )
+        assert response.status_code == 201
+        cmd = mock_create_league_uc.execute.call_args[0][0]
+        assert cmd.host_email == "host@example.com"
 
     async def test_description_is_optional(
         self, client: AsyncClient, mock_create_league_uc: AsyncMock
@@ -77,7 +113,9 @@ class TestCreateLeague:
         mock_create_league_uc.execute.return_value = CreateLeagueResult(
             league_id="lid", host_token="tok"
         )
-        response = await client.post("/leagues", json={"title": "L", "description": "desc"})
+        response = await client.post(
+            "/leagues", json=_create_league_body(title="L", description="desc")
+        )
         assert response.status_code == 201
 
     async def test_initial_players_field_is_forwarded_to_use_case(
@@ -88,7 +126,7 @@ class TestCreateLeague:
         )
         response = await client.post(
             "/leagues",
-            json={"title": "Seeded", "initial_players": ["Alex", "Daniel"]},
+            json=_create_league_body(title="Seeded", initial_players=["Alex", "Daniel"]),
         )
         assert response.status_code == 201
         cmd = mock_create_league_uc.execute.call_args[0][0]
@@ -100,7 +138,7 @@ class TestCreateLeague:
         mock_create_league_uc.execute.return_value = CreateLeagueResult(
             league_id="lid", host_token="tok"
         )
-        response = await client.post("/leagues", json={"title": "No Seed"})
+        response = await client.post("/leagues", json=_create_league_body(title="No Seed"))
         assert response.status_code == 201
         cmd = mock_create_league_uc.execute.call_args[0][0]
         assert cmd.initial_players == []
@@ -110,7 +148,7 @@ class TestCreateLeague:
     ) -> None:
         response = await client.post(
             "/leagues",
-            json={"title": "Bad Seed", "initial_players": ["Alex", "   "]},
+            json=_create_league_body(title="Bad Seed", initial_players=["Alex", "   "]),
         )
         assert response.status_code == 422
 

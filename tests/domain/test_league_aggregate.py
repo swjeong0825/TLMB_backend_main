@@ -28,8 +28,16 @@ from app.domain.exceptions import (
 # ---------------------------------------------------------------------------
 
 
+_TEST_HOST_EMAIL = "host@example.com"
+
+
 def _league(title: str = "Test League") -> League:
-    return League.create(title=title, description=None, host_token="test-token")
+    return League.create(
+        title=title,
+        description=None,
+        host_token="test-token",
+        host_email=_TEST_HOST_EMAIL,
+    )
 
 
 def _league_otpp_false(title: str = "OTPP-False League") -> League:
@@ -43,7 +51,13 @@ def _league_otpp_false(title: str = "OTPP-False League") -> League:
             "tie_breakers": ["matches_won"],
         }
     )
-    return League.create(title=title, description=None, host_token="test-token", rules=rules)
+    return League.create(
+        title=title,
+        description=None,
+        host_token="test-token",
+        host_email=_TEST_HOST_EMAIL,
+        rules=rules,
+    )
 
 
 def _league_require_roster() -> League:
@@ -65,6 +79,7 @@ def _league_require_roster() -> League:
         title="Roster-Only League",
         description=None,
         host_token="test-token",
+        host_email=_TEST_HOST_EMAIL,
         rules=rules,
     )
 
@@ -85,16 +100,28 @@ class TestLeagueCreate:
         assert league.title == "My League"
 
     def test_stores_description(self) -> None:
-        league = League.create("Title", "A description", "token")
+        league = League.create("Title", "A description", "token", host_email=_TEST_HOST_EMAIL)
         assert league.description == "A description"
 
     def test_description_can_be_none(self) -> None:
-        league = League.create("Title", None, "token")
+        league = League.create("Title", None, "token", host_email=_TEST_HOST_EMAIL)
         assert league.description is None
 
     def test_stores_host_token(self) -> None:
-        league = League.create("L", None, "my-host-token")
+        league = League.create("L", None, "my-host-token", host_email=_TEST_HOST_EMAIL)
         assert league.host_token.value == "my-host-token"
+
+    def test_stores_host_email_normalized(self) -> None:
+        league = League.create("L", None, "token", host_email="Host@Example.COM")
+        assert league.host_email.value == "host@example.com"
+
+    def test_blank_host_email_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            League.create("L", None, "token", host_email="")
+
+    def test_whitespace_only_host_email_raises_value_error(self) -> None:
+        with pytest.raises(ValueError):
+            League.create("L", None, "token", host_email="   ")
 
     def test_generates_unique_league_id(self) -> None:
         l1 = _league("L1")
@@ -103,11 +130,11 @@ class TestLeagueCreate:
 
     def test_blank_title_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
-            League.create("", None, "token")
+            League.create("", None, "token", host_email=_TEST_HOST_EMAIL)
 
     def test_whitespace_only_title_raises_value_error(self) -> None:
         with pytest.raises(ValueError):
-            League.create("   ", None, "token")
+            League.create("   ", None, "token", host_email=_TEST_HOST_EMAIL)
 
     def test_pending_deleted_team_ids_initialised_empty(self) -> None:
         league = _league()
@@ -206,7 +233,7 @@ class TestRegisterPlayersAndTeam:
         league1 = _league("L1")
         _, team1 = league1.register_players_and_team("zed", "aime")
 
-        league2 = League.create("L2", None, "token")
+        league2 = League.create("L2", None, "token", host_email=_TEST_HOST_EMAIL)
         _, team2 = league2.register_players_and_team("aime", "zed")
 
         p1_league1 = next(p for p in league1.players if p.player_id == team1.player_id_1)

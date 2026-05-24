@@ -27,6 +27,7 @@ async def _setup_league_with_players(session: AsyncSession) -> tuple[League, str
         "Edit Nick League",
         None,
         "host-token-edit",
+        host_email="host@example.com",
         rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
     )
     new_players, _ = league.register_players_and_team("alice", "bob")

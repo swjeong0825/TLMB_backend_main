@@ -96,6 +96,7 @@ async def persisted_league(session_factory: async_sessionmaker[AsyncSession]) ->
             "Fixture League",
             "Integration test league",
             "fixture-host-token",
+            host_email="host@example.com",
             rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
         )
         repo = SqlAlchemyLeagueRepository(s)
@@ -120,6 +121,7 @@ async def persisted_league_with_match(
             "Fixture League",
             None,
             "fixture-host-token",
+            host_email="host@example.com",
             rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)

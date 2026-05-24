@@ -27,7 +27,11 @@ from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE
 async def _create_league(sf: async_sessionmaker, token: str = "tok") -> League:
     async with sf() as s:
         league = League.create(
-            "UoW Test League", None, token, rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+            "UoW Test League",
+            None,
+            token,
+            host_email="host@example.com",
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()

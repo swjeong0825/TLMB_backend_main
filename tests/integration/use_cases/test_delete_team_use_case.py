@@ -30,6 +30,7 @@ async def _setup(session: AsyncSession) -> tuple[League, str]:
         "Delete Team League",
         None,
         "host-del-tok",
+        host_email="host@example.com",
         rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
     )
     _, team = league.register_players_and_team("alice", "bob")

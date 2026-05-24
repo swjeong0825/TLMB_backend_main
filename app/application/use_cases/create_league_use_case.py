@@ -13,7 +13,8 @@ from app.domain.exceptions import LeagueTitleAlreadyExistsError
 @dataclass
 class CreateLeagueCommand:
     title: str
-    description: str | None
+    host_email: str
+    description: str | None = None
     rules: dict[str, Any] | None = None
     initial_players: list[str] = field(default_factory=list)
 
@@ -52,7 +53,13 @@ class CreateLeagueUseCase:
         rules_vo = (
             LeagueRules.from_dict(command.rules) if command.rules is not None else None
         )
-        league = League.create(command.title, command.description, host_token, rules=rules_vo)
+        league = League.create(
+            command.title,
+            command.description,
+            host_token,
+            host_email=command.host_email,
+            rules=rules_vo,
+        )
 
         if command.initial_players:
             league.add_players(command.initial_players)

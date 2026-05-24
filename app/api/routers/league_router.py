@@ -67,6 +67,7 @@ async def create_league(
     result = await use_case.execute(
         CreateLeagueCommand(
             title=body.title,
+            host_email=body.host_email,
             description=body.description,
             rules=body.rules.model_dump() if body.rules is not None else None,
             initial_players=list(body.initial_players),

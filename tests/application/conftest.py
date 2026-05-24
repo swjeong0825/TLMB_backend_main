@@ -53,8 +53,14 @@ def make_league(
     title: str = "Test League",
     host_token: str = "test-host-token",
     league_id: LeagueId | None = None,
+    host_email: str = "host@example.com",
 ) -> League:
-    league = League.create(title=title, description=None, host_token=host_token)
+    league = League.create(
+        title=title,
+        description=None,
+        host_token=host_token,
+        host_email=host_email,
+    )
     if league_id is not None:
         object.__setattr__(league, "league_id", league_id)
     return league

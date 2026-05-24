@@ -23,7 +23,8 @@ POST {{baseUrl}}/leagues
 Content-Type: application/json
 
 {
-  "title": "Summer Open 2026"
+  "title": "Summer Open 2026",
+  "host_email": "host@example.com"
 }
 
 ###
@@ -39,6 +40,7 @@ Content-Type: application/json
 
 {
   "title": "Autumn Cup",
+  "host_email": "host@example.com",
   "description": "Annual autumn tournament"
 }
 

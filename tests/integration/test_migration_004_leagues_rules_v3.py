@@ -52,14 +52,16 @@ async def _insert_league_with_raw_rules(
     league_id = uuid.uuid4()
     await session.execute(
         text(
-            "INSERT INTO leagues (league_id, title, title_normalized, host_token, rules) "
-            "VALUES (:lid, :title, :tnorm, :ht, CAST(:rules AS jsonb))"
+            "INSERT INTO leagues "
+            "(league_id, title, title_normalized, host_token, host_email, rules) "
+            "VALUES (:lid, :title, :tnorm, :ht, :he, CAST(:rules AS jsonb))"
         ),
         {
             "lid": league_id,
             "title": title,
             "tnorm": title.lower().strip(),
             "ht": "fixture-host-token",
+            "he": "fixture@example.com",
             "rules": json.dumps(rules),
         },
     )

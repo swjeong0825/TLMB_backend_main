@@ -96,6 +96,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
                 title=league.title,
                 title_normalized=league.title.lower().strip(),
                 host_token=league.host_token.value,
+                host_email=league.host_email.value,
                 description=league.description,
                 rules=league.rules.to_dict(),
             )

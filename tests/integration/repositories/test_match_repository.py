@@ -29,6 +29,7 @@ async def _seed_league_with_teams(
         "Match Test League",
         None,
         "seed-token",
+        host_email="host@example.com",
         rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
     )
     _, team1 = league.register_players_and_team("alice", "bob")
@@ -126,6 +127,7 @@ async def test_get_all_by_league_does_not_return_other_leagues_matches(session: 
         "Other League",
         None,
         "other-token",
+        host_email="host@example.com",
         rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
     )
     _, l2_t1 = league2.register_players_and_team("eve", "frank")

@@ -29,7 +29,7 @@ flowchart TD
 ## Use Case: CreateLeagueUseCase
 
 - Business action: Create League (optionally pre-registered with a starting roster in the same transaction)
-- Inputs: CreateLeagueCommand(title: str, description: str | None, rules: LeagueRules | None, initial_players: list[str] = []) — when `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). `initial_players` defaults to an empty list; when non-empty, the entries are pre-registered on the new league's roster before the single `save` call so the league row and every player row reach the database in one transaction. See [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`" for the rationale and error semantics.
+- Inputs: CreateLeagueCommand(title: str, host_email: str, description: str | None, rules: LeagueRules | None, initial_players: list[str] = []) — `host_email` is **mandatory** and pre-validated as an RFC-compliant email by Pydantic `EmailStr` at the API edge; the use case forwards the raw string to `League.create`, where the `HostEmail` value object strips + lowercases it and enforces non-blankness. When `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). `initial_players` defaults to an empty list; when non-empty, the entries are pre-registered on the new league's roster before the single `save` call so the league row and every player row reach the database in one transaction. See [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`" for the rationale and error semantics.
 - Output: CreateLeagueResult(league_id: str, host_token: str)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — single repository save (the repository's `save` writes the league row, players, and teams through the same `AsyncSession`, so atomicity is provided by the request-scoped session commit)
@@ -45,12 +45,12 @@ flowchart TD
   2. Call LeagueRepository.get_by_normalized_title(normalized_title) — raise LeagueTitleAlreadyExistsError if a league already exists with that normalized title
   3. Generate host_token as str(uuid.uuid4())
   4. Resolve `LeagueRules` from command.rules or product defaults
-  5. Call League.create(title, description, host_token, rules) — constructs new aggregate with empty roster and persisted rules
+  5. Call League.create(title, description, host_token, host_email, rules) — constructs new aggregate with empty roster, host contact email, and persisted rules
   6. If `command.initial_players` is non-empty, call `league.add_players(command.initial_players)` — pre-registers the players on the aggregate; raises `NicknameAlreadyInUseError` (mapped to 409) if any input nickname duplicates another inside the same batch, in which case no `save` is performed and the league is not persisted
   7. Save via LeagueRepository.save(league) — persists the league plus any seeded player rows in the same DB transaction
   8. Return league_id and host_token
-- Domain rules enforced where: League.create (title must be non-empty); title uniqueness pre-check at application layer via repository; LeagueRules validation on construction; League.add_players (in-batch nickname uniqueness; at create time the roster starts empty so against-existing collisions are impossible)
-- Errors: LeagueTitleAlreadyExistsError, NicknameAlreadyInUseError (only when `initial_players` contains in-batch duplicates), ValidationError (blank title, blank `initial_players` entry), invalid rules payload
+- Domain rules enforced where: League.create (title must be non-empty; `HostEmail` non-blank after strip); title uniqueness pre-check at application layer via repository; `host_email` format validation at the API edge via Pydantic `EmailStr`; LeagueRules validation on construction; League.add_players (in-batch nickname uniqueness; at create time the roster starts empty so against-existing collisions are impossible)
+- Errors: LeagueTitleAlreadyExistsError, NicknameAlreadyInUseError (only when `initial_players` contains in-batch duplicates), ValidationError (blank title, missing or malformed `host_email`, blank `initial_players` entry), invalid rules payload
 
 ---
 

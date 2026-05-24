@@ -24,7 +24,11 @@ from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE
 async def test_returns_empty_standings_for_league_with_no_matches(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     league = League.create(
-        "Empty League", None, "tok", rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+        "Empty League",
+        None,
+        "tok",
+        host_email="host@example.com",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
     )
     await repo.save(league)
 
