@@ -52,7 +52,8 @@ class CreateLeagueRequest(BaseModel):
 
     `host_email` is mandatory contact for the league host. Pydantic
     `EmailStr` rejects malformed addresses with 422 at the API edge;
-    no GET response surfaces this field (it stays private).
+    player-facing GET responses omit this field; admin read via
+    `GET /admin/leagues/{league_id}` with `X-Host-Token`.
 
     `initial_players` is an optional bootstrap list — when non-empty the
     nicknames are inserted into the league's roster as `Player` rows as

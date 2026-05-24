@@ -10,6 +10,7 @@ from app.api.schemas.admin_schemas import (
     EditMatchScoreResponse,
     EditPlayerNicknameRequest,
     EditPlayerNicknameResponse,
+    GetLeagueAdminInfoResponse,
 )
 from app.api.schemas.league_schemas import PlayerEntrySchema
 from app.application.use_cases.add_players_use_case import (
@@ -26,6 +27,10 @@ from app.application.use_cases.edit_player_nickname_use_case import (
     EditPlayerNicknameCommand,
     EditPlayerNicknameUseCase,
 )
+from app.application.use_cases.get_league_admin_info_use_case import (
+    GetLeagueAdminInfoQuery,
+    GetLeagueAdminInfoUseCase,
+)
 from app.application.use_cases.remove_player_from_roster_use_case import (
     RemovePlayerFromRosterCommand,
     RemovePlayerFromRosterUseCase,
@@ -36,11 +41,33 @@ from app.dependencies import (
     get_delete_team_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
+    get_get_league_admin_info_use_case,
     get_remove_player_from_roster_use_case,
 )
 from app.rate_limit import limiter
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get(
+    "/leagues/{league_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=GetLeagueAdminInfoResponse,
+)
+@limiter.limit("60/minute")
+async def get_league_admin_info(
+    request: Request,
+    league_id: str,
+    x_host_token: str = Header(..., alias="X-Host-Token"),
+    use_case: GetLeagueAdminInfoUseCase = Depends(get_get_league_admin_info_use_case),
+) -> GetLeagueAdminInfoResponse:
+    result = await use_case.execute(
+        GetLeagueAdminInfoQuery(
+            host_token=x_host_token,
+            league_id=league_id,
+        )
+    )
+    return GetLeagueAdminInfoResponse(host_email=result.host_email)
 
 
 @router.patch(

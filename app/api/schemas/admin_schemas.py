@@ -48,3 +48,7 @@ class AddPlayersRequest(BaseModel):
 
 class AddPlayersResponse(BaseModel):
     players: list[PlayerEntrySchema]
+
+
+class GetLeagueAdminInfoResponse(BaseModel):
+    host_email: str

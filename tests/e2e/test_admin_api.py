@@ -72,6 +72,53 @@ async def get_team_id(
 
 
 # ---------------------------------------------------------------------------
+# GET /admin/leagues/{league_id}
+# ---------------------------------------------------------------------------
+
+
+async def test_get_league_admin_info_returns_host_email(client: AsyncClient) -> None:
+    league = await create_league(client, host_email="admin@example.com")
+    league_id = league["league_id"]
+    host_token = league["host_token"]
+
+    resp = await client.get(
+        f"/admin/leagues/{league_id}",
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"host_email": "admin@example.com"}
+
+
+async def test_get_league_admin_info_missing_token_returns_422(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    resp = await client.get(f"/admin/leagues/{league['league_id']}")
+    assert resp.status_code == 422
+
+
+async def test_get_league_admin_info_invalid_token_returns_401(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    resp = await client.get(
+        f"/admin/leagues/{league['league_id']}",
+        headers={"X-Host-Token": "not-the-token"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_get_league_admin_info_league_not_found_returns_404(
+    client: AsyncClient,
+) -> None:
+    resp = await client.get(
+        "/admin/leagues/00000000-0000-0000-0000-000000000099",
+        headers={"X-Host-Token": "any-token"},
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # PATCH /admin/leagues/{league_id}/players/{player_id}
 # ---------------------------------------------------------------------------
 

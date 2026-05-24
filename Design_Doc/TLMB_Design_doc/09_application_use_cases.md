@@ -14,6 +14,7 @@ flowchart TD
         SLP["SearchLeaguesByTitlePrefix\n→ LeagueRepository prefix query  (read-only)"]
     end
     subgraph ADMIN ["Admin  (X-Host-Token required)"]
+        GLAI["GetLeagueAdminInfo\n→ League aggregate  (read-only, host-private)"]
         EPN["EditPlayerNickname\n→ League aggregate"]
         DT["DeleteTeam\n→ League aggregate"]
         EMS["EditMatchScore\n→ Match aggregate"]
@@ -210,6 +211,24 @@ flowchart TD
 - Domain rules enforced where: none — pure projection; player existence enforced at application layer
 - Errors: LeagueNotFoundError, PlayerNotFoundError
 - Notes: Reuses the MatchHistoryRecord output type from GetMatchHistoryUseCase. An empty result (no matches) is a valid response when the player's team exists but has not yet played any matches.
+
+---
+
+## Use Case: GetLeagueAdminInfoUseCase (Admin)
+
+- Business action: Read host-only league metadata for the admin UI
+- Inputs: GetLeagueAdminInfoQuery(host_token: str, league_id: str)
+- Output: LeagueAdminInfoView(host_email: str) — V1 only; response type and route are intentionally general
+- State-changing or calculation-only?: Calculation-only
+- Unit of Work needed?: No
+- Aggregate(s) loaded: League
+- Repository calls: LeagueRepository.get_by_id
+- Steps:
+  1. Load League — raise LeagueNotFoundError if missing
+  2. Verify host_token — raise UnauthorizedError if mismatch
+  3. Project host-private fields into LeagueAdminInfoView
+- Errors: LeagueNotFoundError, UnauthorizedError
+- Notes: **Growth direction:** before adding fields, read [13_api_contracts.md](13_api_contracts.md) → "Get League Admin Info (Admin)" → "Growth direction". Only host-private aggregate fields belong here; do not duplicate roster/standings/match history from player-facing read use cases.
 
 ---
 

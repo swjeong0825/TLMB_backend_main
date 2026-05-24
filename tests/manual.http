@@ -77,6 +77,12 @@ GET {{baseUrl}}/leagues/{{leagueId}}/roster
 ###  Admin Endpoints  (require X-Host-Token)
 ### ═══════════════════════════════════════════
 
+### Get League Admin Info (host email)
+GET {{baseUrl}}/admin/leagues/{{leagueId}}
+X-Host-Token: {{hostToken}}
+
+###
+
 ### Edit Player Nickname
 PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/players/{{playerId}}
 Content-Type: application/json

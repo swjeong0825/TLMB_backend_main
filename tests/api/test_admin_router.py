@@ -15,6 +15,7 @@ from app.application.use_cases.add_players_use_case import (
 )
 from app.application.use_cases.edit_match_score_use_case import UpdatedMatchResult
 from app.application.use_cases.edit_player_nickname_use_case import UpdatedPlayerResult
+from app.application.use_cases.get_league_admin_info_use_case import LeagueAdminInfoView
 from app.domain.exceptions import (
     LeagueNotFoundError,
     MatchNotFoundError,
@@ -25,6 +26,52 @@ from app.domain.exceptions import (
     TeamNotFoundError,
     UnauthorizedError,
 )
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/leagues/{league_id}
+# ---------------------------------------------------------------------------
+
+
+class TestGetLeagueAdminInfo:
+    _URL = "/admin/leagues/league-id"
+
+    async def test_returns_200_with_host_email(
+        self, client: AsyncClient, mock_get_league_admin_info_uc: AsyncMock
+    ) -> None:
+        mock_get_league_admin_info_uc.execute.return_value = LeagueAdminInfoView(
+            host_email="host@example.com"
+        )
+        response = await client.get(
+            self._URL,
+            headers={"X-Host-Token": "valid-token"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"host_email": "host@example.com"}
+
+    async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
+        response = await client.get(self._URL)
+        assert response.status_code == 422
+
+    async def test_league_not_found_returns_404(
+        self, client: AsyncClient, mock_get_league_admin_info_uc: AsyncMock
+    ) -> None:
+        mock_get_league_admin_info_uc.execute.side_effect = LeagueNotFoundError("missing")
+        response = await client.get(
+            self._URL,
+            headers={"X-Host-Token": "valid-token"},
+        )
+        assert response.status_code == 404
+
+    async def test_invalid_host_token_returns_401(
+        self, client: AsyncClient, mock_get_league_admin_info_uc: AsyncMock
+    ) -> None:
+        mock_get_league_admin_info_uc.execute.side_effect = UnauthorizedError("bad token")
+        response = await client.get(
+            self._URL,
+            headers={"X-Host-Token": "wrong-token"},
+        )
+        assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------

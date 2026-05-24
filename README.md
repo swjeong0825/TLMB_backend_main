@@ -46,6 +46,7 @@ Base URL: `http://localhost:8000`
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/admin/leagues/{league_id}` | Host-only league metadata for the admin UI (V1: `host_email` only). See `Design_Doc/TLMB_Design_doc/13_api_contracts.md` → "Growth direction" before extending the response. |
 | `PATCH` | `/admin/leagues/{league_id}/players/{player_id}` | Edit a player's nickname |
 | `DELETE` | `/admin/leagues/{league_id}/teams/{team_id}` | Delete a team (no associated matches allowed) |
 | `PATCH` | `/admin/leagues/{league_id}/matches/{match_id}` | Correct a match score |

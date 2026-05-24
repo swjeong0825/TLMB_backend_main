@@ -22,6 +22,7 @@ flowchart LR
         P6["GET /leagues/{league_id}/matches/by-player?player_name=str"]
     end
     subgraph admin ["Admin — league_id + X-Host-Token header"]
+        A0["GET /admin/leagues/{league_id}"]
         A1["PATCH /admin/leagues/{league_id}/players/{player_id}"]
         A2["DELETE /admin/leagues/{league_id}/teams/{team_id}"]
         A3["PATCH /admin/leagues/{league_id}/matches/{match_id}"]
@@ -61,7 +62,7 @@ flowchart LR
 - Path: `/leagues`
 - Purpose: Create a new league and receive access credentials. Optionally pre-register a starting roster of players in the same transaction.
 - Request shape: `{ "title": "str", "host_email": "str (RFC-compliant email)", "description": "str | null", "rules": { ... } | null, "initial_players": ["str", ...] }`
-  - **`host_email` required.** Mandatory contact email for the league host, validated at the API edge by Pydantic `EmailStr` (RFC-compliant). Stored on the `League` aggregate as the `HostEmail` value object (stripped + lowercased). **Immutable after creation in this API version** — no admin endpoint updates it. The value is **never returned on any read endpoint** (it's private contact info, not league metadata). Reserved for future notification features (sending the player/admin page links, new-match notifications); no notifications are sent today.
+  - **`host_email` required.** Mandatory contact email for the league host, validated at the API edge by Pydantic `EmailStr` (RFC-compliant). Stored on the `League` aggregate as the `HostEmail` value object (stripped + lowercased). **Immutable after creation in this API version** — no admin endpoint updates it. The value is **not returned on player-facing read endpoints**; it is exposed only via `GET /admin/leagues/{league_id}` when the caller presents a valid `X-Host-Token`. Reserved for future notification features (sending the player/admin page links, new-match notifications); no notifications are sent today.
   - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, v5, or v6 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). v1–v5 inputs are upgraded to v6 transparently: v4's `require_eligible_players` and v5's `require_allowlist` are both inverted into `auto_register_players_on_match`. Rules are **not** mutable after creation in this API version.
   - **`initial_players` optional**, default `[]`. When non-empty, each entry must be a non-blank string; one `Player` row per entry is inserted in the same DB transaction that creates the league row (see [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.auto_register_players_on_match` — strict-roster leagues will typically supply it; open leagues may also supply it as a seeding convenience. In-batch duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row or player rows are persisted.
 - Example `rules` (v6): `{ "version": 6, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
@@ -292,6 +293,71 @@ flowchart LR
   - 404 PlayerNotFoundError (no player with that nickname in this league)
 - Auth notes: `league_id` in URL path — possession is sufficient
 - Notes: Sorted by `created_at` descending. Returns an empty list if the player has no team (e.g. all of their teams have been deleted). Under `one_team_per_player = false` matches from every team the player belongs to are unioned and deduped by `match_id`. Nickname resolution at read time — admin nickname edits retroactively affect display.
+
+---
+
+---
+
+## Endpoint: Get League Admin Info (Admin)
+
+- Method: GET
+- Path: `/admin/leagues/{league_id}`
+- Purpose: Return **host-only league metadata** for the admin UI. V1 exposes only `host_email`; the path and use-case name are intentionally general — see **Growth direction** below.
+- Request shape: —
+- Response shape (V1): `{ "host_email": "str" }`
+- Use case called: GetLeagueAdminInfoUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 401 UnauthorizedError (missing or mismatched X-Host-Token)
+- Auth notes: `league_id` (URL path) + `X-Host-Token` header must both be present and the token must match the league's `host_token`
+- Notes: Player-facing endpoints never include `host_email`. This is the only read path that surfaces it in V1.
+
+### Why this endpoint is general, not `/host-email`
+
+The contract is a **privacy boundary**, not a single-field shortcut.
+
+| Concern | Player-facing reads | This admin read |
+|---|---|---|
+| Auth | `league_id` in URL is enough | `league_id` + valid `X-Host-Token` |
+| Scope | Standings, roster, match history — league *game* data | League *host* metadata that must never leak to players |
+| URL shape | Sub-resources (`/roster`, `/standings`, …) | `GET /admin/leagues/{league_id}` — “admin view of the league itself” |
+
+Naming the route after one field (e.g. `/host-email`) would force a new endpoint for every future host-private field, all with identical auth. Keeping one read model under `/admin/leagues/{league_id}` lets the admin UI fetch host-only metadata in **one round-trip** as the product grows.
+
+**Do not duplicate player-facing read models here.** Title, rules, roster, standings, and match history already have dedicated player endpoints (and the chat server reads those). This endpoint is for fields that are **stored on the league but withheld from players**.
+
+### Growth direction (when extending this endpoint)
+
+Add new **optional or required top-level keys** to the same response schema and use case when a field meets **all** of:
+
+1. Stored on the `League` aggregate (or closely related host config).
+2. Safe and intended for the host/admin UI.
+3. **Must not** appear on any player-facing `GET`.
+
+Likely candidates (not implemented; listed for orientation):
+
+| Field | Rationale |
+|---|---|
+| `host_email` | ✅ V1 — contact for notifications and admin UI confirmation |
+| `description` | Only if product decision is “organisers see it, players don’t” (today description is not on player reads either; confirm before exposing) |
+| `created_at` | Admin dashboard / “when was this league created?” |
+| Notification prefs | e.g. `notify_on_new_match: bool` when email notification work lands |
+| `league_id`, `title` | Usually **omit** — already available from `GET /roster` (title) or the URL; add only if admin UI needs a single self-contained payload |
+
+**Anti-patterns — keep these on existing endpoints instead:**
+
+- Roster, teams, players → `GET /leagues/{id}/roster`
+- Standings → `GET /leagues/{id}/standings` (and by-player variant)
+- Match history → `GET /leagues/{id}/matches`
+- Mutations → existing `PATCH` / `POST` / `DELETE` under `/admin/leagues/{id}/…`
+
+**Implementation checklist when adding a field:**
+
+1. Extend `LeagueAdminInfoView` and `GetLeagueAdminInfoResponse` (additive JSON — old clients ignore new keys).
+2. Map from the aggregate in `GetLeagueAdminInfoUseCase.execute`.
+3. Update this section and the response example in `13_api_contracts.md`.
+4. Add application + API + e2e tests; update admin frontend if the field is user-visible.
+5. Do **not** add the field to `GetLeagueRosterResponse` or other player-facing schemas unless the product explicitly makes it public.
 
 ---
 

@@ -12,6 +12,7 @@ from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
 from app.application.use_cases.delete_team_use_case import DeleteTeamUseCase
 from app.application.use_cases.edit_match_score_use_case import EditMatchScoreUseCase
 from app.application.use_cases.edit_player_nickname_use_case import EditPlayerNicknameUseCase
+from app.application.use_cases.get_league_admin_info_use_case import GetLeagueAdminInfoUseCase
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryUseCase
 from app.application.use_cases.get_match_history_by_player_use_case import GetMatchHistoryByPlayerUseCase
@@ -101,6 +102,12 @@ def get_get_league_roster_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
 ) -> GetLeagueRosterUseCase:
     return GetLeagueRosterUseCase(league_repo)
+
+
+def get_get_league_admin_info_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> GetLeagueAdminInfoUseCase:
+    return GetLeagueAdminInfoUseCase(league_repo)
 
 
 def get_edit_player_nickname_use_case(
