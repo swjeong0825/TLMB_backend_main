@@ -23,7 +23,7 @@ from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
     SearchLeaguesByTitlePrefixUseCase,
 )
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultUseCase
-from app.config import player_score_edit_window_seconds
+from app.config import player_match_delete_window_seconds, player_score_edit_window_seconds
 from app.infrastructure.config.database import AsyncSessionFactory
 from app.infrastructure.persistence.repositories.league_repository import SqlAlchemyLeagueRepository
 from app.infrastructure.persistence.repositories.match_repository import SqlAlchemyMatchRepository
@@ -139,7 +139,11 @@ def get_delete_match_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
 ) -> DeleteMatchUseCase:
-    return DeleteMatchUseCase(league_repo, match_repo)
+    return DeleteMatchUseCase(
+        league_repo,
+        match_repo,
+        window_seconds=player_match_delete_window_seconds(),
+    )
 
 
 def get_add_players_use_case(

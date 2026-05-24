@@ -15,6 +15,8 @@ flowchart LR
         P1["POST /leagues"]
         P1b["GET /leagues?title_prefix=str"]
         P2["POST /leagues/{league_id}/matches"]
+        P2b["PATCH /leagues/{league_id}/matches/{match_id} (within edit window)"]
+        P2c["DELETE /leagues/{league_id}/matches/{match_id} (within delete window)"]
         P3["GET /leagues/{league_id}/standings"]
         P3b["GET /leagues/{league_id}/standings/by-player?player_name=str"]
         P4["GET /leagues/{league_id}/matches"]
@@ -53,6 +55,8 @@ flowchart LR
 | InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5/v6 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
 | PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a team or appears on a match; body carries `teams_count`, `matches_count`) | 409 |
 | RosterMembershipRequiredError (match submission contains nicknames not on the roster; only when `LeagueRules.auto_register_players_on_match = false`; body carries `missing_nicknames`) | 422 |
+| MatchEditWindowExpiredError (non-admin player tried to PATCH a match older than `PLAYER_SCORE_EDIT_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds`) | 422 |
+| MatchDeleteWindowExpiredError (non-admin player tried to DELETE a match older than `PLAYER_MATCH_DELETE_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds`) | 422 |
 
 ---
 
@@ -254,13 +258,15 @@ flowchart LR
     ],
     "teams": [
       { "team_id": "uuid", "player1_nickname": "str", "player2_nickname": "str" }
-    ]
+    ],
+    "player_score_edit_window_seconds": 3600,
+    "player_match_delete_window_seconds": 600
   }
   ```
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5 inputs are upgraded to v6 on read so the response `version` is always `6`. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match.
+- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5 inputs are upgraded to v6 on read so the response `version` is always `6`. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
 
 ---
 
@@ -426,6 +432,22 @@ Likely candidates (not implemented; listed for orientation):
   - 404 MatchNotFoundError
   - 401 UnauthorizedError
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header
+
+---
+
+## Endpoint: Delete Match (Player)
+
+- Method: DELETE
+- Path: `/leagues/{league_id}/matches/{match_id}`
+- Purpose: Allow a non-admin caller to delete a match they just submitted, before they walk away from the court. Mirrors the player-facing `PATCH /leagues/{league_id}/matches/{match_id}` (edit-score). The window is tuned independently because deletes are irreversible: default `PLAYER_MATCH_DELETE_WINDOW_SECONDS = 600` (10 min) vs `PLAYER_SCORE_EDIT_WINDOW_SECONDS = 3600` (1 h) for edits. Admins always go through the `/admin/...` route above and bypass the window.
+- Request shape: —
+- Response shape: 204 No Content
+- Use case called: DeleteMatchUseCase (with `host_token=None`, dual-mode shape — same use case the admin endpoint above uses)
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 MatchNotFoundError
+  - 422 MatchDeleteWindowExpiredError (match older than `PLAYER_MATCH_DELETE_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds` so the frontend can render a precise "ask the host" message without re-parsing `detail`)
+- Auth notes: Player-facing — `league_id` in the URL is the only access check, no `X-Host-Token` required. Possession of a valid `league_id` is sufficient proof of league membership, mirroring the player POST/PATCH endpoints.
 
 ---
 

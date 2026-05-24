@@ -11,6 +11,7 @@ from app.application.use_cases.delete_match_use_case import (
 from app.domain.aggregates.match.value_objects import MatchId
 from app.domain.exceptions import (
     LeagueNotFoundError,
+    MatchDeleteWindowExpiredError,
     MatchNotFoundError,
     UnauthorizedError,
 )
@@ -90,3 +91,50 @@ async def test_raises_for_unknown_league(session: AsyncSession) -> None:
                 match_id="00000000-0000-0000-0000-000000000001",
             )
         )
+
+
+async def test_player_inside_window_deletes(persisted_league_with_match: dict) -> None:
+    """Player call (`host_token=None`) within the window deletes the match."""
+    league = persisted_league_with_match["league"]
+    match_id = persisted_league_with_match["match_id"]
+    from tests.integration.conftest import _session_factory
+
+    async with _session_factory() as s:
+        await DeleteMatchUseCase(
+            SqlAlchemyLeagueRepository(s),
+            SqlAlchemyMatchRepository(s),
+            window_seconds=3600,
+        ).execute(
+            DeleteMatchCommand(
+                host_token=None,
+                league_id=str(league.league_id),
+                match_id=match_id,
+            )
+        )
+        await s.commit()
+
+    async with _session_factory() as s:
+        matches = await SqlAlchemyMatchRepository(s).get_all_by_league(league.league_id)
+
+    assert all(str(m.match_id.value) != match_id for m in matches)
+
+
+async def test_player_outside_window_raises(persisted_league_with_match: dict) -> None:
+    """`window_seconds=0` makes any persisted match too old for a player."""
+    league = persisted_league_with_match["league"]
+    match_id = persisted_league_with_match["match_id"]
+    from tests.integration.conftest import _session_factory
+
+    async with _session_factory() as s:
+        with pytest.raises(MatchDeleteWindowExpiredError):
+            await DeleteMatchUseCase(
+                SqlAlchemyLeagueRepository(s),
+                SqlAlchemyMatchRepository(s),
+                window_seconds=0,
+            ).execute(
+                DeleteMatchCommand(
+                    host_token=None,
+                    league_id=str(league.league_id),
+                    match_id=match_id,
+                )
+            )

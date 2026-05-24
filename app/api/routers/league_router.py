@@ -24,10 +24,14 @@ from app.api.schemas.league_schemas import (
     SubmitMatchResultResponse,
     TeamEntrySchema,
 )
-from app.config import player_score_edit_window_seconds
+from app.config import player_match_delete_window_seconds, player_score_edit_window_seconds
 from app.application.use_cases.create_league_use_case import (
     CreateLeagueCommand,
     CreateLeagueUseCase,
+)
+from app.application.use_cases.delete_match_use_case import (
+    DeleteMatchCommand,
+    DeleteMatchUseCase,
 )
 from app.application.use_cases.edit_match_score_use_case import (
     EditMatchScoreCommand,
@@ -54,6 +58,7 @@ from app.application.use_cases.submit_match_result_use_case import (
 )
 from app.dependencies import (
     get_create_league_use_case,
+    get_delete_match_use_case,
     get_edit_match_score_use_case,
     get_get_league_roster_use_case,
     get_get_match_history_by_player_use_case,
@@ -176,6 +181,38 @@ async def edit_match_score_by_player(
         match_id=result.match_id,
         team1_score=result.team1_score,
         team2_score=result.team2_score,
+    )
+
+
+@router.delete(
+    "/leagues/{league_id}/matches/{match_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@limiter.limit("60/minute")
+async def delete_match_by_player(
+    request: Request,
+    league_id: str,
+    match_id: str,
+    use_case: DeleteMatchUseCase = Depends(get_delete_match_use_case),
+) -> None:
+    """Player-facing match delete.
+
+    Open to anyone with `league_id` (no `X-Host-Token`), but only while
+    the match is within the configured player-delete window
+    (`PLAYER_MATCH_DELETE_WINDOW_SECONDS`, default 600s). Outside the
+    window the request 422s with `MatchDeleteWindowExpiredError` and the
+    caller must ask the host to delete it via the admin endpoint.
+
+    The admin endpoint at `DELETE /admin/leagues/{id}/matches/{id}`
+    (requires `X-Host-Token`) remains unchanged and is **not** gated by
+    the window.
+    """
+    await use_case.execute(
+        DeleteMatchCommand(
+            host_token=None,
+            league_id=league_id,
+            match_id=match_id,
+        )
     )
 
 
@@ -322,4 +359,5 @@ async def get_league_roster(
             for t in roster.teams
         ],
         player_score_edit_window_seconds=player_score_edit_window_seconds(),
+        player_match_delete_window_seconds=player_match_delete_window_seconds(),
     )

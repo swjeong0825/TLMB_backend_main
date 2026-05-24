@@ -111,6 +111,40 @@ class MatchEditWindowExpiredError(DomainError):
         self.age_seconds = age_seconds
 
 
+class MatchDeleteWindowExpiredError(DomainError):
+    """Raised by `DeleteMatchUseCase` when a non-admin caller tries to
+    delete a match whose `created_at` is older than the configured
+    player-delete window.
+
+    Mirrors `MatchEditWindowExpiredError` in shape and intent: the
+    fields below let the frontend render a precise "this match can no
+    longer be deleted (ask the host)" message without re-parsing the
+    human-readable `detail` string. A distinct class (rather than
+    reusing the edit error) lets the UI localise the two messages
+    independently and lets ops grep logs by operation kind.
+
+    - `match_id`: the match the caller tried to delete.
+    - `window_seconds`: the configured delete window length, so the UI
+      can echo "for the first N minutes after submission".
+    - `age_seconds`: how old the match was when the request arrived.
+
+    Maps to HTTP 422, alongside `MatchEditWindowExpiredError`, in
+    `app/main.py`.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        match_id: str,
+        window_seconds: int,
+        age_seconds: int,
+    ) -> None:
+        super().__init__(message)
+        self.match_id = match_id
+        self.window_seconds = window_seconds
+        self.age_seconds = age_seconds
+
+
 class PlayerHasParticipationError(DomainError):
     """Raised by `League.remove_player` when the player is on at least one
     team or referenced by at least one match.

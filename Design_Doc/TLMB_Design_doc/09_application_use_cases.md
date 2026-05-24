@@ -310,14 +310,14 @@ flowchart TD
 
 ---
 
-## Use Case: DeleteMatchUseCase (Admin)
+## Use Case: DeleteMatchUseCase (Admin + Player, dual-mode)
 
 - Business action: Delete Match
-- Inputs: DeleteMatchCommand(host_token: str, league_id: str, match_id: str)
+- Inputs: DeleteMatchCommand(host_token: str | None, league_id: str, match_id: str)
 - Output: confirmation (match deleted)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — single repository delete
-- Aggregate(s) loaded: League (for hostToken verification), Match (for existence check)
+- Aggregate(s) loaded: League (for hostToken verification), Match (for existence and `created_at` check)
 - Aggregate(s) loaded through which repository?: LeagueRepository, MatchRepository
 - Domain service used?: No
 - Repository calls: LeagueRepository.get_by_id, MatchRepository.get_by_id, MatchRepository.delete
@@ -326,9 +326,11 @@ flowchart TD
 - Transaction notes: single hard delete on MatchRepository; League loaded read-only for auth check
 - Steps:
   1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
-  2. Verify host_token matches league.host_token.value — raise UnauthorizedError if not
+  2. If `host_token` is provided (admin call): verify it matches league.host_token.value — raise UnauthorizedError if not. Skip the window check below.
   3. Load Match via MatchRepository.get_by_id(match_id, league_id) — raise MatchNotFoundError if missing
-  4. MatchRepository.delete(match_id, league_id) — hard delete; no domain method needed (deletion has no domain invariants beyond existence check)
-- Domain rules enforced where: Application layer (existence and auth checks); no domain-level delete method on Match aggregate
-- Errors: LeagueNotFoundError, UnauthorizedError, MatchNotFoundError
+  4. If `host_token` is None (player call): enforce `now - match.created_at <= window_seconds` — raise MatchDeleteWindowExpiredError otherwise (with `match_id`, `window_seconds`, `age_seconds` payload). `created_at == None` fails closed.
+  5. MatchRepository.delete(match_id, league_id) — hard delete; no domain method needed (deletion has no domain invariants beyond existence + window check)
+- Domain rules enforced where: Application layer (existence, auth, and time-window checks); no domain-level delete method on Match aggregate. Window threshold injected at construction (`window_seconds`, default 600s / 10 min) so deployment knobs and tests can both override without monkeypatching `datetime.now`.
+- Errors: LeagueNotFoundError, UnauthorizedError, MatchNotFoundError, MatchDeleteWindowExpiredError
+- Mirrors `EditMatchScoreUseCase`'s dual-mode shape: same `host_token: str | None` trust model, same injected-window pattern, same exception structure (`Match*WindowExpiredError(match_id, window_seconds, age_seconds)`). Player-window default is tighter (600s vs 3600s for edits) because deletes are irreversible.
 

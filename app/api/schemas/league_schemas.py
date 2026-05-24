@@ -220,13 +220,22 @@ class LeagueRulesResponseSchema(BaseModel):
 class GetLeagueRosterResponse(BaseModel):
     """Read-side projection of a league's roster + active rules.
 
-    `player_score_edit_window_seconds` is **server-wide config** (not a
-    per-league rule, not stored on the league row) — it's surfaced here
-    so the frontend can fetch league title + rules + this value in the
-    single roster trip it already makes on chat-page boot. The window
-    governs how long after `match.created_at` a non-admin caller can
-    `PATCH /leagues/{league_id}/matches/{match_id}` to correct the
-    score; admins (`X-Host-Token`) bypass the window entirely.
+    `player_score_edit_window_seconds` and
+    `player_match_delete_window_seconds` are **server-wide config**
+    (not per-league rules, not stored on the league row) — they are
+    surfaced here so the frontend can fetch league title + rules +
+    both values in the single roster trip it already makes on
+    chat-page boot.
+
+    - `player_score_edit_window_seconds` governs how long after
+      `match.created_at` a non-admin caller can
+      `PATCH /leagues/{league_id}/matches/{match_id}` to correct the
+      score; admins (`X-Host-Token`) bypass the window entirely.
+    - `player_match_delete_window_seconds` governs how long after
+      `match.created_at` a non-admin caller can
+      `DELETE /leagues/{league_id}/matches/{match_id}`; admins bypass
+      the window. Tuned independently from the edit window because
+      deletes are irreversible (default 600s vs 3600s for edits).
     """
 
     title: str
@@ -234,3 +243,4 @@ class GetLeagueRosterResponse(BaseModel):
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]
     player_score_edit_window_seconds: int
+    player_match_delete_window_seconds: int
