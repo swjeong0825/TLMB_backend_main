@@ -134,6 +134,7 @@ class StandingsEntrySchema(BaseModel):
     games_lost: int
     games_diff: int
     win_pct: float
+    draws: int = 0
     team_id: str | None = None
     player1_nickname: str | None = None
     player2_nickname: str | None = None
@@ -173,6 +174,8 @@ class GetMatchHistoryResponse(BaseModel):
 class PlayerEntrySchema(BaseModel):
     player_id: str
     nickname: str
+    teams_count: int = 0
+    matches_count: int = 0
 
 
 class TeamEntrySchema(BaseModel):

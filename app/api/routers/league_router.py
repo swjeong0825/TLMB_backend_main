@@ -169,6 +169,7 @@ def _to_standings_entry_schema(entry) -> StandingsEntrySchema:
         games_lost=entry.games_lost,
         games_diff=entry.games_diff,
         win_pct=entry.win_pct,
+        draws=entry.draws,
         team_id=entry.team_id,
         player1_nickname=entry.player1_nickname,
         player2_nickname=entry.player2_nickname,
@@ -247,7 +248,15 @@ async def get_league_roster(
     return GetLeagueRosterResponse(
         title=roster.title,
         rules=LeagueRulesResponseSchema(**roster.rules),
-        players=[PlayerEntrySchema(player_id=p.player_id, nickname=p.nickname) for p in roster.players],
+        players=[
+            PlayerEntrySchema(
+                player_id=p.player_id,
+                nickname=p.nickname,
+                teams_count=p.teams_count,
+                matches_count=p.matches_count,
+            )
+            for p in roster.players
+        ],
         teams=[
             TeamEntrySchema(
                 team_id=t.team_id,

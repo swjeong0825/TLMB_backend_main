@@ -505,6 +505,36 @@ async def test_get_standings_after_match(client: AsyncClient) -> None:
     assert second["losses"] == 1
 
 
+async def test_get_standings_after_draw(client: AsyncClient) -> None:
+    """A 5-5 set score is accepted as a draw; both teams pick up a draw, no
+    wins, no losses. `win_pct` is diluted to 0 (per the universal "draws
+    don't count as wins" rule)."""
+    league = await create_league(client)
+    league_id = league["league_id"]
+
+    await submit_match(
+        client,
+        league_id,
+        team1=("alice", "bob"),
+        team2=("charlie", "diana"),
+        team1_score="5",
+        team2_score="5",
+    )
+
+    resp = await client.get(f"/leagues/{league_id}/standings")
+
+    assert resp.status_code == 200
+    standings = resp.json()["standings"]
+    assert len(standings) == 2
+    for row in standings:
+        assert row["wins"] == 0
+        assert row["losses"] == 0
+        assert row["draws"] == 1
+        assert row["matches_played"] == 1
+        assert row["games_won"] == 5
+        assert row["games_lost"] == 5
+
+
 async def test_get_standings_multiple_matches(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id = league["league_id"]

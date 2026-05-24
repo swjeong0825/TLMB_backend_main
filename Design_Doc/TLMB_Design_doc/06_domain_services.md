@@ -9,7 +9,7 @@
   - `teams: list[Team]` — team entities from the League aggregate (supplies team identity and player ID references)
   - `players: list[Player]` — player entities from the League aggregate (supplies nicknames for display)
   - `rules: LeagueRules` — supplies `ranking_subject` (which row shape to emit) and `tie_breakers` (which metric tuple to sort by)
-- Outputs: `list[StandingsEntry]` — discriminated by `subject_kind`. Both variants carry `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Team variant additionally carries `team_id`, `player1_nickname`, `player2_nickname`. Player variant additionally carries `player_id`, `nickname`. Sorted ascending by `rank`.
+- Outputs: `list[StandingsEntry]` — discriminated by `subject_kind`. Both variants carry `rank`, `matches_played`, `wins`, `losses`, `draws`, `games_won`, `games_lost`, `games_diff`, `win_pct`. `draws` counts matches that ended in an equal set score; it is informational only (rendered as the standings "D" column) and does not participate in any ranking metric — see "Draw handling" under Notes. Team variant additionally carries `team_id`, `player1_nickname`, `player2_nickname`. Player variant additionally carries `player_id`, `nickname`. Sorted ascending by `rank`.
 - Purity / no-IO rule: Pure — no DB calls, no HTTP, no side effects; receives all required state as input parameters and returns a computed result.
 - Related aggregates: League (for team and player data, plus rules), Match (for win/loss/games records).
 - Used for:
@@ -42,7 +42,7 @@ A and B tie on `matches_won` (both 2). Sort descending by `games_diff` breaks th
 
 ## Notes / Resolved Decisions
 
-- **Draw handling (resolved):** If both teams score equally in a set, the match contributes zero wins and zero losses to both teams. Draws are structurally valid match records and are counted in `matches_played` (the denominator of `win_pct`) but have no effect on `matches_won` or `matches_lost`.
+- **Draw handling (resolved):** If both teams score equally in a set, the match contributes zero wins and zero losses to both teams. Draws are structurally valid match records and are counted in `matches_played` (the denominator of `win_pct`) and in the standalone `draws` counter on `StandingsEntry`, but have no effect on `matches_won` or `matches_lost`. `draws` is surfaced as the "D" column in the standings UI and is **not** an `ALLOWED_METRIC` — it does not appear in `LeagueRules.tie_breakers` and does not influence ranking.
 - **Single set per match (resolved):** V1/V2 use exactly one `SetScore` per match. The win-determination logic compares `team1_score` vs `team2_score` on that single pair. Multi-set support, if needed in a future version, would require updating this logic.
 - **Player nickname display:** The service resolves player nicknames at calculation time from the passed `list[Player]`. It does not call any repository. The use case is responsible for loading the match list, the league (with players and teams), and the league's rules before invoking the service.
 - **`win_pct` for unplayed subjects:** A subject with `matches_played == 0` produces `win_pct == 0.0` so that sort order remains total. Such subjects always sort below any subject with at least one win.

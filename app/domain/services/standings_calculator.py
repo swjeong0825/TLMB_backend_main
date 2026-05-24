@@ -20,8 +20,10 @@ class StandingsEntry:
     - "team": team_id, player1_nickname, player2_nickname are populated.
     - "player": player_id, nickname are populated.
 
-    Metric fields (matches_played, wins, losses, games_won, games_lost,
-    games_diff, win_pct) and `rank` are populated for both variants.
+    Metric fields (matches_played, wins, losses, draws, games_won, games_lost,
+    games_diff, win_pct) and `rank` are populated for both variants. `draws`
+    counts matches that ended in an equal set score; it is informational only
+    and does not participate in any ranking metric today.
     """
 
     subject_kind: Literal["team", "player"]
@@ -33,6 +35,7 @@ class StandingsEntry:
     games_lost: int
     games_diff: int
     win_pct: float
+    draws: int = 0
     team_id: str | None = None
     player1_nickname: str | None = None
     player2_nickname: str | None = None
@@ -45,6 +48,7 @@ class _Aggregate:
     matches_played: int = 0
     wins: int = 0
     losses: int = 0
+    draws: int = 0
     games_won: int = 0
     games_lost: int = 0
 
@@ -52,6 +56,7 @@ class _Aggregate:
         self,
         won: bool,
         lost: bool,
+        drew: bool,
         my_score: int,
         opp_score: int,
     ) -> _Aggregate:
@@ -59,6 +64,7 @@ class _Aggregate:
             matches_played=self.matches_played + 1,
             wins=self.wins + (1 if won else 0),
             losses=self.losses + (1 if lost else 0),
+            draws=self.draws + (1 if drew else 0),
             games_won=self.games_won + my_score,
             games_lost=self.games_lost + opp_score,
         )
@@ -133,6 +139,7 @@ class StandingsCalculator:
                 agg_by_team[t1] = agg_by_team[t1].add(
                     won=(side == "team1"),
                     lost=(side == "team2"),
+                    drew=(side == "draw"),
                     my_score=s1,
                     opp_score=s2,
                 )
@@ -140,6 +147,7 @@ class StandingsCalculator:
                 agg_by_team[t2] = agg_by_team[t2].add(
                     won=(side == "team2"),
                     lost=(side == "team1"),
+                    drew=(side == "draw"),
                     my_score=s2,
                     opp_score=s1,
                 )
@@ -190,6 +198,7 @@ class StandingsCalculator:
                     agg_by_player[player_id] = agg_by_player[player_id].add(
                         won=(side == "team1"),
                         lost=(side == "team2"),
+                        drew=(side == "draw"),
                         my_score=s1,
                         opp_score=s2,
                     )
@@ -197,6 +206,7 @@ class StandingsCalculator:
                     agg_by_player[player_id] = agg_by_player[player_id].add(
                         won=(side == "team2"),
                         lost=(side == "team1"),
+                        drew=(side == "draw"),
                         my_score=s2,
                         opp_score=s1,
                     )
@@ -252,6 +262,7 @@ class StandingsCalculator:
                     games_lost=agg.games_lost,
                     games_diff=agg.games_diff,
                     win_pct=agg.win_pct,
+                    draws=agg.draws,
                     team_id=team_id_str,
                     player1_nickname=nick1,
                     player2_nickname=nick2,
@@ -287,6 +298,7 @@ class StandingsCalculator:
                     games_lost=agg.games_lost,
                     games_diff=agg.games_diff,
                     win_pct=agg.win_pct,
+                    draws=agg.draws,
                     player_id=str(player.player_id.value),
                     nickname=player.nickname.value,
                 )

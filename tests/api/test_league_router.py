@@ -284,6 +284,7 @@ class TestGetStandings:
                     games_lost=8,
                     games_diff=4,
                     win_pct=2 / 3,
+                    draws=1,
                     team_id="t1",
                     player1_nickname="alice",
                     player2_nickname="bob",
@@ -299,6 +300,7 @@ class TestGetStandings:
         assert data["standings"][0]["rank"] == 1
         assert data["standings"][0]["wins"] == 2
         assert data["standings"][0]["games_diff"] == 4
+        assert data["standings"][0]["draws"] == 1
         assert data["tie_breakers"] == ["matches_won"]
 
     async def test_response_echoes_league_tie_breakers(
@@ -395,6 +397,7 @@ class TestGetStandingsByPlayer:
         assert data["standings"][0]["nickname"] == "alice"
         assert data["standings"][0]["player_id"] == "p1"
         assert data["standings"][0]["team_id"] is None
+        assert data["standings"][0]["draws"] == 0
         assert data["tie_breakers"] == ["games_won"]
 
     async def test_passes_params_to_use_case(

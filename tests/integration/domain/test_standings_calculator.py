@@ -114,6 +114,8 @@ def test_draw_not_counted_as_win_or_loss() -> None:
     for e in entries:
         assert e.wins == 0
         assert e.losses == 0
+        assert e.draws == 1
+        assert e.matches_played == 1
 
 
 def test_winner_ranked_first() -> None:

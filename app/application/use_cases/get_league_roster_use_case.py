@@ -17,6 +17,8 @@ class GetLeagueRosterQuery:
 class PlayerEntry:
     player_id: str
     nickname: str
+    teams_count: int = 0
+    matches_count: int = 0
 
 
 @dataclass
@@ -57,7 +59,19 @@ class GetLeagueRosterUseCase:
         player_map = {p.player_id: p.nickname.value for p in league.players}
 
         players = sorted(
-            [PlayerEntry(player_id=str(p.player_id.value), nickname=p.nickname.value) for p in league.players],
+            [
+                PlayerEntry(
+                    player_id=str(p.player_id.value),
+                    nickname=p.nickname.value,
+                    teams_count=sum(
+                        1
+                        for t in league.teams
+                        if t.player_id_1 == p.player_id or t.player_id_2 == p.player_id
+                    ),
+                    matches_count=p.match_count,
+                )
+                for p in league.players
+            ],
             key=lambda e: e.nickname,
         )
 

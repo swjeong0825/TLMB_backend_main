@@ -103,7 +103,7 @@ class TestStandingsCalculatorBasic:
         assert cd.wins == 0 and cd.losses == 1
         assert cd.games_won == 3 and cd.games_lost == 6
 
-    def test_draw_does_not_add_wins_or_losses_but_counts_matches_played(self) -> None:
+    def test_draw_counts_in_draws_not_wins_or_losses(self) -> None:
         alice, bob = _player("alice"), _player("bob")
         charlie, diana = _player("charlie"), _player("diana")
         team_ab = _team(alice, bob)
@@ -116,9 +116,40 @@ class TestStandingsCalculatorBasic:
         for e in entries:
             assert e.wins == 0
             assert e.losses == 0
+            assert e.draws == 1
             assert e.matches_played == 1
             assert e.games_won == 6
             assert e.games_lost == 6
+            assert e.win_pct == 0.0
+
+    def test_draws_do_not_affect_ranking_under_default_rules(self) -> None:
+        # team_ab wins one match outright (vs team_cd) and draws a separate one
+        # vs team_ef. team_cd loses one. team_ef draws one. Under DEFAULT_RULES
+        # (tie_breakers=("matches_won",)) the only ranking metric is `wins`, so
+        # team_ab (1 win) must rank above the two teams with 0 wins regardless
+        # of how many draws they have.
+        alice, bob = _player("alice"), _player("bob")
+        charlie, diana = _player("charlie"), _player("diana")
+        eve, frank = _player("eve"), _player("frank")
+        team_ab = _team(alice, bob)
+        team_cd = _team(charlie, diana)
+        team_ef = _team(eve, frank)
+
+        m_win = _match(LEAGUE, team_ab, team_cd, "6", "3")
+        m_draw = _match(LEAGUE, team_ab, team_ef, "5", "5")
+
+        entries = StandingsCalculator().compute(
+            [m_win, m_draw],
+            [team_ab, team_cd, team_ef],
+            [alice, bob, charlie, diana, eve, frank],
+            DEFAULT_RULES,
+        )
+        ranks = {e.team_id: e.rank for e in entries}
+        draws = {e.team_id: e.draws for e in entries}
+        assert ranks[str(team_ab.team_id.value)] == 1
+        assert draws[str(team_ab.team_id.value)] == 1
+        assert draws[str(team_ef.team_id.value)] == 1
+        assert draws[str(team_cd.team_id.value)] == 0
 
 
 class TestStandingsRanking:
