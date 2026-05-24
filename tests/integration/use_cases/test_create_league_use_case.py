@@ -110,26 +110,26 @@ async def test_different_titles_both_succeed(session: AsyncSession) -> None:
     assert r1.host_token != r2.host_token
 
 
-async def test_persists_league_and_seeded_allowlist_atomically(
+async def test_persists_league_and_seeded_initial_players_atomically(
     session: AsyncSession,
 ) -> None:
-    """Seeding `allowlist` on create must reach the DB in the same
+    """Seeding `initial_players` on create must reach the DB in the same
     transaction as the league row — after a single commit, both queries
     succeed."""
     repo = SqlAlchemyLeagueRepository(session)
     result = await CreateLeagueUseCase(repo).execute(
         CreateLeagueCommand(
-            "Seeded Allowlist League",
+            "Seeded Roster League",
             None,
             rules={
-                "version": 5,
+                "version": 6,
                 "match_pair_idempotency": "once_per_league",
                 "one_team_per_player": True,
                 "ranking_subject": "team",
                 "tie_breakers": ["matches_won"],
-                "require_allowlist": True,
+                "auto_register_players_on_match": False,
             },
-            allowlist=["Alex", "Daniel", "Jason"],
+            initial_players=["Alex", "Daniel", "Jason"],
         )
     )
     await session.commit()
@@ -139,14 +139,7 @@ async def test_persists_league_and_seeded_allowlist_atomically(
 
     found = await repo.get_by_id(LeagueId.from_str(result.league_id))
     assert found is not None
-    assert found.rules.require_allowlist is True
-    assert sorted(entry.nickname.value for entry in found.allowlist) == [
-        "alex",
-        "daniel",
-        "jason",
-    ]
-    # Allowlist seed also creates Player rows in the same DB transaction
-    # (link-to-existing rule — see 20_allowlist.md). No teams are created.
+    assert found.rules.auto_register_players_on_match is False
     assert sorted(p.nickname.value for p in found.players) == [
         "alex",
         "daniel",
@@ -155,22 +148,22 @@ async def test_persists_league_and_seeded_allowlist_atomically(
     assert found.teams == []
 
 
-async def test_duplicate_seeded_allowlist_entry_rejects_whole_creation(
+async def test_duplicate_seeded_player_rejects_whole_creation(
     session: AsyncSession,
 ) -> None:
     """If the bootstrap list contains an in-batch duplicate, the aggregate
     raises before `save` — the league itself must not be persisted."""
-    from app.domain.exceptions import AllowlistNicknameAlreadyExistsError
+    from app.domain.exceptions import NicknameAlreadyInUseError
 
     repo = SqlAlchemyLeagueRepository(session)
     use_case = CreateLeagueUseCase(repo)
 
-    with pytest.raises(AllowlistNicknameAlreadyExistsError):
+    with pytest.raises(NicknameAlreadyInUseError):
         await use_case.execute(
             CreateLeagueCommand(
                 "Dup-Bootstrap League",
                 None,
-                allowlist=["Alex", "ALEX"],
+                initial_players=["Alex", "ALEX"],
             )
         )
     await session.rollback()

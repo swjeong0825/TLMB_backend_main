@@ -4,17 +4,17 @@ from fastapi import APIRouter, Depends, Header, status
 from starlette.requests import Request
 
 from app.api.schemas.admin_schemas import (
-    AddAllowlistEntriesRequest,
-    AddAllowlistEntriesResponse,
+    AddPlayersRequest,
+    AddPlayersResponse,
     EditMatchScoreRequest,
     EditMatchScoreResponse,
     EditPlayerNicknameRequest,
     EditPlayerNicknameResponse,
 )
-from app.api.schemas.league_schemas import AllowlistEntrySchema
-from app.application.use_cases.add_allowlist_entries_use_case import (
-    AddAllowlistEntriesCommand,
-    AddAllowlistEntriesUseCase,
+from app.api.schemas.league_schemas import PlayerEntrySchema
+from app.application.use_cases.add_players_use_case import (
+    AddPlayersCommand,
+    AddPlayersUseCase,
 )
 from app.application.use_cases.delete_match_use_case import DeleteMatchCommand, DeleteMatchUseCase
 from app.application.use_cases.delete_team_use_case import DeleteTeamCommand, DeleteTeamUseCase
@@ -26,17 +26,17 @@ from app.application.use_cases.edit_player_nickname_use_case import (
     EditPlayerNicknameCommand,
     EditPlayerNicknameUseCase,
 )
-from app.application.use_cases.remove_allowlist_entry_use_case import (
-    RemoveAllowlistEntryCommand,
-    RemoveAllowlistEntryUseCase,
+from app.application.use_cases.remove_player_from_roster_use_case import (
+    RemovePlayerFromRosterCommand,
+    RemovePlayerFromRosterUseCase,
 )
 from app.dependencies import (
-    get_add_allowlist_entries_use_case,
+    get_add_players_use_case,
     get_delete_match_use_case,
     get_delete_team_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
-    get_remove_allowlist_entry_use_case,
+    get_remove_player_from_roster_use_case,
 )
 from app.rate_limit import limiter
 
@@ -143,52 +143,49 @@ async def delete_match(
 
 
 @router.post(
-    "/leagues/{league_id}/allowlist",
+    "/leagues/{league_id}/players",
     status_code=status.HTTP_201_CREATED,
-    response_model=AddAllowlistEntriesResponse,
+    response_model=AddPlayersResponse,
 )
 @limiter.limit("60/minute")
-async def add_allowlist_entries(
+async def add_players(
     request: Request,
     league_id: str,
-    body: AddAllowlistEntriesRequest,
+    body: AddPlayersRequest,
     x_host_token: str = Header(..., alias="X-Host-Token"),
-    use_case: AddAllowlistEntriesUseCase = Depends(get_add_allowlist_entries_use_case),
-) -> AddAllowlistEntriesResponse:
+    use_case: AddPlayersUseCase = Depends(get_add_players_use_case),
+) -> AddPlayersResponse:
     result = await use_case.execute(
-        AddAllowlistEntriesCommand(
+        AddPlayersCommand(
             host_token=x_host_token,
             league_id=league_id,
             nicknames=body.nicknames,
         )
     )
-    return AddAllowlistEntriesResponse(
-        allowlist=[
-            AllowlistEntrySchema(
-                allowlist_entry_id=e.allowlist_entry_id,
-                nickname=e.nickname,
-            )
-            for e in result.allowlist
+    return AddPlayersResponse(
+        players=[
+            PlayerEntrySchema(player_id=p.player_id, nickname=p.nickname)
+            for p in result.players
         ],
     )
 
 
 @router.delete(
-    "/leagues/{league_id}/allowlist/{allowlist_entry_id}",
+    "/leagues/{league_id}/players/{player_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @limiter.limit("60/minute")
-async def remove_allowlist_entry(
+async def remove_player_from_roster(
     request: Request,
     league_id: str,
-    allowlist_entry_id: str,
+    player_id: str,
     x_host_token: str = Header(..., alias="X-Host-Token"),
-    use_case: RemoveAllowlistEntryUseCase = Depends(get_remove_allowlist_entry_use_case),
+    use_case: RemovePlayerFromRosterUseCase = Depends(get_remove_player_from_roster_use_case),
 ) -> None:
     await use_case.execute(
-        RemoveAllowlistEntryCommand(
+        RemovePlayerFromRosterCommand(
             host_token=x_host_token,
             league_id=league_id,
-            allowlist_entry_id=allowlist_entry_id,
+            player_id=player_id,
         )
     )

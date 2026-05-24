@@ -37,7 +37,7 @@ flowchart TD
 - League creation with a unique title (case-insensitive) and optional description (host receives a hostToken and a leagueId on creation)
 - Match result submission: the client calls the backend with a confirmed structured command after the player reviews and confirms a match form pre-filled by the external AI chatbot
 - Implicit player and team creation on first match submission: if any player nickname in the submitted match is new to the league, the system registers all new players and their team(s) atomically alongside the match record
-- Implicit player creation on allowlist add: when the host pre-registers a nickname via `POST /leagues` (`allowlist` field) or `POST /admin/leagues/{league_id}/allowlist`, the system creates a `Player` row in the same transaction (link-to-existing rule when the nickname already matches a roster Player). No team is created at allowlist time. See [20_allowlist.md](20_allowlist.md).
+- Explicit roster pre-registration: when the host calls `POST /leagues` with `initial_players` or `POST /admin/leagues/{league_id}/players`, the system creates one `Player` row per input nickname in the same transaction. No team is created at pre-registration time. Pre-registered players that have not yet played a match can be hard-deleted via `DELETE /admin/leagues/{league_id}/players/{player_id}`. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
 - Rejection of a match submission if a player is already recorded as a member of a different team in the same league (a player can belong to at most one team per league)
 - Case-insensitive player nickname matching within a league (enforced by the backend)
 - Standings view (win/loss based, derived from match records; tied teams share the same rank with no tiebreaker in V1)
@@ -47,8 +47,8 @@ flowchart TD
 - Host has full admin rights over league data: can edit player nicknames, reassign teams, edit match scores, and delete matches. Teams may be deleted only if they have no associated matches; existing matches must be removed first.
 
 ## Out of Scope
-- Explicit player self-registration (players are created implicitly on first match submission OR by host allowlist add — see In Scope above; there is no per-player signup form or login)
-- Explicit team registration (teams are created implicitly when a new player pair submits their first match; the allowlist-add path does NOT create teams)
+- Explicit player self-registration (players are created implicitly on first match submission OR explicitly by host roster pre-registration — see In Scope above; there is no per-player signup form or login)
+- Explicit team registration (teams are created implicitly when a new player pair submits their first match; the roster pre-registration path does NOT create teams)
 - User authentication or password-based login
 - Match scheduling or calendar management
 - Notifications (email, SMS, push)

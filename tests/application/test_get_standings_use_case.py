@@ -117,12 +117,12 @@ class TestGetStandingsUseCase:
         from app.domain.aggregates.league.league_rules import LeagueRules
 
         rules = LeagueRules(
-            version=5,
+            version=6,
             match_pair_idempotency="once_per_league",
             one_team_per_player=True,
             ranking_subject="team",
             tie_breakers=("games_won", "matches_won"),
-            require_allowlist=False,
+            auto_register_players_on_match=True,
         )
         league = League.create(
             title="Games-Won League", description=None, host_token="tok", rules=rules

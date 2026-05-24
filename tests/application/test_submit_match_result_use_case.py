@@ -15,7 +15,7 @@ from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
     LeagueNotFoundError,
-    NotInAllowlistError,
+    RosterMembershipRequiredError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
@@ -23,19 +23,21 @@ from app.domain.exceptions import (
 from tests.application.conftest import make_league
 
 
-def _league_require_allowlist() -> League:
+def _league_require_roster() -> League:
+    """League with v6 `auto_register_players_on_match=False` —
+    only pre-registered roster members can submit matches."""
     rules = LeagueRules.from_dict(
         {
-            "version": 5,
+            "version": 6,
             "match_pair_idempotency": "once_per_league",
             "one_team_per_player": True,
             "ranking_subject": "team",
             "tie_breakers": ["matches_won"],
-            "require_allowlist": True,
+            "auto_register_players_on_match": False,
         }
     )
     return League.create(
-        title="Allowlist League",
+        title="Roster-Only League",
         description=None,
         host_token="test-host-token",
         rules=rules,
@@ -206,14 +208,14 @@ class TestSubmitMatchResultUseCase:
 
 
 # ---------------------------------------------------------------------------
-# v5: allowlist gate via LeagueRules.require_allowlist
+# v6: roster-membership gate via LeagueRules.auto_register_players_on_match
 # ---------------------------------------------------------------------------
 
 
-class TestSubmitMatchResultAllowlistGate:
-    async def test_default_league_with_flag_off_does_not_check_allowlist(self) -> None:
-        """Default leagues are require_allowlist=False; submission must
-        succeed even though the allowlist is empty (backwards compat)."""
+class TestSubmitMatchResultRosterGate:
+    async def test_default_league_with_auto_register_true_does_not_check_roster(self) -> None:
+        """Default leagues have auto_register_players_on_match=True; submission
+        must succeed even though the roster is empty (today's UX preserved)."""
         league = make_league()
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
@@ -229,9 +231,9 @@ class TestSubmitMatchResultAllowlistGate:
         )
         assert result.match_id is not None
 
-    async def test_flag_on_and_all_allowed_succeeds(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob", "charlie", "diana"])
+    async def test_flag_off_and_all_on_roster_succeeds(self) -> None:
+        league = _league_require_roster()
+        league.add_players(["alice", "bob", "charlie", "diana"])
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
@@ -246,13 +248,13 @@ class TestSubmitMatchResultAllowlistGate:
         )
         assert result.match_id is not None
 
-    async def test_flag_on_and_missing_nickname_raises_with_payload(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob"])
+    async def test_flag_off_and_missing_nickname_raises_with_payload(self) -> None:
+        league = _league_require_roster()
+        league.add_players(["alice", "bob"])
         factory, uow = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(NotInAllowlistError) as exc:
+        with pytest.raises(RosterMembershipRequiredError) as exc:
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
@@ -264,17 +266,15 @@ class TestSubmitMatchResultAllowlistGate:
             )
 
         assert exc.value.missing_nicknames == ["michael", "ryan"]
-        # Rejection happens BEFORE any persistence — both saves stay untouched.
         uow.league_repo.save.assert_not_awaited()
         uow.match_repo.save.assert_not_awaited()
 
-    async def test_flag_on_input_normalized_before_check(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob", "charlie", "diana"])
+    async def test_flag_off_input_normalized_before_check(self) -> None:
+        league = _league_require_roster()
+        league.add_players(["alice", "bob", "charlie", "diana"])
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        # Mixed-case input should normalize to the lowercase allowlist names.
         result = await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),

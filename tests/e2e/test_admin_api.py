@@ -560,3 +560,230 @@ async def test_standings_update_after_score_edit(client: AsyncClient) -> None:
     standings_after = (await client.get(f"/leagues/{league_id}/standings")).json()["standings"]
     winner_after = standings_after[0]
     assert {winner_after["player1_nickname"], winner_after["player2_nickname"]} == {"charlie", "diana"}
+
+
+async def _create_strict_roster_league(
+    client: AsyncClient,
+    title: str = "Strict Roster League",
+) -> dict:
+    """Create a league with `auto_register_players_on_match=False` so that
+    match submission requires nicknames to already be on the roster."""
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": title,
+            "rules": {
+                "version": 6,
+                "match_pair_idempotency": "once_per_league",
+                "one_team_per_player": True,
+                "ranking_subject": "team",
+                "tie_breakers": ["matches_won"],
+                "auto_register_players_on_match": False,
+            },
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_add_players_to_roster_success(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["Alex", "Daniel", "Jason"]},
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert len(body["players"]) == 3
+    nicknames = {p["nickname"] for p in body["players"]}
+    assert nicknames == {"alex", "daniel", "jason"}
+
+
+async def test_add_players_makes_them_match_eligible(client: AsyncClient) -> None:
+    """With `auto_register_players_on_match=False`, only pre-registered
+    roster players can appear on a match. After `add_players`, those
+    nicknames must be accepted by `/leagues/{id}/matches`."""
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alice", "bob", "carol", "dave"]},
+        headers={"X-Host-Token": host_token},
+    )
+
+    resp = await client.post(
+        f"/leagues/{league_id}/matches",
+        json={
+            "team1_nicknames": ["alice", "bob"],
+            "team2_nicknames": ["carol", "dave"],
+            "team1_score": "6",
+            "team2_score": "3",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_match_submission_rejected_when_player_not_on_roster(
+    client: AsyncClient,
+) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alice", "bob"]},
+        headers={"X-Host-Token": host_token},
+    )
+
+    resp = await client.post(
+        f"/leagues/{league_id}/matches",
+        json={
+            "team1_nicknames": ["alice", "bob"],
+            "team2_nicknames": ["carol", "dave"],
+            "team1_score": "6",
+            "team2_score": "3",
+        },
+    )
+
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"] == "RosterMembershipRequiredError"
+    assert set(body["missing_nicknames"]) == {"carol", "dave"}
+
+
+async def test_add_players_duplicate_nickname_returns_409(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alice"]},
+        headers={"X-Host-Token": host_token},
+    )
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["ALICE"]},
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"] == "NicknameAlreadyInUseError"
+
+
+async def test_add_players_wrong_token_returns_401(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id = league["league_id"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alex"]},
+        headers={"X-Host-Token": "wrong-token"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_add_players_missing_token_returns_422(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id = league["league_id"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alex"]},
+    )
+    assert resp.status_code == 422
+
+
+async def test_add_players_empty_list_returns_422(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": []},
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 422
+
+
+async def test_remove_player_from_roster_success(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    add_resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alex", "daniel"]},
+        headers={"X-Host-Token": host_token},
+    )
+    alex_id = next(
+        p["player_id"] for p in add_resp.json()["players"] if p["nickname"] == "alex"
+    )
+
+    resp = await client.delete(
+        f"/admin/leagues/{league_id}/players/{alex_id}",
+        headers={"X-Host-Token": host_token},
+    )
+    assert resp.status_code == 204
+
+    roster = await get_roster(client, league_id)
+    nicknames = {p["nickname"] for p in roster["players"]}
+    assert nicknames == {"daniel"}
+
+
+async def test_remove_player_with_team_returns_409(client: AsyncClient) -> None:
+    """A player who already has a team (and therefore likely matches)
+    cannot be hard-deleted — the API surfaces a 409 with the
+    `PlayerHasParticipationError` payload."""
+    league = await create_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    await submit_match(client, league_id)
+    alice_id = await get_player_id(client, league_id, "alice")
+
+    resp = await client.delete(
+        f"/admin/leagues/{league_id}/players/{alice_id}",
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["error"] == "PlayerHasParticipationError"
+    assert body["teams_count"] >= 1
+    assert body["matches_count"] >= 1
+
+
+async def test_remove_player_wrong_token_returns_401(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    add_resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alex"]},
+        headers={"X-Host-Token": host_token},
+    )
+    player_id = add_resp.json()["players"][0]["player_id"]
+
+    resp = await client.delete(
+        f"/admin/leagues/{league_id}/players/{player_id}",
+        headers={"X-Host-Token": "wrong-token"},
+    )
+    assert resp.status_code == 401
+
+
+async def test_remove_player_not_found_returns_404(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+    fake_player_id = "00000000-0000-0000-0000-000000000001"
+
+    resp = await client.delete(
+        f"/admin/leagues/{league_id}/players/{fake_player_id}",
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "PlayerNotFoundError"

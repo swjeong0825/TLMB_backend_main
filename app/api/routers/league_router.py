@@ -4,10 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.requests import Request
 
 from app.api.schemas.league_schemas import (
-    AllowlistEntrySchema,
     CreateLeagueRequest,
     CreateLeagueResponse,
-    GetAllowlistResponse,
     GetLeagueRosterResponse,
     GetMatchHistoryResponse,
     GetStandingsResponse,
@@ -24,10 +22,6 @@ from app.api.schemas.league_schemas import (
 from app.application.use_cases.create_league_use_case import (
     CreateLeagueCommand,
     CreateLeagueUseCase,
-)
-from app.application.use_cases.get_allowlist_use_case import (
-    GetAllowlistQuery,
-    GetAllowlistUseCase,
 )
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterQuery, GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryQuery, GetMatchHistoryUseCase
@@ -50,7 +44,6 @@ from app.application.use_cases.submit_match_result_use_case import (
 )
 from app.dependencies import (
     get_create_league_use_case,
-    get_get_allowlist_use_case,
     get_get_league_roster_use_case,
     get_get_match_history_by_player_use_case,
     get_get_match_history_use_case,
@@ -76,7 +69,7 @@ async def create_league(
             title=body.title,
             description=body.description,
             rules=body.rules.model_dump() if body.rules is not None else None,
-            allowlist=list(body.allowlist),
+            initial_players=list(body.initial_players),
         )
     )
     return CreateLeagueResponse(league_id=result.league_id, host_token=result.host_token)
@@ -262,26 +255,5 @@ async def get_league_roster(
                 player2_nickname=t.player2_nickname,
             )
             for t in roster.teams
-        ],
-    )
-
-
-@router.get(
-    "/leagues/{league_id}/allowlist",
-    status_code=status.HTTP_200_OK,
-    response_model=GetAllowlistResponse,
-)
-async def get_allowlist(
-    league_id: str,
-    use_case: GetAllowlistUseCase = Depends(get_get_allowlist_use_case),
-) -> GetAllowlistResponse:
-    view = await use_case.execute(GetAllowlistQuery(league_id=league_id))
-    return GetAllowlistResponse(
-        allowlist=[
-            AllowlistEntrySchema(
-                allowlist_entry_id=e.allowlist_entry_id,
-                nickname=e.nickname,
-            )
-            for e in view.allowlist
         ],
     )

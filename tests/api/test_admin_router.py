@@ -9,18 +9,17 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 
-from app.application.use_cases.add_allowlist_entries_use_case import (
-    AddAllowlistEntriesResult,
-    AllowlistEntry,
+from app.application.use_cases.add_players_use_case import (
+    AddPlayersResult,
+    PlayerEntry,
 )
 from app.application.use_cases.edit_match_score_use_case import UpdatedMatchResult
 from app.application.use_cases.edit_player_nickname_use_case import UpdatedPlayerResult
 from app.domain.exceptions import (
-    AllowlistEntryNotFoundError,
-    AllowlistNicknameAlreadyExistsError,
     LeagueNotFoundError,
     MatchNotFoundError,
     NicknameAlreadyInUseError,
+    PlayerHasParticipationError,
     PlayerNotFoundError,
     TeamHasMatchesError,
     TeamNotFoundError,
@@ -293,19 +292,19 @@ class TestDeleteMatch:
 
 
 # ---------------------------------------------------------------------------
-# POST /admin/leagues/{league_id}/allowlist
+# POST /admin/leagues/{league_id}/players
 # ---------------------------------------------------------------------------
 
 
-class TestAddAllowlistEntries:
-    _URL = "/admin/leagues/league-id/allowlist"
+class TestAddPlayers:
+    _URL = "/admin/leagues/league-id/players"
 
     async def test_returns_201_on_success(
-        self, client: AsyncClient, mock_add_allowlist_entries_uc: AsyncMock
+        self, client: AsyncClient, mock_add_players_uc: AsyncMock
     ) -> None:
-        mock_add_allowlist_entries_uc.execute.return_value = AddAllowlistEntriesResult(
-            allowlist=[
-                AllowlistEntry(allowlist_entry_id="ae-1", nickname="alex"),
+        mock_add_players_uc.execute.return_value = AddPlayersResult(
+            players=[
+                PlayerEntry(player_id="p-1", nickname="alex"),
             ]
         )
         response = await client.post(
@@ -315,13 +314,13 @@ class TestAddAllowlistEntries:
         )
         assert response.status_code == 201
 
-    async def test_response_contains_added_entries(
-        self, client: AsyncClient, mock_add_allowlist_entries_uc: AsyncMock
+    async def test_response_contains_added_players(
+        self, client: AsyncClient, mock_add_players_uc: AsyncMock
     ) -> None:
-        mock_add_allowlist_entries_uc.execute.return_value = AddAllowlistEntriesResult(
-            allowlist=[
-                AllowlistEntry(allowlist_entry_id="ae-1", nickname="alex"),
-                AllowlistEntry(allowlist_entry_id="ae-2", nickname="daniel"),
+        mock_add_players_uc.execute.return_value = AddPlayersResult(
+            players=[
+                PlayerEntry(player_id="p-1", nickname="alex"),
+                PlayerEntry(player_id="p-2", nickname="daniel"),
             ]
         )
         response = await client.post(
@@ -330,9 +329,9 @@ class TestAddAllowlistEntries:
             headers={"X-Host-Token": "token"},
         )
         data = response.json()
-        assert len(data["allowlist"]) == 2
-        assert data["allowlist"][0]["allowlist_entry_id"] == "ae-1"
-        assert data["allowlist"][0]["nickname"] == "alex"
+        assert len(data["players"]) == 2
+        assert data["players"][0]["player_id"] == "p-1"
+        assert data["players"][0]["nickname"] == "alex"
 
     async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
         response = await client.post(self._URL, json={"nicknames": ["alex"]})
@@ -355,9 +354,9 @@ class TestAddAllowlistEntries:
         assert response.status_code == 422
 
     async def test_league_not_found_returns_404(
-        self, client: AsyncClient, mock_add_allowlist_entries_uc: AsyncMock
+        self, client: AsyncClient, mock_add_players_uc: AsyncMock
     ) -> None:
-        mock_add_allowlist_entries_uc.execute.side_effect = LeagueNotFoundError("not found")
+        mock_add_players_uc.execute.side_effect = LeagueNotFoundError("not found")
         response = await client.post(
             self._URL,
             json={"nicknames": ["alex"]},
@@ -366,9 +365,9 @@ class TestAddAllowlistEntries:
         assert response.status_code == 404
 
     async def test_wrong_token_returns_401(
-        self, client: AsyncClient, mock_add_allowlist_entries_uc: AsyncMock
+        self, client: AsyncClient, mock_add_players_uc: AsyncMock
     ) -> None:
-        mock_add_allowlist_entries_uc.execute.side_effect = UnauthorizedError("unauthorized")
+        mock_add_players_uc.execute.side_effect = UnauthorizedError("unauthorized")
         response = await client.post(
             self._URL,
             json={"nicknames": ["alex"]},
@@ -377,32 +376,30 @@ class TestAddAllowlistEntries:
         assert response.status_code == 401
 
     async def test_duplicate_returns_409(
-        self, client: AsyncClient, mock_add_allowlist_entries_uc: AsyncMock
+        self, client: AsyncClient, mock_add_players_uc: AsyncMock
     ) -> None:
-        mock_add_allowlist_entries_uc.execute.side_effect = (
-            AllowlistNicknameAlreadyExistsError("already")
-        )
+        mock_add_players_uc.execute.side_effect = NicknameAlreadyInUseError("already")
         response = await client.post(
             self._URL,
             json={"nicknames": ["alex"]},
             headers={"X-Host-Token": "token"},
         )
         assert response.status_code == 409
-        assert response.json()["error"] == "AllowlistNicknameAlreadyExistsError"
+        assert response.json()["error"] == "NicknameAlreadyInUseError"
 
 
 # ---------------------------------------------------------------------------
-# DELETE /admin/leagues/{league_id}/allowlist/{allowlist_entry_id}
+# DELETE /admin/leagues/{league_id}/players/{player_id}
 # ---------------------------------------------------------------------------
 
 
-class TestRemoveAllowlistEntry:
-    _URL = "/admin/leagues/league-id/allowlist/ae-id"
+class TestRemovePlayerFromRoster:
+    _URL = "/admin/leagues/league-id/players/player-id"
 
     async def test_returns_204_on_success(
-        self, client: AsyncClient, mock_remove_allowlist_entry_uc: AsyncMock
+        self, client: AsyncClient, mock_remove_player_from_roster_uc: AsyncMock
     ) -> None:
-        mock_remove_allowlist_entry_uc.execute.return_value = None
+        mock_remove_player_from_roster_uc.execute.return_value = None
         response = await client.delete(
             self._URL, headers={"X-Host-Token": "valid-token"}
         )
@@ -413,29 +410,52 @@ class TestRemoveAllowlistEntry:
         assert response.status_code == 422
 
     async def test_league_not_found_returns_404(
-        self, client: AsyncClient, mock_remove_allowlist_entry_uc: AsyncMock
+        self, client: AsyncClient, mock_remove_player_from_roster_uc: AsyncMock
     ) -> None:
-        mock_remove_allowlist_entry_uc.execute.side_effect = LeagueNotFoundError(
+        mock_remove_player_from_roster_uc.execute.side_effect = LeagueNotFoundError(
             "not found"
         )
         response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
         assert response.status_code == 404
 
-    async def test_allowlist_entry_not_found_returns_404(
-        self, client: AsyncClient, mock_remove_allowlist_entry_uc: AsyncMock
+    async def test_player_not_found_returns_404(
+        self, client: AsyncClient, mock_remove_player_from_roster_uc: AsyncMock
     ) -> None:
-        mock_remove_allowlist_entry_uc.execute.side_effect = AllowlistEntryNotFoundError(
+        mock_remove_player_from_roster_uc.execute.side_effect = PlayerNotFoundError(
             "not found"
         )
         response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
         assert response.status_code == 404
-        assert response.json()["error"] == "AllowlistEntryNotFoundError"
+        assert response.json()["error"] == "PlayerNotFoundError"
 
     async def test_wrong_token_returns_401(
-        self, client: AsyncClient, mock_remove_allowlist_entry_uc: AsyncMock
+        self, client: AsyncClient, mock_remove_player_from_roster_uc: AsyncMock
     ) -> None:
-        mock_remove_allowlist_entry_uc.execute.side_effect = UnauthorizedError(
+        mock_remove_player_from_roster_uc.execute.side_effect = UnauthorizedError(
             "unauthorized"
         )
         response = await client.delete(self._URL, headers={"X-Host-Token": "wrong"})
         assert response.status_code == 401
+
+    async def test_player_with_participation_returns_409_with_counts(
+        self, client: AsyncClient, mock_remove_player_from_roster_uc: AsyncMock
+    ) -> None:
+        """Removing a player with non-zero team/match participation is
+        rejected with 409. The structured `teams_count` and `matches_count`
+        fields are surfaced verbatim so the chat agent and frontend can
+        render a clear "X teams, Y matches" message."""
+        mock_remove_player_from_roster_uc.execute.side_effect = (
+            PlayerHasParticipationError(
+                "Player 'pid' has 1 team(s) and 3 match(es); only players with zero participation can be removed",
+                player_id="player-id",
+                teams_count=1,
+                matches_count=3,
+            )
+        )
+        response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
+        assert response.status_code == 409
+        body = response.json()
+        assert body["error"] == "PlayerHasParticipationError"
+        assert body["player_id"] == "player-id"
+        assert body["teams_count"] == 1
+        assert body["matches_count"] == 3

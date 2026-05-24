@@ -71,19 +71,3 @@ class TeamId:
 
     def __str__(self) -> str:
         return str(self.value)
-
-
-@dataclass(frozen=True)
-class AllowlistEntryId:
-    value: uuid.UUID
-
-    @classmethod
-    def generate(cls) -> AllowlistEntryId:
-        return cls(value=uuid.uuid4())
-
-    @classmethod
-    def from_str(cls, s: str) -> AllowlistEntryId:
-        return cls(value=uuid.UUID(s))
-
-    def __str__(self) -> str:
-        return str(self.value)

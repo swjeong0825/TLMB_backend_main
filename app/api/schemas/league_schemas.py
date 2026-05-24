@@ -16,51 +16,54 @@ RankingMetricLiteral = Literal[
 ]
 
 
-class LeagueRulesV5Request(BaseModel):
+class LeagueRulesV6Request(BaseModel):
     """Shape of `rules` on create-league.
 
-    `version` accepts 1, 2, 3, 4, or 5: v1, v2, v3, and v4 inputs are
-    upgraded transparently in `LeagueRules.from_dict`. v5 is the current
-    canonical version and uses `require_allowlist: bool` (default `false`)
-    to gate match-submission rejection against the host-curated allowlist;
-    see `Design_Doc/TLMB_Design_doc/20_allowlist.md`.
+    `version` accepts 1, 2, 3, 4, 5, or 6: v1, v2, v3, v4 and v5 inputs
+    are upgraded transparently in `LeagueRules.from_dict` — v5's
+    `require_allowlist` is replaced by v6's
+    `auto_register_players_on_match` with the boolean inverted (the new
+    flag is the opposite framing).
+
+    `auto_register_players_on_match` (default `true`) controls whether
+    submitting a match with an unknown nickname auto-creates the `Player`
+    row. When `false`, only pre-registered players can play; matches
+    with unknown nicknames are rejected with
+    `RosterMembershipRequiredError`.
 
     The v3 cross-rule (`(player, OTPP=true)` is rejected) is preserved.
-    The pydantic model accepts plain `bool` for `one_team_per_player` so
-    the cross-rule rejection surfaces as the domain-level error code
-    rather than a generic pydantic validation error.
     """
 
-    version: Literal[1, 2, 3, 4, 5]
+    version: Literal[1, 2, 3, 4, 5, 6]
     match_pair_idempotency: Literal["none", "once_per_league"]
     one_team_per_player: bool = True
     ranking_subject: Literal["team", "player"] | None = None
     tie_breakers: list[RankingMetricLiteral] | None = None
-    require_allowlist: bool = False
+    auto_register_players_on_match: bool = True
 
 
-# Back-compat aliases for any callers still importing the older names.
-LeagueRulesV4Request = LeagueRulesV5Request
-LeagueRulesV3Request = LeagueRulesV5Request
+LeagueRulesV5Request = LeagueRulesV6Request
+LeagueRulesV4Request = LeagueRulesV6Request
+LeagueRulesV3Request = LeagueRulesV6Request
 
 
 class CreateLeagueRequest(BaseModel):
     """Body for `POST /leagues`.
 
-    `allowlist` is an optional bootstrap list — when non-empty the
-    nicknames are inserted into the league's allowlist as part of the
-    same DB transaction that creates the league row. The list may be
-    present even when `rules.require_allowlist` is False (the allowlist
-    is still populated, it just isn't enforced on match submission).
-    Validation mirrors `AddAllowlistEntriesRequest`: entries must be
-    non-blank strings; the aggregate handles in-batch / against-existing
-    duplicate detection and raises domain errors that map to 409.
+    `initial_players` is an optional bootstrap list — when non-empty the
+    nicknames are inserted into the league's roster as `Player` rows as
+    part of the same DB transaction that creates the league row. The
+    list may be present even when `rules.auto_register_players_on_match`
+    is `true` (the roster is still pre-populated, it just isn't enforced
+    on match submission). Entries must be non-blank strings; the
+    aggregate handles in-batch / against-existing duplicate detection
+    and raises domain errors that map to 409.
     """
 
     title: str
     description: str | None = None
-    rules: LeagueRulesV5Request | None = None # has default
-    allowlist: list[str] = []
+    rules: LeagueRulesV6Request | None = None
+    initial_players: list[str] = []
 
     @field_validator("title")
     @classmethod
@@ -69,12 +72,12 @@ class CreateLeagueRequest(BaseModel):
             raise ValueError("title must not be blank")
         return v
 
-    @field_validator("allowlist")
+    @field_validator("initial_players")
     @classmethod
-    def allowlist_nicknames_must_be_non_blank(cls, v: list[str]) -> list[str]:
+    def initial_players_must_be_non_blank(cls, v: list[str]) -> list[str]:
         for entry in v:
             if not isinstance(entry, str) or not entry.strip():
-                raise ValueError("allowlist entries must be non-blank strings")
+                raise ValueError("initial_players entries must be non-blank strings")
         return v
 
 
@@ -182,9 +185,9 @@ class LeagueRulesResponseSchema(BaseModel):
     """Read-side projection of `LeagueRules` returned alongside league metadata.
 
     Mirrors `LeagueRules.to_dict()` so the frontend can render and gate UI on
-    the active rule configuration without an additional round-trip. All fields
-    are always populated — v5 is the canonical response version (older inputs
-    are upgraded by `LeagueRules.from_dict` before they are returned).
+    the active rule configuration without an additional round-trip. v6 is
+    the canonical response version (older inputs are upgraded by
+    `LeagueRules.from_dict` before they are returned).
     """
 
     version: int
@@ -192,7 +195,7 @@ class LeagueRulesResponseSchema(BaseModel):
     one_team_per_player: bool
     ranking_subject: Literal["team", "player"]
     tie_breakers: list[RankingMetricLiteral]
-    require_allowlist: bool
+    auto_register_players_on_match: bool
 
 
 class GetLeagueRosterResponse(BaseModel):
@@ -200,12 +203,3 @@ class GetLeagueRosterResponse(BaseModel):
     rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]
-
-
-class AllowlistEntrySchema(BaseModel):
-    allowlist_entry_id: str
-    nickname: str
-
-
-class GetAllowlistResponse(BaseModel):
-    allowlist: list[AllowlistEntrySchema]

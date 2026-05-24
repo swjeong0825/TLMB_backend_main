@@ -73,7 +73,7 @@ or import SQLAlchemy from `domain/`, stop and read
 | 17 | Configurable ranking (v2) |
 | 18 | Configurable ranking v3 |
 | 19 | v3 build order |
-| 20 | Allowlist |
+| 20 | Roster pre-registration |
 
 ADRs live separately in `Design_Doc/Technical_Descision/`.
 
@@ -91,15 +91,16 @@ player/team registration is performed inside the `League` aggregate's
 ### Policies (stateless predicates)
 See `harness_notes/01_when_to_extract_a_policy.md` and
 `.cursor/rules/backend-policy-vs-method.mdc`. Today: `NicknameUniquenessPolicy`,
-`OneTeamPerPlayerPolicy`, `AllowlistPolicy`. The rule-flag gate
-(`if rules.X:`) lives at the call site on the aggregate, not inside
-the policy.
+`OneTeamPerPlayerPolicy`, `RosterMembershipPolicy`. The rule-flag gate
+(e.g. `if not rules.auto_register_players_on_match:`) lives at the call
+site on the aggregate, not inside the policy.
 
 ### `LeagueRules`
 Per-league JSONB configuration with a fixed value set:
 `one_team_per_player`, `match_pair_idempotency`, `ranking_subject`,
-`tie_breakers`, `require_allowlist`. Versioned, immutable after
-league creation. See `16_league_rules_and_match_policies.md`.
+`tie_breakers`, `auto_register_players_on_match`. Versioned (current
+schema is v6), immutable after league creation. See
+`16_league_rules_and_match_policies.md`.
 
 ### Error → HTTP status mapping
 Owned by the API layer; the domain raises domain errors, the use case

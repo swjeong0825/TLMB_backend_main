@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.aggregates.league.entities import AllowlistEntry, Player, Team
+from app.domain.aggregates.league.entities import Player, Team
 from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname, TeamId
 
 
@@ -35,33 +35,34 @@ class OneTeamPerPlayerPolicy:
         return True
 
 
-class AllowlistPolicy:
-    """Pure predicate over the league's allowlist.
+class RosterMembershipPolicy:
+    """Pure predicate over the league's roster.
 
     Returns the *list of missing nicknames* (normalized, de-duplicated, in
     input order of first appearance) instead of a bool, because every current
     and anticipated caller needs the diff to construct a structured error
-    payload (`NotInAllowlistError(missing_nicknames=...)`).
+    payload (`RosterMembershipRequiredError(missing_nicknames=...)`).
 
-    The "should I check at all?" gate (`LeagueRules.require_allowlist`) is
-    intentionally NOT consulted here. Each call site decides whether to
-    invoke the policy based on its own semantics — mirrors how
-    `OneTeamPerPlayerPolicy` is gated by `LeagueRules.one_team_per_player`
-    inside `League.register_players_and_team`. See
+    The "should I check at all?" gate
+    (`LeagueRules.auto_register_players_on_match`) is intentionally NOT
+    consulted here. Each call site decides whether to invoke the policy
+    based on its own semantics — mirrors how `OneTeamPerPlayerPolicy` is
+    gated by `LeagueRules.one_team_per_player` inside
+    `League.register_players_and_team`. See
     `harness_notes/01_when_to_extract_a_policy.md`.
     """
 
     def find_missing_nicknames(
         self,
         candidates: Iterable[PlayerNickname],
-        allowlist: list[AllowlistEntry],
+        players: list[Player],
     ) -> list[str]:
-        allowed_set = {entry.nickname.value for entry in allowlist}
+        roster_set = {player.nickname.value for player in players}
         missing: list[str] = []
         seen_missing: set[str] = set()
         for nick in candidates:
             value = nick.value
-            if value in allowed_set or value in seen_missing:
+            if value in roster_set or value in seen_missing:
                 continue
             missing.append(value)
             seen_missing.add(value)

@@ -3,15 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from app.domain.aggregates.league.entities import AllowlistEntry, Player, Team
+from app.domain.aggregates.league.entities import Player, Team
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.policies import (
-    AllowlistPolicy,
     NicknameUniquenessPolicy,
     OneTeamPerPlayerPolicy,
+    RosterMembershipPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
-    AllowlistEntryId,
     HostToken,
     LeagueId,
     PlayerId,
@@ -19,11 +18,10 @@ from app.domain.aggregates.league.value_objects import (
     TeamId,
 )
 from app.domain.exceptions import (
-    AllowlistNicknameAlreadyExistsError,
-    AllowlistEntryNotFoundError,
     NicknameAlreadyInUseError,
-    NotInAllowlistError,
+    PlayerHasParticipationError,
     PlayerNotFoundError,
+    RosterMembershipRequiredError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
     TeamNotFoundError,
@@ -39,9 +37,8 @@ class League:
     rules: LeagueRules
     players: list[Player]
     teams: list[Team]
-    allowlist: list[AllowlistEntry] = field(default_factory=list)
     pending_deleted_team_ids: list[TeamId] = field(default_factory=list)
-    pending_deleted_allowlist_entry_ids: list[AllowlistEntryId] = field(default_factory=list)
+    pending_deleted_player_ids: list[PlayerId] = field(default_factory=list)
 
     @classmethod
     def create(
@@ -62,9 +59,8 @@ class League:
             rules=resolved_rules,
             players=[],
             teams=[],
-            allowlist=[],
             pending_deleted_team_ids=[],
-            pending_deleted_allowlist_entry_ids=[],
+            pending_deleted_player_ids=[],
         )
 
     def register_players_and_team(
@@ -145,21 +141,20 @@ class League:
         self.teams = [t for t in self.teams if t.team_id != tid]
         self.pending_deleted_team_ids.append(tid)
 
-    def add_allowlist_entries(self, nicknames: list[str]) -> list[AllowlistEntry]:
-        """Atomic batch add to the league's allowlist.
+    def add_players(self, nicknames: list[str]) -> list[Player]:
+        """Atomic batch add of pre-registered players to the roster.
 
-        Raises `AllowlistNicknameAlreadyExistsError` if any input nickname
-        (after normalization) duplicates an existing allowlist nickname or
-        another nickname inside the same batch. On error, no entries are added
-        and no Player rows are created.
+        Replaces the v5 `add_allowlist_entries`: the `allowlist_entries` side
+        table no longer exists, so this writes `Player` rows directly. Each
+        input nickname becomes a fresh `Player` on the roster, available to
+        match submissions immediately. Players added this way have 0 teams
+        and 0 matches until they appear on a confirmed match (`Team` creation
+        still only happens inside `register_players_and_team`).
 
-        Side effect: for every input nickname that does not already resolve
-        to an existing roster Player (case-insensitive via
-        `_find_player_by_nickname`), a fresh `Player` is appended to
-        `self.players`. Nicknames that already match an existing Player are
-        silently linked — no duplicate Player is created and no error is
-        raised. See `Design_Doc/TLMB_Design_doc/20_allowlist.md` ->
-        "Player creation on allowlist add".
+        Raises `NicknameAlreadyInUseError` if any input nickname (after
+        `PlayerNickname` normalization) duplicates an existing roster
+        nickname or another nickname inside the same batch. On error, no
+        rows are added.
         """
         if not nicknames:
             raise ValueError("nicknames must be a non-empty list")
@@ -169,70 +164,89 @@ class League:
         for raw in nicknames:
             nick = PlayerNickname(raw)
             if nick.value in seen_in_batch:
-                raise AllowlistNicknameAlreadyExistsError(
+                raise NicknameAlreadyInUseError(
                     f"Nickname '{raw}' is duplicated within the same add request"
                 )
             seen_in_batch.add(nick.value)
             normalized.append(nick)
 
-        existing = {entry.nickname.value for entry in self.allowlist}
         for nick in normalized:
-            if nick.value in existing:
-                raise AllowlistNicknameAlreadyExistsError(
-                    f"Nickname '{nick.value}' is already in the allowlist"
+            if self._find_player_by_nickname(nick) is not None:
+                raise NicknameAlreadyInUseError(
+                    f"Nickname '{nick.value}' is already on the roster"
                 )
 
-        new_entries = [
-            AllowlistEntry(allowlist_entry_id=AllowlistEntryId.generate(), nickname=nick)
-            for nick in normalized
+        new_players = [
+            Player(player_id=PlayerId.generate(), nickname=nick) for nick in normalized
         ]
-        self.allowlist.extend(new_entries)
+        self.players.extend(new_players)
+        return new_players
 
-        for nick in normalized:
-            if self._find_player_by_nickname(nick) is None:
-                self.players.append(
-                    Player(player_id=PlayerId.generate(), nickname=nick)
-                )
+    def remove_player(self, player_id: str) -> None:
+        """Remove a pre-registered roster player.
 
-        return new_entries
+        Raises `PlayerNotFoundError` if the id is not on the roster. Raises
+        `PlayerHasParticipationError` (carries `teams_count` and
+        `matches_count`) if the player is on any team or referenced by any
+        match — only zero-participation players can be removed so that the
+        match-history history is never silently mutated. Removed player ids
+        are appended to `pending_deleted_player_ids` so the repository can
+        DELETE the row on save.
 
-    def remove_allowlist_entry(self, allowlist_entry_id: str) -> None:
-        entry_id = AllowlistEntryId.from_str(allowlist_entry_id)
-        entry = next(
-            (e for e in self.allowlist if e.allowlist_entry_id == entry_id),
-            None,
-        )
-        if entry is None:
-            raise AllowlistEntryNotFoundError(
-                f"Allowlist entry '{allowlist_entry_id}' not found in this league"
-            )
-        self.allowlist = [
-            e for e in self.allowlist if e.allowlist_entry_id != entry_id
-        ]
-        self.pending_deleted_allowlist_entry_ids.append(entry_id)
-
-    def validate_match_participants_allowed(self, nicknames: Iterable[str]) -> None:
-        """Cross-check the four match-submission nicknames against the
-        league's allowlist.
-
-        No-op when `rules.require_allowlist` is False. When True, delegates
-        to `AllowlistPolicy` to compute the set of missing nicknames; raises
-        `NotInAllowlistError` if any are missing. The rule-flag gate lives
-        here (not inside the policy) so future call sites — e.g.
-        `edit_player_nickname` — can decide independently whether and how to
-        consult the same policy.
+        `match_count` is read from the `Player` entity (populated by the
+        repository at load time); `teams_count` is derived in-aggregate from
+        `self.teams`.
         """
-        if not self.rules.require_allowlist:
+        pid = PlayerId.from_str(player_id)
+        player = self._find_player_by_id(pid)
+        if player is None:
+            raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
+
+        teams_count = sum(
+            1
+            for t in self.teams
+            if t.player_id_1 == pid or t.player_id_2 == pid
+        )
+        matches_count = player.match_count
+
+        if teams_count > 0 or matches_count > 0:
+            raise PlayerHasParticipationError(
+                (
+                    f"Player '{player_id}' has {teams_count} team(s) and "
+                    f"{matches_count} match(es); only players with zero "
+                    f"participation can be removed"
+                ),
+                player_id=player_id,
+                teams_count=teams_count,
+                matches_count=matches_count,
+            )
+
+        self.players = [p for p in self.players if p.player_id != pid]
+        self.pending_deleted_player_ids.append(pid)
+
+    def validate_match_participants_on_roster(self, nicknames: Iterable[str]) -> None:
+        """Cross-check the four match-submission nicknames against the roster.
+
+        No-op when `rules.auto_register_players_on_match` is True — the
+        match submission path will implicitly create new `Player` rows for
+        any unknown nicknames via `register_players_and_team`. When False,
+        delegates to `RosterMembershipPolicy` to compute the set of missing
+        nicknames; raises `RosterMembershipRequiredError` if any are
+        missing. The rule-flag gate lives here (not inside the policy) so
+        future call sites — e.g. `edit_player_nickname` — can decide
+        independently whether and how to consult the same policy.
+        """
+        if self.rules.auto_register_players_on_match:
             return
 
         candidates = [PlayerNickname(raw) for raw in nicknames]
-        missing = AllowlistPolicy().find_missing_nicknames(
-            candidates, self.allowlist
+        missing = RosterMembershipPolicy().find_missing_nicknames(
+            candidates, self.players
         )
 
         if missing:
-            raise NotInAllowlistError(
-                "Match submission contains nicknames not in the allowlist: "
+            raise RosterMembershipRequiredError(
+                "Match submission contains nicknames not on the roster: "
                 + ", ".join(missing),
                 missing_nicknames=missing,
             )

@@ -20,15 +20,14 @@ flowchart LR
         P4["GET /leagues/{league_id}/matches"]
         P5["GET /leagues/{league_id}/roster"]
         P6["GET /leagues/{league_id}/matches/by-player?player_name=str"]
-        P7["GET /leagues/{league_id}/allowlist"]
     end
     subgraph admin ["Admin — league_id + X-Host-Token header"]
         A1["PATCH /admin/leagues/{league_id}/players/{player_id}"]
         A2["DELETE /admin/leagues/{league_id}/teams/{team_id}"]
         A3["PATCH /admin/leagues/{league_id}/matches/{match_id}"]
         A4["DELETE /admin/leagues/{league_id}/matches/{match_id}"]
-        A5["POST /admin/leagues/{league_id}/allowlist"]
-        A6["DELETE /admin/leagues/{league_id}/allowlist/{allowlist_entry_id}"]
+        A5["POST /admin/leagues/{league_id}/players"]
+        A6["DELETE /admin/leagues/{league_id}/players/{player_id}"]
     end
 ```
 
@@ -50,10 +49,9 @@ flowchart LR
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
-| InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
-| AllowlistEntryNotFoundError | 404 |
-| AllowlistNicknameAlreadyExistsError | 409 |
-| NotInAllowlistError (match submission contains nicknames not in the `allowlist`; only when `LeagueRules.require_allowlist = true`) | 422 |
+| InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5/v6 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
+| PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a team or appears on a match; body carries `teams_count`, `matches_count`) | 409 |
+| RosterMembershipRequiredError (match submission contains nicknames not on the roster; only when `LeagueRules.auto_register_players_on_match = false`; body carries `missing_nicknames`) | 422 |
 
 ---
 
@@ -61,25 +59,25 @@ flowchart LR
 
 - Method: POST
 - Path: `/leagues`
-- Purpose: Create a new league and receive access credentials. Optionally seed the host-managed allowlist in the same transaction.
-- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null, "allowlist": ["str", ...] }`
-  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, or v5 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_allowlist.md](20_allowlist.md)). v1, v2, v3, and v4 inputs are upgraded to v5 transparently (the v4 `require_eligible_players` key is mapped to `require_allowlist`). Rules are **not** mutable after creation in this API version.
-  - **`allowlist` optional**, default `[]`. When non-empty, each entry must be a non-blank string; entries are inserted into the league's allowlist as part of the same DB transaction that creates the league row (see [20_allowlist.md](20_allowlist.md) → "Modified use case: `CreateLeagueUseCase`"). **Side effect:** every nickname in the seed list also creates a `Player` row in the same transaction (link-to-existing rule — see [20_allowlist.md](20_allowlist.md) → "Player creation on allowlist add"; at create time the roster is empty so every entry creates a fresh Player). The list may be supplied independently of `rules.require_allowlist` — when the flag is `false`, the allowlist is still populated, just not enforced on match submission. In-batch or against-existing duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row, allowlist row, or player row is persisted.
-- Example `rules` (v5): `{ "version": 5, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "require_allowlist": false }`
+- Purpose: Create a new league and receive access credentials. Optionally pre-register a starting roster of players in the same transaction.
+- Request shape: `{ "title": "str", "description": "str | null", "rules": { ... } | null, "initial_players": ["str", ...] }`
+  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, v5, or v6 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). v1–v5 inputs are upgraded to v6 transparently: v4's `require_eligible_players` and v5's `require_allowlist` are both inverted into `auto_register_players_on_match`. Rules are **not** mutable after creation in this API version.
+  - **`initial_players` optional**, default `[]`. When non-empty, each entry must be a non-blank string; one `Player` row per entry is inserted in the same DB transaction that creates the league row (see [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.auto_register_players_on_match` — strict-roster leagues will typically supply it; open leagues may also supply it as a seeding convenience. In-batch duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row or player rows are persisted.
+- Example `rules` (v6): `{ "version": 6, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
 - Example request with inline seeding:
   ```json
   {
     "title": "Summer Doubles 2026",
-    "rules": { "version": 5, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won"], "require_allowlist": true },
-    "allowlist": ["Alex", "Daniel", "Jason"]
+    "rules": { "version": 6, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won"], "auto_register_players_on_match": false },
+    "initial_players": ["Alex", "Daniel", "Jason"]
   }
   ```
 - Response shape: `{ "league_id": "uuid", "host_token": "uuid" }`
 - Use case called: CreateLeagueUseCase
 - Error responses:
   - 409 LeagueTitleAlreadyExistsError
-  - 409 AllowlistNicknameAlreadyExistsError (in-batch duplicate inside `allowlist`; entire request rejected, league row not persisted)
-  - 422 validation (blank title, blank `allowlist` entry, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_team_per_player=true)`)
+  - 409 NicknameAlreadyInUseError (in-batch duplicate inside `initial_players`; entire request rejected, league row not persisted)
+  - 422 validation (blank title, blank `initial_players` entry, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_team_per_player=true)`)
 - Auth notes: Public — no credentials required
 
 ---
@@ -129,7 +127,7 @@ flowchart LR
   - 422 SamePlayerWithinSingleTeamError (same player listed twice on one team)
   - 422 SamePlayerOnBothTeamsError (same player appears on both teams)
   - 422 InvalidSetScoreError (non-integer or negative score)
-  - 422 NotInAllowlistError (only when `LeagueRules.require_allowlist = true`; body includes `missing_nicknames` array — see [20_allowlist.md](20_allowlist.md))
+  - 422 RosterMembershipRequiredError (only when `LeagueRules.auto_register_players_on_match = false`; body includes `missing_nicknames` array — see [20_roster_pre_registration.md](20_roster_pre_registration.md))
   - 409 TeamConflictError (a player is already on a different team in this league)
   - 409 SameTeamOnBothSidesError (both teams resolve to the same existing team)
   - 409 DuplicateTeamPairMatchError (league rules require at most one match per team pair and a match already exists for this pair)
@@ -241,12 +239,12 @@ flowchart LR
   {
     "title": "str",
     "rules": {
-      "version": 5,
+      "version": 6,
       "match_pair_idempotency": "none | once_per_league",
       "one_team_per_player": true,
       "ranking_subject": "team | player",
       "tie_breakers": ["matches_won"],
-      "require_allowlist": false
+      "auto_register_players_on_match": true
     },
     "players": [
       { "player_id": "uuid", "nickname": "str" }
@@ -259,7 +257,7 @@ flowchart LR
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3 inputs are upgraded to v4 on read so the response `version` is always `4`.
+- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5 inputs are upgraded to v6 on read so the response `version` is always `6`. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match.
 
 ---
 
@@ -363,61 +361,41 @@ flowchart LR
 
 ---
 
-## Endpoint: Get Allowlist
-
-- Method: GET
-- Path: `/leagues/{league_id}/allowlist`
-- Purpose: Get the host-managed allowlist of nicknames that may participate in this league. Distinct from the roster (`/roster`); see [20_allowlist.md](20_allowlist.md).
-- Request shape: —
-- Response shape:
-  ```json
-  {
-    "allowlist": [
-      { "allowlist_entry_id": "uuid", "nickname": "str" }
-    ]
-  }
-  ```
-- Use case called: GetAllowlistUseCase
-- Error responses: 404 LeagueNotFoundError
-- Auth notes: `league_id` in URL path — possession is sufficient. The allowlist is treated as league-discoverable data, not host-only.
-
----
-
-## Endpoint: Add Allowlist Entries (Admin)
+## Endpoint: Add Players To Roster (Admin)
 
 - Method: POST
-- Path: `/admin/leagues/{league_id}/allowlist`
-- Purpose: Atomically extend the allowlist with one or more nicknames. Bulk-batch shape supports the natural "host pre-populates the list" workflow; single-add is a one-element list.
+- Path: `/admin/leagues/{league_id}/players`
+- Purpose: Atomically pre-register one or more players on the league roster. Bulk-batch shape supports the natural "host pre-populates the list" workflow; single-add is a one-element list. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
 - Request shape: `{ "nicknames": ["str", "str", ...] }` — non-empty list; each entry non-blank after trim.
 - Response shape: 201 Created
   ```json
   {
-    "allowlist": [
-      { "allowlist_entry_id": "uuid", "nickname": "str" }
+    "players": [
+      { "player_id": "uuid", "nickname": "str" }
     ]
   }
   ```
-- Use case called: AddAllowlistEntriesUseCase
+- Use case called: AddPlayersUseCase
 - Error responses:
   - 404 LeagueNotFoundError
   - 401 UnauthorizedError
-  - 409 AllowlistNicknameAlreadyExistsError (any input nickname duplicates an existing allowlist nickname OR another nickname inside the same batch — entire request rejected, no partial inserts)
+  - 409 NicknameAlreadyInUseError (any input nickname duplicates an existing roster nickname OR another nickname inside the same batch — entire request rejected, no partial inserts)
   - 422 validation (empty list, blank nickname)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header
-- Side effect: every input nickname that does not already match an existing roster Player (case-insensitive) creates a new `Player` row in the same transaction. Input nicknames whose normalized value already matches a Player are silently linked — no duplicate Player is created and no error is raised. The response shape is unchanged; clients that need the new `Player` IDs should re-fetch `GET /leagues/{league_id}/roster`. See [20_allowlist.md](20_allowlist.md) → "Player creation on allowlist add" for the link-to-existing rule.
 
 ---
 
-## Endpoint: Remove Allowlist Entry (Admin)
+## Endpoint: Remove Player From Roster (Admin)
 
 - Method: DELETE
-- Path: `/admin/leagues/{league_id}/allowlist/{allowlist_entry_id}`
-- Purpose: Remove a single nickname from the allowlist. Does NOT delete any roster `Player` row, even one that was originally created by `add_allowlist_entries` — the lifecycle asymmetry (add creates a Player, remove never deletes one) is by design. See [20_allowlist.md](20_allowlist.md).
+- Path: `/admin/leagues/{league_id}/players/{player_id}`
+- Purpose: Hard-delete a single player from the league. Allowed only when the player has zero teams and zero matches. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
 - Request shape: —
 - Response shape: 204 No Content
-- Use case called: RemoveAllowlistEntryUseCase
+- Use case called: RemovePlayerFromRosterUseCase
 - Error responses:
   - 404 LeagueNotFoundError
-  - 404 AllowlistEntryNotFoundError
+  - 404 PlayerNotFoundError
   - 401 UnauthorizedError
+  - 409 PlayerHasParticipationError (player belongs to a team or appears in a match; body carries `teams_count`, `matches_count`)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header

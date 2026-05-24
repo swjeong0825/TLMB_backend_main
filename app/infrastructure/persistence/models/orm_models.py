@@ -46,9 +46,6 @@ class LeagueORM(Base):
     matches: Mapped[list[MatchORM]] = relationship(
         "MatchORM", back_populates="league"
     )
-    allowlist: Mapped[list[AllowlistEntryORM]] = relationship(
-        "AllowlistEntryORM", back_populates="league", cascade="all, delete-orphan"
-    )
 
 
 class PlayerORM(Base):
@@ -142,33 +139,3 @@ class MatchORM(Base):
     )
 
     league: Mapped[LeagueORM] = relationship("LeagueORM", back_populates="matches")
-
-
-class AllowlistEntryORM(Base):
-    __tablename__ = "allowlist_entries"
-    __table_args__ = (
-        UniqueConstraint(
-            "league_id",
-            "nickname_normalized",
-            name="uq_allowlist_entries_league_nickname",
-        ),
-        Index("ix_allowlist_entries_league_id", "league_id"),
-    )
-
-    allowlist_entry_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    league_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("leagues.league_id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    nickname_normalized: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=_utcnow, nullable=False
-    )
-
-    league: Mapped[LeagueORM] = relationship("LeagueORM", back_populates="allowlist")

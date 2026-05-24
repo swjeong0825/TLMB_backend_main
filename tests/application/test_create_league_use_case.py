@@ -91,11 +91,11 @@ class TestCreateLeagueUseCase:
         assert r1.league_id != r2.league_id
         assert r1.host_token != r2.host_token
 
-    async def test_seeds_allowlist_in_same_save_call(
+    async def test_seeds_initial_players_in_same_save_call(
         self, mock_league_repo: AsyncMock
     ) -> None:
-        """When `allowlist` is non-empty, the use case populates the
-        aggregate's allowlist before `save`, so both rows reach the DB in
+        """When `initial_players` is non-empty, the use case populates the
+        aggregate's roster before `save`, so both rows reach the DB in
         the same UoW transaction (no second commit)."""
         mock_league_repo.get_by_normalized_title.return_value = None
         saved_leagues: list = []
@@ -106,30 +106,23 @@ class TestCreateLeagueUseCase:
 
         await use_case.execute(
             CreateLeagueCommand(
-                title="Allowlist League",
+                title="Pre-registered League",
                 description=None,
-                allowlist=["Alex", "Daniel", "Jason"],
+                initial_players=["Alex", "Daniel", "Jason"],
             )
         )
 
         mock_league_repo.save.assert_awaited_once()
         assert len(saved_leagues) == 1
         league = saved_leagues[0]
-        assert [entry.nickname.value for entry in league.allowlist] == [
-            "alex",
-            "daniel",
-            "jason",
-        ]
-        # The allowlist seed also creates Player rows on the same aggregate,
-        # which the single repo.save call persists in the same DB transaction
-        # (link-to-existing rule — see 20_allowlist.md).
         assert {p.nickname.value for p in league.players} == {
             "alex",
             "daniel",
             "jason",
         }
+        assert league.teams == []
 
-    async def test_empty_allowlist_is_a_noop(
+    async def test_empty_initial_players_is_a_noop(
         self, mock_league_repo: AsyncMock
     ) -> None:
         mock_league_repo.get_by_normalized_title.return_value = None
@@ -141,12 +134,11 @@ class TestCreateLeagueUseCase:
 
         await use_case.execute(
             CreateLeagueCommand(
-                title="Empty Allowlist League",
+                title="Empty Seed League",
                 description=None,
-                allowlist=[],
+                initial_players=[],
             )
         )
 
         mock_league_repo.save.assert_awaited_once()
-        assert saved_leagues[0].allowlist == []
         assert saved_leagues[0].players == []

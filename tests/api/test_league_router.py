@@ -11,10 +11,6 @@ import pytest
 from httpx import AsyncClient
 
 from app.application.use_cases.create_league_use_case import CreateLeagueResult
-from app.application.use_cases.get_allowlist_use_case import (
-    AllowlistEntry,
-    AllowlistView,
-)
 from app.application.use_cases.search_leagues_by_title_prefix_use_case import LeagueListItem
 from app.application.use_cases.get_league_roster_use_case import PlayerEntry, RosterView, TeamEntry
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
@@ -24,8 +20,8 @@ from app.domain.exceptions import (
     DuplicateTeamPairMatchError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
-    NotInAllowlistError,
     PlayerNotFoundError,
+    RosterMembershipRequiredError,
     SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
@@ -84,7 +80,7 @@ class TestCreateLeague:
         response = await client.post("/leagues", json={"title": "L", "description": "desc"})
         assert response.status_code == 201
 
-    async def test_allowlist_field_is_forwarded_to_use_case(
+    async def test_initial_players_field_is_forwarded_to_use_case(
         self, client: AsyncClient, mock_create_league_uc: AsyncMock
     ) -> None:
         mock_create_league_uc.execute.return_value = CreateLeagueResult(
@@ -92,13 +88,13 @@ class TestCreateLeague:
         )
         response = await client.post(
             "/leagues",
-            json={"title": "Seeded", "allowlist": ["Alex", "Daniel"]},
+            json={"title": "Seeded", "initial_players": ["Alex", "Daniel"]},
         )
         assert response.status_code == 201
         cmd = mock_create_league_uc.execute.call_args[0][0]
-        assert cmd.allowlist == ["Alex", "Daniel"]
+        assert cmd.initial_players == ["Alex", "Daniel"]
 
-    async def test_allowlist_field_is_optional_and_defaults_to_empty(
+    async def test_initial_players_field_is_optional_and_defaults_to_empty(
         self, client: AsyncClient, mock_create_league_uc: AsyncMock
     ) -> None:
         mock_create_league_uc.execute.return_value = CreateLeagueResult(
@@ -107,14 +103,14 @@ class TestCreateLeague:
         response = await client.post("/leagues", json={"title": "No Seed"})
         assert response.status_code == 201
         cmd = mock_create_league_uc.execute.call_args[0][0]
-        assert cmd.allowlist == []
+        assert cmd.initial_players == []
 
-    async def test_blank_allowlist_nickname_returns_422(
+    async def test_blank_initial_players_nickname_returns_422(
         self, client: AsyncClient
     ) -> None:
         response = await client.post(
             "/leagues",
-            json={"title": "Bad Seed", "allowlist": ["Alex", "   "]},
+            json={"title": "Bad Seed", "initial_players": ["Alex", "   "]},
         )
         assert response.status_code == 422
 
@@ -234,21 +230,21 @@ class TestSubmitMatchResult:
         assert response.status_code == 409
         assert response.json()["error"] == "DuplicateTeamPairMatchError"
 
-    async def test_not_in_allowlist_returns_422_with_missing_nicknames_payload(
+    async def test_roster_membership_required_returns_422_with_missing_nicknames_payload(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        """v5: when LeagueRules.require_allowlist is on, the use case raises
-        NotInAllowlistError. The HTTP layer must return 422 and include the
-        structured `missing_nicknames` array verbatim — the chat agent and
-        frontend depend on this contract."""
-        mock_submit_match_uc.execute.side_effect = NotInAllowlistError(
-            "Match submission contains nicknames not in the allowlist: michael, ryan",
+        """v6: when `auto_register_players_on_match=false`, the use case
+        raises RosterMembershipRequiredError. The HTTP layer must return 422
+        and include the structured `missing_nicknames` array verbatim — the
+        chat agent and frontend depend on this contract."""
+        mock_submit_match_uc.execute.side_effect = RosterMembershipRequiredError(
+            "Match submission contains nicknames not on the roster: michael, ryan",
             missing_nicknames=["michael", "ryan"],
         )
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 422
         body = response.json()
-        assert body["error"] == "NotInAllowlistError"
+        assert body["error"] == "RosterMembershipRequiredError"
         assert body["missing_nicknames"] == ["michael", "ryan"]
         assert "michael" in body["detail"]
 
@@ -560,12 +556,12 @@ class TestGetMatchHistoryByPlayer:
 
 
 _DEFAULT_ROSTER_RULES: dict = {
-    "version": 5,
+    "version": 6,
     "match_pair_idempotency": "once_per_league",
     "one_team_per_player": True,
     "ranking_subject": "team",
     "tie_breakers": ["matches_won"],
-    "require_allowlist": False,
+    "auto_register_players_on_match": True,
 }
 
 
@@ -634,53 +630,3 @@ class TestGetLeagueRoster:
         assert data["rules"]["ranking_subject"] == "player"
 
 
-# ---------------------------------------------------------------------------
-# GET /leagues/{league_id}/allowlist
-# ---------------------------------------------------------------------------
-
-
-class TestGetAllowlist:
-    async def test_returns_200_with_entries(
-        self, client: AsyncClient, mock_get_allowlist_uc: AsyncMock
-    ) -> None:
-        mock_get_allowlist_uc.execute.return_value = AllowlistView(
-            allowlist=[
-                AllowlistEntry(allowlist_entry_id="ae-1", nickname="alex"),
-                AllowlistEntry(allowlist_entry_id="ae-2", nickname="daniel"),
-            ]
-        )
-        response = await client.get("/leagues/lid/allowlist")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["allowlist"]) == 2
-        assert data["allowlist"][0]["nickname"] == "alex"
-        assert data["allowlist"][0]["allowlist_entry_id"] == "ae-1"
-
-    async def test_empty_list_returns_empty_array(
-        self, client: AsyncClient, mock_get_allowlist_uc: AsyncMock
-    ) -> None:
-        mock_get_allowlist_uc.execute.return_value = AllowlistView(
-            allowlist=[]
-        )
-        response = await client.get("/leagues/lid/allowlist")
-        assert response.status_code == 200
-        assert response.json() == {"allowlist": []}
-
-    async def test_league_not_found_returns_404(
-        self, client: AsyncClient, mock_get_allowlist_uc: AsyncMock
-    ) -> None:
-        mock_get_allowlist_uc.execute.side_effect = LeagueNotFoundError(
-            "not found"
-        )
-        response = await client.get("/leagues/bad-id/allowlist")
-        assert response.status_code == 404
-
-    async def test_passes_league_id_to_use_case(
-        self, client: AsyncClient, mock_get_allowlist_uc: AsyncMock
-    ) -> None:
-        mock_get_allowlist_uc.execute.return_value = AllowlistView(
-            allowlist=[]
-        )
-        await client.get("/leagues/some-league-id/allowlist")
-        call_args = mock_get_allowlist_uc.execute.call_args[0][0]
-        assert call_args.league_id == "some-league-id"

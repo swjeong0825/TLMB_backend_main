@@ -23,23 +23,25 @@ ALLOWED_METRICS: tuple[RankingMetric, ...] = get_args(RankingMetric)
 class LeagueRules:
     """Versioned per-league configuration stored as JSONB on the league row.
 
-    v5 (current) renames the v4 `require_eligible_players` key to
-    `require_allowlist` (terminology unification — the feature was previously
-    called "eligible players" everywhere). The behavior is identical: when
-    `require_allowlist=True`, `SubmitMatchResultUseCase` rejects matches whose
-    nicknames are not in the league's allowlist. See
-    `Design_Doc/TLMB_Design_doc/20_allowlist.md`.
+    v6 (current) retires the allowlist concept entirely (the
+    `allowlist_entries` side table is dropped in alembic `007`). The v5
+    `require_allowlist` flag is replaced by `auto_register_players_on_match`
+    with the boolean *inverted*: pre-existing leagues with
+    `require_allowlist=true` (allowlist required) become
+    `auto_register_players_on_match=false` (only pre-registered roster
+    members can play); pre-existing leagues with `require_allowlist=false`
+    become `auto_register_players_on_match=true`, which is also the new
+    default for fresh leagues. The legacy "allowlist-only" behavior is
+    preserved end-to-end by `League.validate_match_participants_on_roster`,
+    which now checks the roster (`self.players`) directly.
 
-    v4 introduced the same flag under the legacy name `require_eligible_players`.
-    v3 introduced `one_team_per_player = false` legality and the
-    `(ranking_subject = "player", one_team_per_player = true)` cross-rule
-    rejection. See `Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md`.
-
-    v1, v2, v3, and v4 inputs are accepted on read and upgraded transparently
-    to v5 — v1 inputs additionally have the v2 ranking defaults injected
-    before the v3 + v4 + v5 upgrades. v4 inputs may carry either
-    `require_eligible_players` (legacy key, preferred when present) or
-    `require_allowlist`; both default to `false` when omitted.
+    v5 renamed v4's `require_eligible_players` to `require_allowlist`; v4
+    introduced the same flag under the legacy name `require_eligible_players`;
+    v3 introduced `one_team_per_player = false` legality. v1..v5 inputs are
+    accepted on read and upgraded transparently to v6 (the boolean flip
+    happens during parse). v4 inputs may carry either `require_eligible_players`
+    or `require_allowlist`; v5 inputs carry `require_allowlist`; v6 inputs
+    carry `auto_register_players_on_match`.
     """
 
     version: int
@@ -47,7 +49,7 @@ class LeagueRules:
     one_team_per_player: bool
     ranking_subject: RankingSubject
     tie_breakers: tuple[RankingMetric, ...]
-    require_allowlist: bool
+    auto_register_players_on_match: bool
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -56,7 +58,7 @@ class LeagueRules:
             "one_team_per_player": self.one_team_per_player,
             "ranking_subject": self.ranking_subject,
             "tie_breakers": list(self.tie_breakers),
-            "require_allowlist": self.require_allowlist,
+            "auto_register_players_on_match": self.auto_register_players_on_match,
         }
 
     @classmethod
@@ -65,7 +67,7 @@ class LeagueRules:
             raise InvalidLeagueRulesError("League rules must be a JSON object")
 
         version = data.get("version")
-        if version not in (1, 2, 3, 4, 5):
+        if version not in (1, 2, 3, 4, 5, 6):
             raise InvalidLeagueRulesError(f"Unsupported league rules version: {version!r}")
 
         mpi = data.get("match_pair_idempotency")
@@ -91,35 +93,61 @@ class LeagueRules:
                 "pick (team, OTPP=true) or (player, OTPP=false)"
             )
 
-        require_allowlist = cls._parse_require_allowlist(data)
+        auto_register = cls._parse_auto_register_players_on_match(data, version)
 
         return cls(
-            version=5,
+            version=6,
             match_pair_idempotency=mpi,
             one_team_per_player=otpp,
             ranking_subject=ranking_subject,
             tie_breakers=tie_breakers,
-            require_allowlist=require_allowlist,
+            auto_register_players_on_match=auto_register,
         )
 
     @staticmethod
-    def _parse_require_allowlist(data: dict[str, Any]) -> bool:
-        # Defaults False when missing so v1/v2/v3 inputs upgrade cleanly to v5
-        # without requiring callers to know about the new field. v4 inputs may
-        # use the legacy key `require_eligible_players` (preferred when
-        # present) or the new key `require_allowlist`; both are accepted so
-        # the parser is forward- and backward-compatible.
-        if "require_eligible_players" in data and data.get("require_eligible_players") is not None:
-            value = data.get("require_eligible_players")
-        else:
-            value = data.get("require_allowlist")
-        if value is None:
-            return False
-        if not isinstance(value, bool):
-            raise InvalidLeagueRulesError(
-                "require_allowlist must be a boolean"
-            )
-        return value
+    def _parse_auto_register_players_on_match(data: dict[str, Any], version: int) -> bool:
+        """Parse the participation gate flag in a version-aware way.
+
+        v6 inputs carry `auto_register_players_on_match` directly.
+        v5 inputs carry `require_allowlist` — invert.
+        v4 inputs carry either `require_eligible_players` (preferred when
+        present) or `require_allowlist` — invert.
+        v1/v2/v3 default to `True` (today's default behavior).
+        """
+        if version == 6:
+            value = data.get("auto_register_players_on_match")
+            if value is None:
+                return True
+            if not isinstance(value, bool):
+                raise InvalidLeagueRulesError(
+                    "auto_register_players_on_match must be a boolean"
+                )
+            return value
+
+        if version == 5:
+            legacy = data.get("require_allowlist")
+            if legacy is None:
+                return True
+            if not isinstance(legacy, bool):
+                raise InvalidLeagueRulesError(
+                    "require_allowlist must be a boolean"
+                )
+            return not legacy
+
+        if version == 4:
+            if "require_eligible_players" in data and data.get("require_eligible_players") is not None:
+                legacy = data.get("require_eligible_players")
+            else:
+                legacy = data.get("require_allowlist")
+            if legacy is None:
+                return True
+            if not isinstance(legacy, bool):
+                raise InvalidLeagueRulesError(
+                    "require_eligible_players / require_allowlist must be a boolean"
+                )
+            return not legacy
+
+        return True
 
     @staticmethod
     def _parse_ranking_subject(value: Any) -> RankingSubject:
@@ -155,20 +183,21 @@ class LeagueRules:
     def default_for_new_league(cls) -> LeagueRules:
         """Product default when POST /leagues omits `rules` (new leagues only).
 
-        Migrated existing DB rows use match_pair_idempotency \"none\" via Alembic 002,
-        ranking_subject=\"team\" / tie_breakers=[\"matches_won\"] via Alembic 003,
-        version=3 (with `(player, OTPP=true)` rewritten to `(team, OTPP=true)`) via
-        Alembic 004, require_eligible_players=false / version=4 via Alembic 005,
-        and require_allowlist=false / version=5 (key rename of v4's
-        `require_eligible_players`) via Alembic 006 — which together reproduce
-        v1/v2/v3/v4 behavior byte-for-byte for every legal combo carried over
-        from v3.
+        Migrated existing DB rows have been upgraded through alembic 002
+        (match_pair_idempotency \"none\"), 003 (ranking_subject=\"team\" /
+        tie_breakers=[\"matches_won\"]), 004 (v3 with the `(player, OTPP=true)`
+        rewrite), 005 (`require_eligible_players=false` / v4), 006
+        (rename to `require_allowlist` / v5), and 007 (drop the
+        `allowlist_entries` table and replace `require_allowlist` with
+        `auto_register_players_on_match` with the boolean inverted) — together
+        these reproduce v1/v2/v3/v4/v5 behavior byte-for-byte for every legal
+        combo carried over.
         """
         return cls(
-            version=5,
+            version=6,
             match_pair_idempotency="once_per_league",
             one_team_per_player=True,
             ranking_subject="team",
             tie_breakers=("matches_won",),
-            require_allowlist=False,
+            auto_register_players_on_match=True,
         )

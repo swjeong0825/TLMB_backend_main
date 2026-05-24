@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -9,13 +10,12 @@ from sqlalchemy.orm import selectinload
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId
-from app.infrastructure.persistence.mappers.allowlist_entry_mapper import allowlist_entry_to_orm
 from app.infrastructure.persistence.mappers.league_mapper import league_to_domain
 from app.infrastructure.persistence.mappers.player_mapper import player_to_orm
 from app.infrastructure.persistence.mappers.team_mapper import team_to_orm
 from app.infrastructure.persistence.models.orm_models import (
-    AllowlistEntryORM,
     LeagueORM,
+    MatchORM,
     PlayerORM,
     TeamORM,
 )
@@ -37,7 +37,6 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
     _LEAGUE_LOAD_OPTIONS = (
         selectinload(LeagueORM.players),
         selectinload(LeagueORM.teams),
-        selectinload(LeagueORM.allowlist),
     )
 
     async def get_by_id(self, league_id: LeagueId) -> League | None:
@@ -47,7 +46,10 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             .where(LeagueORM.league_id == league_id.value)
         )
         orm = result.scalar_one_or_none()
-        return league_to_domain(orm) if orm is not None else None
+        if orm is None:
+            return None
+        counts = await self._load_match_counts_by_player(league_id, orm)
+        return league_to_domain(orm, counts)
 
     async def get_by_id_with_lock(self, league_id: LeagueId) -> League | None:
         result = await self._session.execute(
@@ -57,7 +59,10 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             .with_for_update()
         )
         orm = result.scalar_one_or_none()
-        return league_to_domain(orm) if orm is not None else None
+        if orm is None:
+            return None
+        counts = await self._load_match_counts_by_player(league_id, orm)
+        return league_to_domain(orm, counts)
 
     async def get_by_normalized_title(self, normalized_title: str) -> League | None:
         result = await self._session.execute(
@@ -66,7 +71,12 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             .where(LeagueORM.title_normalized == normalized_title)
         )
         orm = result.scalar_one_or_none()
-        return league_to_domain(orm) if orm is not None else None
+        if orm is None:
+            return None
+        counts = await self._load_match_counts_by_player(
+            LeagueId(value=orm.league_id), orm
+        )
+        return league_to_domain(orm, counts)
 
     async def search_by_title_prefix(self, normalized_prefix: str, limit: int) -> list[tuple[str, str]]:
         pattern = _escape_sql_like_prefix(normalized_prefix) + "%"
@@ -106,7 +116,11 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
                 player_orm.nickname_normalized = player.nickname.value
                 player_orm.updated_at = _utcnow()
 
-        existing_team_ids = {t.team_id.value for t in league.teams}
+        for player_id in league.pending_deleted_player_ids:
+            player_orm = await self._session.get(PlayerORM, player_id.value)
+            if player_orm is not None:
+                await self._session.delete(player_orm)
+
         for team in league.teams:
             team_orm = await self._session.get(TeamORM, team.team_id.value)
             if team_orm is None:
@@ -118,15 +132,46 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             if team_orm is not None:
                 await self._session.delete(team_orm)
 
-        for entry in league.allowlist:
-            entry_orm = await self._session.get(
-                AllowlistEntryORM, entry.allowlist_entry_id.value
-            )
-            if entry_orm is None:
-                entry_orm = allowlist_entry_to_orm(entry, league.league_id)
-                self._session.add(entry_orm)
+    async def _load_match_counts_by_player(
+        self,
+        league_id: LeagueId,
+        league_orm: LeagueORM,
+    ) -> dict[uuid.UUID, int]:
+        """Compute per-player match-participation counts for `remove_player`.
 
-        for entry_id in league.pending_deleted_allowlist_entry_ids:
-            entry_orm = await self._session.get(AllowlistEntryORM, entry_id.value)
-            if entry_orm is not None:
-                await self._session.delete(entry_orm)
+        Issues a single small query for all matches in the league (matches
+        are typically small in this domain) and aggregates counts per player
+        in Python by walking the loaded `teams`. Returns `{player_id: count}`;
+        players with zero matches are simply absent from the dict so
+        callers should `.get(pid, 0)`.
+
+        Note: a match always references two distinct teams whose player
+        rosters are disjoint (enforced by `SamePlayerOnBothTeamsError`), so
+        summing per-team match counts across a player's teams is correct —
+        no double-counting is possible.
+        """
+        if not league_orm.teams:
+            return {}
+
+        result = await self._session.execute(
+            select(MatchORM.team1_id, MatchORM.team2_id)
+            .where(MatchORM.league_id == league_id.value)
+        )
+        match_count_by_team: dict[uuid.UUID, int] = {}
+        for row in result:
+            t1 = row.team1_id
+            t2 = row.team2_id
+            match_count_by_team[t1] = match_count_by_team.get(t1, 0) + 1
+            match_count_by_team[t2] = match_count_by_team.get(t2, 0) + 1
+
+        counts_by_player: dict[uuid.UUID, int] = {}
+        for team in league_orm.teams:
+            cnt = match_count_by_team.get(team.team_id, 0)
+            if cnt:
+                counts_by_player[team.player_id_1] = (
+                    counts_by_player.get(team.player_id_1, 0) + cnt
+                )
+                counts_by_player[team.player_id_2] = (
+                    counts_by_player.get(team.player_id_2, 0) + cnt
+                )
+        return counts_by_player

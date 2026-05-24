@@ -1,20 +1,17 @@
 """Unit tests for domain policies.
 
-NicknameUniquenessPolicy, OneTeamPerPlayerPolicy and AllowlistPolicy are
-pure in-memory objects; no database or async I/O is involved.
+NicknameUniquenessPolicy, OneTeamPerPlayerPolicy and RosterMembershipPolicy
+are pure in-memory objects; no database or async I/O is involved.
 """
 from __future__ import annotations
 
-import pytest
-
-from app.domain.aggregates.league.entities import AllowlistEntry, Player, Team
+from app.domain.aggregates.league.entities import Player, Team
 from app.domain.aggregates.league.policies import (
-    AllowlistPolicy,
     NicknameUniquenessPolicy,
     OneTeamPerPlayerPolicy,
+    RosterMembershipPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
-    AllowlistEntryId,
     PlayerId,
     PlayerNickname,
     TeamId,
@@ -32,13 +29,6 @@ def _player(nickname: str) -> Player:
 
 def _team(p1: Player, p2: Player) -> Team:
     return Team(team_id=TeamId.generate(), player_id_1=p1.player_id, player_id_2=p2.player_id)
-
-
-def _allowlist_entry(nickname: str) -> AllowlistEntry:
-    return AllowlistEntry(
-        allowlist_entry_id=AllowlistEntryId.generate(),
-        nickname=PlayerNickname(nickname),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -155,33 +145,33 @@ class TestOneTeamPerPlayerPolicy:
 
 
 # ---------------------------------------------------------------------------
-# AllowlistPolicy
+# RosterMembershipPolicy
 # ---------------------------------------------------------------------------
 
 
-class TestAllowlistPolicy:
+class TestRosterMembershipPolicy:
     def setup_method(self) -> None:
-        self.policy = AllowlistPolicy()
+        self.policy = RosterMembershipPolicy()
 
     def test_all_candidates_present_returns_empty_list(self) -> None:
-        allowlist = [_allowlist_entry("alice"), _allowlist_entry("bob")]
+        players = [_player("alice"), _player("bob")]
         candidates = [PlayerNickname("alice"), PlayerNickname("bob")]
-        assert self.policy.find_missing_nicknames(candidates, allowlist) == []
+        assert self.policy.find_missing_nicknames(candidates, players) == []
 
     def test_partial_overlap_returns_only_missing(self) -> None:
-        allowlist = [_allowlist_entry("alice"), _allowlist_entry("bob")]
+        players = [_player("alice"), _player("bob")]
         candidates = [
             PlayerNickname("alice"),
             PlayerNickname("bob"),
             PlayerNickname("michael"),
             PlayerNickname("ryan"),
         ]
-        assert self.policy.find_missing_nicknames(candidates, allowlist) == [
+        assert self.policy.find_missing_nicknames(candidates, players) == [
             "michael",
             "ryan",
         ]
 
-    def test_empty_allowlist_returns_all_candidates(self) -> None:
+    def test_empty_roster_returns_all_candidates(self) -> None:
         candidates = [
             PlayerNickname("alice"),
             PlayerNickname("bob"),
@@ -196,20 +186,20 @@ class TestAllowlistPolicy:
         ]
 
     def test_empty_candidates_returns_empty(self) -> None:
-        allowlist = [_allowlist_entry("alice"), _allowlist_entry("bob")]
-        assert self.policy.find_missing_nicknames([], allowlist) == []
+        players = [_player("alice"), _player("bob")]
+        assert self.policy.find_missing_nicknames([], players) == []
 
     def test_dedupes_repeated_missing_in_input(self) -> None:
         """Same missing nickname appearing twice is reported once, in input
         order of first appearance."""
-        allowlist = [_allowlist_entry("alice")]
+        players = [_player("alice")]
         candidates = [
             PlayerNickname("alice"),
             PlayerNickname("michael"),
             PlayerNickname("michael"),
             PlayerNickname("ryan"),
         ]
-        assert self.policy.find_missing_nicknames(candidates, allowlist) == [
+        assert self.policy.find_missing_nicknames(candidates, players) == [
             "michael",
             "ryan",
         ]
@@ -217,19 +207,18 @@ class TestAllowlistPolicy:
     def test_relies_on_value_object_normalization(self) -> None:
         """Policy compares on PlayerNickname.value, which is already normalized
         (lowercased + stripped) by the value object's constructor."""
-        allowlist = [_allowlist_entry("alice")]
-        # PlayerNickname("ALICE ") normalizes to "alice"; should NOT be missing.
+        players = [_player("alice")]
         candidates = [PlayerNickname("ALICE "), PlayerNickname(" Bob")]
-        assert self.policy.find_missing_nicknames(candidates, allowlist) == ["bob"]
+        assert self.policy.find_missing_nicknames(candidates, players) == ["bob"]
 
     def test_preserves_input_order_of_first_appearance(self) -> None:
-        allowlist: list[AllowlistEntry] = []
+        players: list[Player] = []
         candidates = [
             PlayerNickname("zed"),
             PlayerNickname("aime"),
             PlayerNickname("mike"),
         ]
-        assert self.policy.find_missing_nicknames(candidates, allowlist) == [
+        assert self.policy.find_missing_nicknames(candidates, players) == [
             "zed",
             "aime",
             "mike",
@@ -237,6 +226,6 @@ class TestAllowlistPolicy:
 
     def test_iterable_input_supported(self) -> None:
         """Signature accepts Iterable[PlayerNickname], not just list."""
-        allowlist = [_allowlist_entry("alice")]
+        players = [_player("alice")]
         candidates = (PlayerNickname(n) for n in ["alice", "michael"])
-        assert self.policy.find_missing_nicknames(candidates, allowlist) == ["michael"]
+        assert self.policy.find_missing_nicknames(candidates, players) == ["michael"]

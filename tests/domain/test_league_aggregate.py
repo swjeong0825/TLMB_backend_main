@@ -9,13 +9,14 @@ import uuid
 import pytest
 
 from app.domain.aggregates.league.aggregate_root import League
+from app.domain.aggregates.league.entities import Player
 from app.domain.aggregates.league.league_rules import LeagueRules
+from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname
 from app.domain.exceptions import (
-    AllowlistEntryNotFoundError,
-    AllowlistNicknameAlreadyExistsError,
     NicknameAlreadyInUseError,
-    NotInAllowlistError,
+    PlayerHasParticipationError,
     PlayerNotFoundError,
+    RosterMembershipRequiredError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
     TeamNotFoundError,
@@ -43,6 +44,29 @@ def _league_otpp_false(title: str = "OTPP-False League") -> League:
         }
     )
     return League.create(title=title, description=None, host_token="test-token", rules=rules)
+
+
+def _league_require_roster() -> League:
+    """League configured with v6 `auto_register_players_on_match=False`.
+
+    Pre-registered players are the only ones allowed to submit matches.
+    """
+    rules = LeagueRules.from_dict(
+        {
+            "version": 6,
+            "match_pair_idempotency": "once_per_league",
+            "one_team_per_player": True,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+            "auto_register_players_on_match": False,
+        }
+    )
+    return League.create(
+        title="Roster-Only League",
+        description=None,
+        host_token="test-token",
+        rules=rules,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,9 +113,14 @@ class TestLeagueCreate:
         league = _league()
         assert league.pending_deleted_team_ids == []
 
-    def test_default_rules_use_once_per_league_for_new_product_leagues(self) -> None:
+    def test_pending_deleted_player_ids_initialised_empty(self) -> None:
+        league = _league()
+        assert league.pending_deleted_player_ids == []
+
+    def test_default_rules_use_auto_register_true_for_new_product_leagues(self) -> None:
         league = _league()
         assert league.rules == LeagueRules.default_for_new_league()
+        assert league.rules.auto_register_players_on_match is True
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +186,7 @@ class TestRegisterPlayersAndTeam:
         league.delete_team(str(team1.team_id.value))
         new_players, team2 = league.register_players_and_team("alice", "charlie")
         assert len(league.teams) == 1
-        assert len(new_players) == 1  # only charlie is new
+        assert len(new_players) == 1
 
     def test_team_id_is_unique_per_new_team(self) -> None:
         league = _league()
@@ -199,7 +228,6 @@ class TestRegisterPlayersAndTeamOTPPFalse:
 
         assert team_ab.team_id != team_ac.team_id
         assert len(league.teams) == 2
-        # Only charlie is a new player; alice already existed.
         assert len(new_players) == 1
         assert new_players[0].nickname.value == "charlie"
 
@@ -210,7 +238,6 @@ class TestRegisterPlayersAndTeamOTPPFalse:
         league.register_players_and_team("alice", "diana")
 
         assert len(league.teams) == 3
-        # Alice is exactly one Player record (registered once, partnered three times).
         nicknames = [p.nickname.value for p in league.players]
         assert nicknames.count("alice") == 1
         assert {"alice", "bob", "charlie", "diana"} == set(nicknames)
@@ -327,43 +354,23 @@ class TestDeleteTeam:
 
 
 # ---------------------------------------------------------------------------
-# Helpers for the allowlist test classes
+# League.add_players
 # ---------------------------------------------------------------------------
 
 
-def _league_require_allowlist(title: str = "Allowlist League") -> League:
-    """League configured with v5 `require_allowlist=true`."""
-    rules = LeagueRules.from_dict(
-        {
-            "version": 5,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
-            "tie_breakers": ["matches_won"],
-            "require_allowlist": True,
-        }
-    )
-    return League.create(title=title, description=None, host_token="test-token", rules=rules)
-
-
-# ---------------------------------------------------------------------------
-# League.add_allowlist_entries
-# ---------------------------------------------------------------------------
-
-
-class TestAddAllowlistEntries:
+class TestAddPlayers:
     def test_adds_single_nickname(self) -> None:
         league = _league()
-        added = league.add_allowlist_entries(["alex"])
+        added = league.add_players(["alex"])
         assert len(added) == 1
         assert added[0].nickname.value == "alex"
-        assert league.allowlist == added
+        assert {p.nickname.value for p in league.players} == {"alex"}
 
     def test_adds_multiple_nicknames_atomically(self) -> None:
         league = _league()
-        added = league.add_allowlist_entries(["alex", "daniel", "jason"])
-        assert [e.nickname.value for e in added] == ["alex", "daniel", "jason"]
-        assert {e.nickname.value for e in league.allowlist} == {
+        added = league.add_players(["alex", "daniel", "jason"])
+        assert [p.nickname.value for p in added] == ["alex", "daniel", "jason"]
+        assert {p.nickname.value for p in league.players} == {
             "alex",
             "daniel",
             "jason",
@@ -371,238 +378,204 @@ class TestAddAllowlistEntries:
 
     def test_normalizes_to_lowercase(self) -> None:
         league = _league()
-        league.add_allowlist_entries(["Alex Kim", "DANIEL"])
-        nicks = {e.nickname.value for e in league.allowlist}
+        league.add_players(["Alex Kim", "DANIEL"])
+        nicks = {p.nickname.value for p in league.players}
         assert nicks == {"alex kim", "daniel"}
 
-    def test_each_entry_gets_unique_id(self) -> None:
+    def test_each_player_gets_unique_id(self) -> None:
         league = _league()
-        added = league.add_allowlist_entries(["alex", "daniel"])
-        assert added[0].allowlist_entry_id != added[1].allowlist_entry_id
+        added = league.add_players(["alex", "daniel"])
+        assert added[0].player_id != added[1].player_id
 
-    def test_duplicate_against_existing_raises(self) -> None:
+    def test_duplicate_against_existing_roster_raises(self) -> None:
         league = _league()
-        league.add_allowlist_entries(["alex"])
-        with pytest.raises(AllowlistNicknameAlreadyExistsError):
-            league.add_allowlist_entries(["alex"])
+        league.add_players(["alex"])
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_players(["alex"])
 
     def test_duplicate_against_existing_case_insensitive(self) -> None:
         league = _league()
-        league.add_allowlist_entries(["Alex"])
-        with pytest.raises(AllowlistNicknameAlreadyExistsError):
-            league.add_allowlist_entries(["ALEX"])
+        league.add_players(["Alex"])
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_players(["ALEX"])
 
     def test_duplicate_within_same_batch_raises(self) -> None:
         league = _league()
-        with pytest.raises(AllowlistNicknameAlreadyExistsError):
-            league.add_allowlist_entries(["alex", "Alex"])
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_players(["alex", "Alex"])
 
     def test_failed_batch_makes_no_partial_inserts(self) -> None:
         league = _league()
-        league.add_allowlist_entries(["alex"])
-        with pytest.raises(AllowlistNicknameAlreadyExistsError):
-            league.add_allowlist_entries(["daniel", "alex"])
-        # daniel should NOT have been added.
-        nicks = {e.nickname.value for e in league.allowlist}
+        league.add_players(["alex"])
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_players(["daniel", "alex"])
+        nicks = {p.nickname.value for p in league.players}
         assert nicks == {"alex"}
 
     def test_empty_list_raises_value_error(self) -> None:
         league = _league()
         with pytest.raises(ValueError):
-            league.add_allowlist_entries([])
+            league.add_players([])
 
-    def test_allowlist_add_also_creates_players(self) -> None:
-        """Allowlist add eagerly creates a Player row for every new nickname.
-
-        Teams are NOT created on the allowlist-add path — only
-        register_players_and_team creates Teams.
-        """
+    def test_add_players_does_not_create_teams(self) -> None:
+        """Teams are still created only inside register_players_and_team."""
         league = _league()
-        league.add_allowlist_entries(["alex", "daniel"])
-        roster = {p.nickname.value for p in league.players}
-        assert roster == {"alex", "daniel"}
+        league.add_players(["alex", "daniel"])
         assert league.teams == []
 
-    def test_allowlist_add_links_to_existing_player(self) -> None:
-        """When a Player with the same normalized nickname already exists
-        (e.g. created via match submission), the allowlist add reuses it
-        rather than creating a duplicate Player."""
+    def test_pre_registered_player_is_reused_by_match_submission(self) -> None:
+        """When a host pre-registers a player and that player later submits a
+        match, register_players_and_team finds the existing Player rather
+        than creating a duplicate."""
         league = _league()
-        league.register_players_and_team("alex", "daniel")
-        existing_ids = {p.player_id for p in league.players}
-        assert len(existing_ids) == 2
+        added = league.add_players(["alex", "daniel"])
+        before_ids = {p.player_id for p in league.players}
 
-        league.add_allowlist_entries(["alex"])
+        new_players, _ = league.register_players_and_team("alex", "daniel")
 
-        roster_ids = {p.player_id for p in league.players}
-        assert roster_ids == existing_ids
-        assert len([p for p in league.players if p.nickname.value == "alex"]) == 1
-
-    def test_allowlist_add_creates_only_missing_players(self) -> None:
-        """Mixed batch: one nickname is already a roster Player, the other
-        is new. Only the new one should produce a fresh Player row; the
-        existing Player is reused."""
-        league = _league()
-        league.register_players_and_team("alex", "daniel")
-        before_count = len(league.players)
-
-        league.add_allowlist_entries(["alex", "jason"])
-
-        roster_nicks = {p.nickname.value for p in league.players}
-        assert roster_nicks == {"alex", "daniel", "jason"}
-        assert len(league.players) == before_count + 1
-
-    def test_allowlist_add_normalizes_player_nickname(self) -> None:
-        """A casing/whitespace variant of an existing Player must still
-        link-to-existing (case-insensitive match)."""
-        league = _league()
-        league.register_players_and_team("alex", "daniel")
-
-        league.add_allowlist_entries(["ALEX"])
-
-        nicks = [p.nickname.value for p in league.players]
-        assert nicks.count("alex") == 1
-        assert "ALEX" not in nicks
-
-    def test_allowlist_add_failure_creates_no_players(self) -> None:
-        """If the batch is rejected (in-batch duplicate or duplicate against
-        existing allowlist), neither AllowlistEntries nor Players are
-        appended."""
-        league = _league()
-        league.add_allowlist_entries(["alex"])
-        existing_player_ids = {p.player_id for p in league.players}
-
-        with pytest.raises(AllowlistNicknameAlreadyExistsError):
-            league.add_allowlist_entries(["jason", "alex"])
-
-        roster_ids = {p.player_id for p in league.players}
-        assert roster_ids == existing_player_ids
-        assert "jason" not in {p.nickname.value for p in league.players}
+        assert new_players == []
+        assert {p.player_id for p in league.players} == before_ids
+        assert {p.player_id for p in added} == before_ids
 
 
 # ---------------------------------------------------------------------------
-# League.remove_allowlist_entry
+# League.remove_player
 # ---------------------------------------------------------------------------
 
 
-class TestRemoveAllowlistEntry:
-    def test_removes_entry(self) -> None:
+class TestRemovePlayer:
+    def test_removes_player_with_no_participation(self) -> None:
         league = _league()
-        added = league.add_allowlist_entries(["alex", "daniel"])
-        league.remove_allowlist_entry(str(added[0].allowlist_entry_id.value))
-        nicks = {e.nickname.value for e in league.allowlist}
+        added = league.add_players(["alex", "daniel"])
+        league.remove_player(str(added[0].player_id.value))
+        nicks = {p.nickname.value for p in league.players}
         assert nicks == {"daniel"}
 
     def test_removed_id_appended_to_pending_list(self) -> None:
         league = _league()
-        added = league.add_allowlist_entries(["alex"])
-        league.remove_allowlist_entry(str(added[0].allowlist_entry_id.value))
-        assert added[0].allowlist_entry_id in league.pending_deleted_allowlist_entry_ids
+        added = league.add_players(["alex"])
+        league.remove_player(str(added[0].player_id.value))
+        assert added[0].player_id in league.pending_deleted_player_ids
 
-    def test_unknown_id_raises(self) -> None:
+    def test_unknown_player_id_raises(self) -> None:
         league = _league()
-        with pytest.raises(AllowlistEntryNotFoundError):
-            league.remove_allowlist_entry(str(uuid.uuid4()))
+        with pytest.raises(PlayerNotFoundError):
+            league.remove_player(str(uuid.uuid4()))
 
-    def test_remove_does_not_touch_roster(self) -> None:
-        """Removing an allowlist nickname must NOT delete the roster Player
-        row, even one that was originally created BY add_allowlist_entries.
-
-        This lifecycle asymmetry (add creates a Player; remove never deletes
-        one) is the load-bearing reason AllowlistEntry and Player remain
-        separate entities. See 20_allowlist.md.
-        """
-        league = _league()
-        added = league.add_allowlist_entries(["alex", "daniel"])
-        roster_before = {p.player_id for p in league.players}
-        assert len(roster_before) == 2
-
-        league.remove_allowlist_entry(str(added[0].allowlist_entry_id.value))
-
-        roster_after = {p.player_id for p in league.players}
-        assert roster_after == roster_before
-        assert {p.nickname.value for p in league.players} == {"alex", "daniel"}
-
-    def test_remove_does_not_touch_roster_when_player_is_match_seeded(self) -> None:
-        """When the Player row was created via match submission (not via
-        allowlist add), allowlist remove still leaves the Player intact."""
+    def test_rejects_player_with_team_membership(self) -> None:
         league = _league()
         league.register_players_and_team("alex", "daniel")
-        added = league.add_allowlist_entries(["alex", "daniel"])
+        alex = next(p for p in league.players if p.nickname.value == "alex")
 
-        league.remove_allowlist_entry(str(added[0].allowlist_entry_id.value))
+        with pytest.raises(PlayerHasParticipationError) as exc:
+            league.remove_player(str(alex.player_id.value))
 
-        roster = {p.nickname.value for p in league.players}
-        assert roster == {"alex", "daniel"}
+        assert exc.value.teams_count == 1
+        assert exc.value.matches_count == 0
+        assert {p.nickname.value for p in league.players} == {"alex", "daniel"}
 
-
-# ---------------------------------------------------------------------------
-# League.validate_match_participants_allowed
-# ---------------------------------------------------------------------------
-
-
-class TestValidateMatchParticipantsAllowed:
-    def test_noop_when_flag_off(self) -> None:
-        """Default leagues have require_allowlist=False; validation is a
-        no-op even when the allowlist is empty."""
+    def test_rejects_player_with_match_participation(self) -> None:
+        """Even when the team is gone but match_count was loaded by the repo
+        as > 0 (defensive — in practice the FK keeps the team alive), the
+        guard still blocks deletion."""
         league = _league()
-        # Should not raise even though allowlist is empty.
-        league.validate_match_participants_allowed(["alice", "bob", "charlie", "diana"])
+        league.add_players(["alex"])
+        alex = league.players[0]
+        alex.match_count = 3
 
-    def test_passes_when_all_nicknames_allowed(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob", "charlie", "diana"])
-        league.validate_match_participants_allowed(
+        with pytest.raises(PlayerHasParticipationError) as exc:
+            league.remove_player(str(alex.player_id.value))
+
+        assert exc.value.matches_count == 3
+
+    def test_payload_carries_player_id(self) -> None:
+        league = _league()
+        league.register_players_and_team("alex", "daniel")
+        alex = next(p for p in league.players if p.nickname.value == "alex")
+
+        with pytest.raises(PlayerHasParticipationError) as exc:
+            league.remove_player(str(alex.player_id.value))
+
+        assert exc.value.player_id == str(alex.player_id.value)
+
+    def test_does_not_add_to_pending_when_guard_blocks(self) -> None:
+        league = _league()
+        league.register_players_and_team("alex", "daniel")
+        alex = next(p for p in league.players if p.nickname.value == "alex")
+
+        with pytest.raises(PlayerHasParticipationError):
+            league.remove_player(str(alex.player_id.value))
+
+        assert alex.player_id not in league.pending_deleted_player_ids
+
+
+# ---------------------------------------------------------------------------
+# League.validate_match_participants_on_roster
+# ---------------------------------------------------------------------------
+
+
+class TestValidateMatchParticipantsOnRoster:
+    def test_noop_when_auto_register_true(self) -> None:
+        """Default leagues have auto_register_players_on_match=True;
+        validation is a no-op even when the roster is empty."""
+        league = _league()
+        league.validate_match_participants_on_roster(
+            ["alice", "bob", "charlie", "diana"]
+        )
+
+    def test_passes_when_all_nicknames_on_roster(self) -> None:
+        league = _league_require_roster()
+        league.add_players(["alice", "bob", "charlie", "diana"])
+        league.validate_match_participants_on_roster(
             ["alice", "bob", "charlie", "diana"]
         )
 
     def test_normalizes_input_before_checking(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob", "charlie", "diana"])
-        league.validate_match_participants_allowed(
+        league = _league_require_roster()
+        league.add_players(["alice", "bob", "charlie", "diana"])
+        league.validate_match_participants_on_roster(
             ["ALICE", "Bob ", " charlie", "DIANA"]
         )
 
-    def test_raises_with_missing_nicknames_when_flag_on(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob"])
-        with pytest.raises(NotInAllowlistError) as exc:
-            league.validate_match_participants_allowed(
+    def test_raises_with_missing_nicknames_when_flag_off(self) -> None:
+        league = _league_require_roster()
+        league.add_players(["alice", "bob"])
+        with pytest.raises(RosterMembershipRequiredError) as exc:
+            league.validate_match_participants_on_roster(
                 ["alice", "bob", "michael", "ryan"]
             )
         assert exc.value.missing_nicknames == ["michael", "ryan"]
 
     def test_missing_list_is_normalized_lowercase(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice"])
-        with pytest.raises(NotInAllowlistError) as exc:
-            league.validate_match_participants_allowed(
+        league = _league_require_roster()
+        league.add_players(["alice"])
+        with pytest.raises(RosterMembershipRequiredError) as exc:
+            league.validate_match_participants_on_roster(
                 ["alice", "MICHAEL", "michael", "RYAN"]
             )
-        # Deduped, lowercased, in input order of first appearance.
         assert exc.value.missing_nicknames == ["michael", "ryan"]
 
     def test_message_mentions_missing_nicknames(self) -> None:
-        league = _league_require_allowlist()
-        league.add_allowlist_entries(["alice", "bob"])
-        with pytest.raises(NotInAllowlistError) as exc:
-            league.validate_match_participants_allowed(
+        league = _league_require_roster()
+        league.add_players(["alice", "bob"])
+        with pytest.raises(RosterMembershipRequiredError) as exc:
+            league.validate_match_participants_on_roster(
                 ["alice", "bob", "michael", "ryan"]
             )
         msg = str(exc.value)
         assert "michael" in msg
         assert "ryan" in msg
 
-    def test_empty_allowlist_with_flag_on_rejects_all(self) -> None:
-        league = _league_require_allowlist()
-        with pytest.raises(NotInAllowlistError) as exc:
-            league.validate_match_participants_allowed(
+    def test_empty_roster_with_flag_off_rejects_all(self) -> None:
+        league = _league_require_roster()
+        with pytest.raises(RosterMembershipRequiredError) as exc:
+            league.validate_match_participants_on_roster(
                 ["alice", "bob", "charlie", "diana"]
             )
         assert exc.value.missing_nicknames == ["alice", "bob", "charlie", "diana"]
 
     def test_dedupes_in_batch_when_same_missing_nickname_appears_twice(self) -> None:
-        league = _league_require_allowlist()
-        with pytest.raises(NotInAllowlistError) as exc:
-            league.validate_match_participants_allowed(["alice", "alice", "bob"])
+        league = _league_require_roster()
+        with pytest.raises(RosterMembershipRequiredError) as exc:
+            league.validate_match_participants_on_roster(["alice", "alice", "bob"])
         assert exc.value.missing_nicknames == ["alice", "bob"]

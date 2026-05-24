@@ -1,21 +1,36 @@
 from __future__ import annotations
 
+import uuid
+
 from app.domain.aggregates.league.aggregate_root import League
-from app.domain.aggregates.league.entities import AllowlistEntry, Player, Team
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.value_objects import HostToken, LeagueId
 from app.infrastructure.persistence.models.orm_models import LeagueORM
-from app.infrastructure.persistence.mappers.allowlist_entry_mapper import (
-    allowlist_entry_to_domain,
-)
 from app.infrastructure.persistence.mappers.player_mapper import player_to_domain
 from app.infrastructure.persistence.mappers.team_mapper import team_to_domain
 
 
-def league_to_domain(orm: LeagueORM) -> League:
-    players = [player_to_domain(p) for p in orm.players]
+def league_to_domain(
+    orm: LeagueORM,
+    match_counts_by_player: dict[uuid.UUID, int] | None = None,
+) -> League:
+    """Map a LeagueORM (with `players`, `teams` eagerly loaded) into a domain
+    League aggregate.
+
+    `match_counts_by_player` is an optional per-player participation count
+    surfaced by the repository so `League.remove_player` can enforce the
+    "zero participation" guard without an extra round-trip. When omitted,
+    every player's `match_count` defaults to 0; that is safe for read paths
+    (they ignore the field) and for write paths that don't call
+    `remove_player`.
+    """
+    counts = match_counts_by_player or {}
+    players = []
+    for p in orm.players:
+        player = player_to_domain(p)
+        player.match_count = counts.get(p.player_id, 0)
+        players.append(player)
     teams = [team_to_domain(t) for t in orm.teams]
-    allowlist = [allowlist_entry_to_domain(entry) for entry in orm.allowlist]
     return League(
         league_id=LeagueId(value=orm.league_id),
         host_token=HostToken(value=orm.host_token),
@@ -24,9 +39,8 @@ def league_to_domain(orm: LeagueORM) -> League:
         rules=LeagueRules.from_dict(orm.rules),
         players=players,
         teams=teams,
-        allowlist=allowlist,
         pending_deleted_team_ids=[],
-        pending_deleted_allowlist_entry_ids=[],
+        pending_deleted_player_ids=[],
     )
 
 

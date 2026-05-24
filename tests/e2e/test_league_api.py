@@ -737,12 +737,12 @@ async def test_get_league_roster_empty(client: AsyncClient) -> None:
     assert body["players"] == []
     assert body["teams"] == []
     # rules echoed so the frontend can fetch league title + rules in one trip.
-    assert body["rules"]["version"] == 5
+    assert body["rules"]["version"] == 6
     assert body["rules"]["match_pair_idempotency"] == "none"
     assert body["rules"]["one_team_per_player"] is True
     assert body["rules"]["ranking_subject"] == "team"
     assert body["rules"]["tie_breakers"] == ["matches_won"]
-    assert body["rules"]["require_allowlist"] is False
+    assert body["rules"]["auto_register_players_on_match"] is True
 
 
 async def test_get_league_roster_echoes_one_team_per_player_false(client: AsyncClient) -> None:

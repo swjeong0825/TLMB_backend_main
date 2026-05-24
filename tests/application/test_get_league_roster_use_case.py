@@ -141,5 +141,5 @@ class TestGetLeagueRosterUseCase:
             "one_team_per_player",
             "ranking_subject",
             "tie_breakers",
-            "require_allowlist",
+            "auto_register_players_on_match",
         }
