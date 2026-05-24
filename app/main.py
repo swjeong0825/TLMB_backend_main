@@ -13,6 +13,7 @@ from app.domain.exceptions import (
     InvalidSetScoreError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
+    MatchEditWindowExpiredError,
     MatchNotFoundError,
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
@@ -155,5 +156,21 @@ async def player_has_participation_handler(
             "player_id": exc.player_id,
             "teams_count": exc.teams_count,
             "matches_count": exc.matches_count,
+        },
+    )
+
+
+@app.exception_handler(MatchEditWindowExpiredError)
+async def match_edit_window_expired_handler(
+    request: Request, exc: MatchEditWindowExpiredError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "MatchEditWindowExpiredError",
+            "detail": str(exc),
+            "match_id": exc.match_id,
+            "window_seconds": exc.window_seconds,
+            "age_seconds": exc.age_seconds,
         },
     )

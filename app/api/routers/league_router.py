@@ -3,6 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.requests import Request
 
+# league router is getting admin functionalites for recently created matches
+from app.api.schemas.admin_schemas import (
+    EditMatchScoreRequest,
+    EditMatchScoreResponse,
+)
 from app.api.schemas.league_schemas import (
     CreateLeagueRequest,
     CreateLeagueResponse,
@@ -19,9 +24,14 @@ from app.api.schemas.league_schemas import (
     SubmitMatchResultResponse,
     TeamEntrySchema,
 )
+from app.config import player_score_edit_window_seconds
 from app.application.use_cases.create_league_use_case import (
     CreateLeagueCommand,
     CreateLeagueUseCase,
+)
+from app.application.use_cases.edit_match_score_use_case import (
+    EditMatchScoreCommand,
+    EditMatchScoreUseCase,
 )
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterQuery, GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryQuery, GetMatchHistoryUseCase
@@ -44,6 +54,7 @@ from app.application.use_cases.submit_match_result_use_case import (
 )
 from app.dependencies import (
     get_create_league_use_case,
+    get_edit_match_score_use_case,
     get_get_league_roster_use_case,
     get_get_match_history_by_player_use_case,
     get_get_match_history_use_case,
@@ -121,7 +132,51 @@ async def submit_match_result(
             team2_score=body.team2_score,
         )
     )
-    return SubmitMatchResultResponse(match_id=result.match_id)
+    return SubmitMatchResultResponse(
+        match_id=result.match_id,
+        created_at=result.created_at,
+    )
+
+
+@router.patch(
+    "/leagues/{league_id}/matches/{match_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=EditMatchScoreResponse,
+)
+@limiter.limit("60/minute")
+async def edit_match_score_by_player(
+    request: Request,
+    league_id: str,
+    match_id: str,
+    body: EditMatchScoreRequest,
+    use_case: EditMatchScoreUseCase = Depends(get_edit_match_score_use_case),
+) -> EditMatchScoreResponse:
+    """Player-facing match score edit.
+
+    Open to anyone with `league_id` (no `X-Host-Token`), but only while
+    the match is within the configured player-edit window
+    (`PLAYER_SCORE_EDIT_WINDOW_SECONDS`, default 3600s). Outside the
+    window the request 422s with `MatchEditWindowExpiredError` and the
+    caller must ask the host to edit it via the admin endpoint.
+
+    The admin endpoint at `PATCH /admin/leagues/{id}/matches/{id}`
+    (requires `X-Host-Token`) remains unchanged and is **not** gated by
+    the window.
+    """
+    result = await use_case.execute(
+        EditMatchScoreCommand(
+            host_token=None,
+            league_id=league_id,
+            match_id=match_id,
+            team1_score=body.team1_score,
+            team2_score=body.team2_score,
+        )
+    )
+    return EditMatchScoreResponse(
+        match_id=result.match_id,
+        team1_score=result.team1_score,
+        team2_score=result.team2_score,
+    )
 
 
 @router.get(
@@ -266,4 +321,5 @@ async def get_league_roster(
             )
             for t in roster.teams
         ],
+        player_score_edit_window_seconds=player_score_edit_window_seconds(),
     )

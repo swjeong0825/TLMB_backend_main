@@ -78,6 +78,39 @@ class RosterMembershipRequiredError(DomainError):
         self.missing_nicknames = missing_nicknames
 
 
+class MatchEditWindowExpiredError(DomainError):
+    """Raised by `EditMatchScoreUseCase` when a non-admin caller tries to
+    edit a match whose `created_at` is older than the configured
+    player-edit window.
+
+    Carries the structured fields the frontend needs to render a precise
+    "this match can no longer be edited (try the host)" message without
+    re-parsing the human-readable `detail` string:
+
+    - `match_id`: the match the caller tried to edit.
+    - `window_seconds`: the configured window length, so the UI can echo
+      "for the first N minutes after submission".
+    - `age_seconds`: how old the match was when the request arrived,
+      computed at the use case to avoid clock skew across layers.
+
+    Maps to HTTP 422 (structural / domain rule violation, not auth) so it
+    sits alongside `InvalidSetScoreError` and the other 422-mapped
+    domain errors in `app/main.py`.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        match_id: str,
+        window_seconds: int,
+        age_seconds: int,
+    ) -> None:
+        super().__init__(message)
+        self.match_id = match_id
+        self.window_seconds = window_seconds
+        self.age_seconds = age_seconds
+
+
 class PlayerHasParticipationError(DomainError):
     """Raised by `League.remove_player` when the player is on at least one
     team or referenced by at least one match.

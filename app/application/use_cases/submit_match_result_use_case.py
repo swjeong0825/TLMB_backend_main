@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from app.application.unit_of_work.submit_match_result_uow import SubmitMatchResultUnitOfWork
 from app.domain.aggregates.league.value_objects import LeagueId
@@ -26,6 +27,7 @@ class SubmitMatchResultCommand:
 @dataclass
 class SubmitMatchResultResult:
     match_id: str
+    created_at: datetime
 
 
 class SubmitMatchResultUseCase:
@@ -82,4 +84,12 @@ class SubmitMatchResultUseCase:
             await uow.match_repo.save(match)
             await uow.commit()
 
-        return SubmitMatchResultResult(match_id=str(match.match_id.value))
+        # `match.created_at` is populated by the repo on insert via flush.
+        # If somehow missing (e.g. a non-persisting repo fake in a test),
+        # fall back to current UTC so callers always have a non-null value.
+        created_at = match.created_at or datetime.now(timezone.utc)
+
+        return SubmitMatchResultResult(
+            match_id=str(match.match_id.value),
+            created_at=created_at,
+        )

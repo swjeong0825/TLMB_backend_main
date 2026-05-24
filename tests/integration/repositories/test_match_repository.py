@@ -93,6 +93,21 @@ async def test_save_and_get_by_id_round_trip(session: AsyncSession) -> None:
     assert found.set_score.team2_score == "4"
 
 
+async def test_save_populates_created_at_on_aggregate(session: AsyncSession) -> None:
+    """`save` flushes so the DB `server_default=now()` populates
+    `created_at` and the in-memory aggregate observes it. The use case
+    needs this to return an authoritative timestamp to the API layer
+    (frontend uses it for the player-edit window math)."""
+    league, t1, t2 = await _seed_league_with_teams(session)
+    match = _make_match(league, t1, t2, "6", "4")
+    assert match.created_at is None  # fresh aggregate has no timestamp
+
+    repo = SqlAlchemyMatchRepository(session)
+    await repo.save(match)
+
+    assert match.created_at is not None
+
+
 # ---------------------------------------------------------------------------
 # get_all_by_league
 # ---------------------------------------------------------------------------

@@ -116,7 +116,17 @@ class SubmitMatchResultRequest(BaseModel):
 
 
 class SubmitMatchResultResponse(BaseModel):
+    """Response for `POST /leagues/{id}/matches`.
+
+    `created_at` is the DB-authoritative server timestamp at which the
+    match row was inserted. The frontend uses it to compute the
+    player-edit window from a known-good clock (instead of `Date.now()`
+    on the client, which is unreliable in the presence of clock skew
+    across devices).
+    """
+
     match_id: str
+    created_at: datetime
 
 
 class StandingsEntrySchema(BaseModel):
@@ -208,7 +218,19 @@ class LeagueRulesResponseSchema(BaseModel):
 
 
 class GetLeagueRosterResponse(BaseModel):
+    """Read-side projection of a league's roster + active rules.
+
+    `player_score_edit_window_seconds` is **server-wide config** (not a
+    per-league rule, not stored on the league row) — it's surfaced here
+    so the frontend can fetch league title + rules + this value in the
+    single roster trip it already makes on chat-page boot. The window
+    governs how long after `match.created_at` a non-admin caller can
+    `PATCH /leagues/{league_id}/matches/{match_id}` to correct the
+    score; admins (`X-Host-Token`) bypass the window entirely.
+    """
+
     title: str
     rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]
+    player_score_edit_window_seconds: int

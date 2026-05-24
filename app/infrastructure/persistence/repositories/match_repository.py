@@ -97,6 +97,12 @@ class SqlAlchemyMatchRepository(MatchRepository):
         if match_orm is None:
             match_orm = match_to_orm(match)
             self._session.add(match_orm)
+            # Flush so the DB `server_default=now()` populates `created_at`
+            # and we can hand the authoritative server timestamp back to
+            # the caller (the SubmitMatchResultResponse needs it for the
+            # frontend's player-edit-window math).
+            await self._session.flush()
+            match.created_at = match_orm.created_at
         else:
             match_orm.team1_score = match.set_score.team1_score
             match_orm.team2_score = match.set_score.team2_score

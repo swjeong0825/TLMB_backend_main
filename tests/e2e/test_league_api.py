@@ -345,6 +345,10 @@ async def test_submit_match_result_success(client: AsyncClient) -> None:
     body = resp.json()
     assert "match_id" in body
     assert len(body["match_id"]) == 36
+    # `created_at` is server-authoritative and used by the frontend to
+    # gate the player-edit-window button without trusting client clocks.
+    assert "created_at" in body
+    assert body["created_at"]
 
 
 async def test_submit_match_result_creates_players_and_teams(client: AsyncClient) -> None:

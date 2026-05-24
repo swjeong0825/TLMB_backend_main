@@ -4,7 +4,7 @@ All use cases are mocked; no database or infrastructure code is exercised.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -218,19 +218,27 @@ class TestSubmitMatchResult:
         "team2_score": "3",
     }
 
+    _FAKE_CREATED_AT = datetime(2026, 5, 24, 12, 0, 0, tzinfo=timezone.utc)
+
     async def test_returns_201_on_success(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        mock_submit_match_uc.execute.return_value = SubmitMatchResultResult(match_id="match-uuid")
+        mock_submit_match_uc.execute.return_value = SubmitMatchResultResult(
+            match_id="match-uuid", created_at=self._FAKE_CREATED_AT
+        )
         response = await client.post("/leagues/league-id/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 201
 
     async def test_response_contains_match_id(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        mock_submit_match_uc.execute.return_value = SubmitMatchResultResult(match_id="m-123")
+        mock_submit_match_uc.execute.return_value = SubmitMatchResultResult(
+            match_id="m-123", created_at=self._FAKE_CREATED_AT
+        )
         response = await client.post("/leagues/league-id/matches", json=self._VALID_PAYLOAD)
-        assert response.json()["match_id"] == "m-123"
+        body = response.json()
+        assert body["match_id"] == "m-123"
+        assert body["created_at"].startswith("2026-05-24T12:00:00")
 
     async def test_league_not_found_returns_404(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
