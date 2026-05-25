@@ -11,8 +11,13 @@ import pytest
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.entities import Player
 from app.domain.aggregates.league.league_rules import LeagueRules
-from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname
+from app.domain.aggregates.league.value_objects import (
+    DEFAULT_LEAGUE_TIMEZONE,
+    PlayerId,
+    PlayerNickname,
+)
 from app.domain.exceptions import (
+    InvalidLeagueRulesError,
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
     PlayerNotFoundError,
@@ -114,6 +119,30 @@ class TestLeagueCreate:
     def test_stores_host_email_normalized(self) -> None:
         league = League.create("L", None, "token", host_email="Host@Example.COM")
         assert league.host_email.value == "host@example.com"
+
+    def test_defaults_league_timezone_to_pacific_time(self) -> None:
+        league = _league()
+        assert league.league_timezone.value == DEFAULT_LEAGUE_TIMEZONE
+
+    def test_stores_custom_league_timezone(self) -> None:
+        league = League.create(
+            "L",
+            None,
+            "token",
+            host_email=_TEST_HOST_EMAIL,
+            league_timezone="Asia/Seoul",
+        )
+        assert league.league_timezone.value == "Asia/Seoul"
+
+    def test_invalid_league_timezone_raises_invalid_rules_error(self) -> None:
+        with pytest.raises(InvalidLeagueRulesError):
+            League.create(
+                "L",
+                None,
+                "token",
+                host_email=_TEST_HOST_EMAIL,
+                league_timezone="not/a-zone",
+            )
 
     def test_blank_host_email_raises_value_error(self) -> None:
         with pytest.raises(ValueError):

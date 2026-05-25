@@ -85,6 +85,7 @@ async def create_league(
             title=body.title,
             host_email=body.host_email,
             description=body.description,
+            league_timezone=body.league_timezone,
             rules=body.rules.model_dump() if body.rules is not None else None,
             initial_players=list(body.initial_players),
         )
@@ -340,6 +341,7 @@ async def get_league_roster(
     roster = await use_case.execute(GetLeagueRosterQuery(league_id=league_id))
     return GetLeagueRosterResponse(
         title=roster.title,
+        league_timezone=roster.league_timezone,
         rules=LeagueRulesResponseSchema(**roster.rules),
         players=[
             PlayerEntrySchema(

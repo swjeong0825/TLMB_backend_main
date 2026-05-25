@@ -16,14 +16,17 @@ RankingMetricLiteral = Literal[
 ]
 
 
-class LeagueRulesV6Request(BaseModel):
+MatchPairIdempotencyLiteral = Literal["none", "once_per_league", "once_per_day"]
+
+
+class LeagueRulesV7Request(BaseModel):
     """Shape of `rules` on create-league.
 
-    `version` accepts 1, 2, 3, 4, 5, or 6: v1, v2, v3, v4 and v5 inputs
+    `version` accepts 1 through 7: v1..v6 inputs
     are upgraded transparently in `LeagueRules.from_dict` — v5's
     `require_allowlist` is replaced by v6's
     `auto_register_players_on_match` with the boolean inverted (the new
-    flag is the opposite framing).
+    flag is the opposite framing), and v7 adds `once_per_day`.
 
     `auto_register_players_on_match` (default `true`) controls whether
     submitting a match with an unknown nickname auto-creates the `Player`
@@ -34,17 +37,18 @@ class LeagueRulesV6Request(BaseModel):
     The v3 cross-rule (`(player, OTPP=true)` is rejected) is preserved.
     """
 
-    version: Literal[1, 2, 3, 4, 5, 6]
-    match_pair_idempotency: Literal["none", "once_per_league"]
+    version: Literal[1, 2, 3, 4, 5, 6, 7]
+    match_pair_idempotency: MatchPairIdempotencyLiteral
     one_team_per_player: bool = True
     ranking_subject: Literal["team", "player"] | None = None
     tie_breakers: list[RankingMetricLiteral] | None = None
     auto_register_players_on_match: bool = True
 
 
-LeagueRulesV5Request = LeagueRulesV6Request
-LeagueRulesV4Request = LeagueRulesV6Request
-LeagueRulesV3Request = LeagueRulesV6Request
+LeagueRulesV6Request = LeagueRulesV7Request
+LeagueRulesV5Request = LeagueRulesV7Request
+LeagueRulesV4Request = LeagueRulesV7Request
+LeagueRulesV3Request = LeagueRulesV7Request
 
 
 class CreateLeagueRequest(BaseModel):
@@ -68,7 +72,8 @@ class CreateLeagueRequest(BaseModel):
     title: str
     host_email: EmailStr
     description: str | None = None
-    rules: LeagueRulesV6Request | None = None
+    league_timezone: str = "America/Los_Angeles"
+    rules: LeagueRulesV7Request | None = None
     initial_players: list[str] = []
 
     @field_validator("title")
@@ -204,13 +209,13 @@ class LeagueRulesResponseSchema(BaseModel):
     """Read-side projection of `LeagueRules` returned alongside league metadata.
 
     Mirrors `LeagueRules.to_dict()` so the frontend can render and gate UI on
-    the active rule configuration without an additional round-trip. v6 is
+    the active rule configuration without an additional round-trip. v7 is
     the canonical response version (older inputs are upgraded by
     `LeagueRules.from_dict` before they are returned).
     """
 
     version: int
-    match_pair_idempotency: Literal["none", "once_per_league"]
+    match_pair_idempotency: MatchPairIdempotencyLiteral
     one_team_per_player: bool
     ranking_subject: Literal["team", "player"]
     tie_breakers: list[RankingMetricLiteral]
@@ -239,6 +244,7 @@ class GetLeagueRosterResponse(BaseModel):
     """
 
     title: str
+    league_timezone: str
     rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]

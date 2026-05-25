@@ -29,6 +29,7 @@ class TestGetLeagueRosterUseCase:
 
         assert isinstance(result, RosterView)
         assert result.title == "Test League"
+        assert result.league_timezone == "America/Los_Angeles"
         assert result.players == []
         assert result.teams == []
         assert result.rules == league.rules.to_dict()
@@ -143,3 +144,4 @@ class TestGetLeagueRosterUseCase:
             "tie_breakers",
             "auto_register_players_on_match",
         }
+        assert result.league_timezone == league.league_timezone.value

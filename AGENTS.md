@@ -99,7 +99,8 @@ site on the aggregate, not inside the policy.
 Per-league JSONB configuration with a fixed value set:
 `one_team_per_player`, `match_pair_idempotency`, `ranking_subject`,
 `tie_breakers`, `auto_register_players_on_match`. Versioned (current
-schema is v6), immutable after league creation. See
+schema is v7), immutable after league creation. The league timezone
+is a separate `League` field/DB column, not a `LeagueRules` key. See
 `16_league_rules_and_match_policies.md`.
 
 ### Error → HTTP status mapping

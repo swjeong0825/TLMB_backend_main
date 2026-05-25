@@ -79,11 +79,11 @@
 
 ## Invariant: Match Pair Idempotency (optional per league)
 
-- Statement: **When** `LeagueRules.match_pair_idempotency` is `once_per_league`, the system must not persist a second match in that league between the same **unordered** pair of teams (same two `team_id` values).
-- Why it exists: Some leagues treat a round-robin or season as allowing only one official result per pairing.
+- Statement: **When** `LeagueRules.match_pair_idempotency` is `once_per_league`, the system must not persist a second match in that league between the same **unordered** pair of teams (same two `team_id` values). **When** it is `once_per_day`, the system must not persist a second match for that pair within the same league-local calendar day.
+- Why it exists: Some leagues treat a round-robin or season as allowing only one official result per pairing; most casual leagues only need to prevent accidental duplicate submissions on the same day.
 - Scope / context: Match Recording (enforced in `SubmitMatchResultUseCase` using `MatchRepository`, not inside the Match aggregate)
-- Likely owner: Application use case + `MatchRepository.exists_match_for_team_pair`
-- Violated when: A second submit resolves to two team IDs that already appear together on an existing match row in that league.
+- Likely owner: Application use case + `MatchRepository.exists_match_for_team_pair` / `exists_match_for_team_pair_between`
+- Violated when: A second submit resolves to two team IDs that already appear together on an existing match row in that league, either globally (`once_per_league`) or within the UTC `[start, end)` range for the current date in `League.league_timezone` (`once_per_day`).
 - Notes: When the setting is `none`, multiple matches between the same two teams are allowed. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
 
 ---

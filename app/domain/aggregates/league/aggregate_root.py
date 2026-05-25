@@ -11,9 +11,11 @@ from app.domain.aggregates.league.policies import (
     RosterMembershipPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
+    DEFAULT_LEAGUE_TIMEZONE,
     HostEmail,
     HostToken,
     LeagueId,
+    LeagueTimezone,
     PlayerId,
     PlayerNickname,
     TeamId,
@@ -34,6 +36,7 @@ class League:
     league_id: LeagueId
     host_token: HostToken
     host_email: HostEmail
+    league_timezone: LeagueTimezone
     title: str
     description: str | None
     rules: LeagueRules
@@ -49,6 +52,7 @@ class League:
         description: str | None,
         host_token: str,
         host_email: str,
+        league_timezone: str = DEFAULT_LEAGUE_TIMEZONE,
         rules: LeagueRules | None = None,
     ) -> League:
         if not title or not title.strip():
@@ -58,6 +62,7 @@ class League:
             league_id=LeagueId.generate(),
             host_token=HostToken(value=host_token),
             host_email=HostEmail(value=host_email),
+            league_timezone=LeagueTimezone(value=league_timezone),
             title=title,
             description=description,
             rules=resolved_rules,

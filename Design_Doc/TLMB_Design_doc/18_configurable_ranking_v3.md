@@ -236,13 +236,12 @@ This decision (best-effort downgrade rather than blocking-downgrade or snapshot-
 
 ## Forward-compatibility (post-v3)
 
-V3 leaves the schema in a state where every legal combo conveys distinct information and every illegal combo is enforced uniformly. Future versions will most likely add:
+V3 leaves the schema in a state where every legal combo conveys distinct information and every illegal combo is enforced uniformly. Later versions add orthogonal axes without changing the v3 ranking-config validation matrix. Future versions will most likely add:
 
 - Head-to-head as a tie-breaker metric (requires sub-tournament reasoning).
 - Multi-set scoring (requires changing `Match` value objects, not `LeagueRules`).
-- Per-day idempotency (`once_per_calendar_day`) once a league timezone is stored.
 
-None of these change the v3 ranking-config validation matrix. They extend orthogonal axes (metrics, score shape, match-pair rules) and can ship without bumping `LeagueRules.version` if they introduce only additional optional fields, or as v4 if they meaningfully change validation.
+These extend orthogonal axes (metrics, score shape, match-pair rules) and can ship without bumping `LeagueRules.version` if they introduce only additional optional fields, or with a version bump if they meaningfully change validation.
 
 ---
 

@@ -5,7 +5,7 @@ from typing import Any, Literal, get_args
 
 from app.domain.exceptions import InvalidLeagueRulesError
 
-MatchPairIdempotency = Literal["none", "once_per_league"]
+MatchPairIdempotency = Literal["none", "once_per_league", "once_per_day"]
 RankingSubject = Literal["team", "player"]
 RankingMetric = Literal[
     "matches_won",
@@ -23,7 +23,10 @@ ALLOWED_METRICS: tuple[RankingMetric, ...] = get_args(RankingMetric)
 class LeagueRules:
     """Versioned per-league configuration stored as JSONB on the league row.
 
-    v6 (current) retires the allowlist concept entirely (the
+    v7 (current) adds `once_per_day` match-pair idempotency. League-local
+    calendar-day boundaries use the parent `League.league_timezone` field.
+
+    v6 retires the allowlist concept entirely (the
     `allowlist_entries` side table is dropped in alembic `007`). The v5
     `require_allowlist` flag is replaced by `auto_register_players_on_match`
     with the boolean *inverted*: pre-existing leagues with
@@ -37,10 +40,10 @@ class LeagueRules:
 
     v5 renamed v4's `require_eligible_players` to `require_allowlist`; v4
     introduced the same flag under the legacy name `require_eligible_players`;
-    v3 introduced `one_team_per_player = false` legality. v1..v5 inputs are
-    accepted on read and upgraded transparently to v6 (the boolean flip
+    v3 introduced `one_team_per_player = false` legality. v1..v6 inputs are
+    accepted on read and upgraded transparently to v7 (the boolean flip
     happens during parse). v4 inputs may carry either `require_eligible_players`
-    or `require_allowlist`; v5 inputs carry `require_allowlist`; v6 inputs
+    or `require_allowlist`; v5 inputs carry `require_allowlist`; v6/v7 inputs
     carry `auto_register_players_on_match`.
     """
 
@@ -67,13 +70,14 @@ class LeagueRules:
             raise InvalidLeagueRulesError("League rules must be a JSON object")
 
         version = data.get("version")
-        if version not in (1, 2, 3, 4, 5, 6):
+        if version not in (1, 2, 3, 4, 5, 6, 7):
             raise InvalidLeagueRulesError(f"Unsupported league rules version: {version!r}")
 
         mpi = data.get("match_pair_idempotency")
-        if mpi not in ("none", "once_per_league"):
+        if mpi not in ("none", "once_per_league", "once_per_day"):
             raise InvalidLeagueRulesError(
-                f"Invalid match_pair_idempotency: {mpi!r}; expected 'none' or 'once_per_league'"
+                f"Invalid match_pair_idempotency: {mpi!r}; "
+                "expected 'none', 'once_per_league', or 'once_per_day'"
             )
 
         otpp = data.get("one_team_per_player")
@@ -96,7 +100,7 @@ class LeagueRules:
         auto_register = cls._parse_auto_register_players_on_match(data, version)
 
         return cls(
-            version=6,
+            version=7,
             match_pair_idempotency=mpi,
             one_team_per_player=otpp,
             ranking_subject=ranking_subject,
@@ -108,13 +112,13 @@ class LeagueRules:
     def _parse_auto_register_players_on_match(data: dict[str, Any], version: int) -> bool:
         """Parse the participation gate flag in a version-aware way.
 
-        v6 inputs carry `auto_register_players_on_match` directly.
+        v6/v7 inputs carry `auto_register_players_on_match` directly.
         v5 inputs carry `require_allowlist` — invert.
         v4 inputs carry either `require_eligible_players` (preferred when
         present) or `require_allowlist` — invert.
         v1/v2/v3 default to `True` (today's default behavior).
         """
-        if version == 6:
+        if version in (6, 7):
             value = data.get("auto_register_players_on_match")
             if value is None:
                 return True
@@ -189,13 +193,15 @@ class LeagueRules:
         rewrite), 005 (`require_eligible_players=false` / v4), 006
         (rename to `require_allowlist` / v5), and 007 (drop the
         `allowlist_entries` table and replace `require_allowlist` with
-        `auto_register_players_on_match` with the boolean inverted) — together
-        these reproduce v1/v2/v3/v4/v5 behavior byte-for-byte for every legal
-        combo carried over.
+        `auto_register_players_on_match` with the boolean inverted). Alembic
+        009 adds the parent `League.league_timezone` field and upgrades rules
+        to v7 while preserving existing idempotency choices. New leagues
+        default to `once_per_day`; existing leagues keep their stored
+        strictness.
         """
         return cls(
-            version=6,
-            match_pair_idempotency="once_per_league",
+            version=7,
+            match_pair_idempotency="once_per_day",
             one_team_per_player=True,
             ranking_subject="team",
             tie_breakers=("matches_won",),

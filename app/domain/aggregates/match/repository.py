@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from app.domain.aggregates.league.value_objects import LeagueId, TeamId
 from app.domain.aggregates.match.aggregate_root import Match
@@ -39,6 +40,16 @@ class MatchRepository(ABC):
     @abstractmethod
     async def exists_match_for_team_pair(
         self, league_id: LeagueId, team1_id: TeamId, team2_id: TeamId
+    ) -> bool: ...
+
+    @abstractmethod
+    async def exists_match_for_team_pair_between(
+        self,
+        league_id: LeagueId,
+        team1_id: TeamId,
+        team2_id: TeamId,
+        start_at: datetime,
+        end_at: datetime,
     ) -> bool: ...
 
     @abstractmethod

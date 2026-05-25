@@ -52,7 +52,7 @@ flowchart LR
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
-| InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5/v6 rules body — including v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
+| InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5/v6/v7 rules body, invalid `league_timezone`, or v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
 | PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a team or appears on a match; body carries `teams_count`, `matches_count`) | 409 |
 | RosterMembershipRequiredError (match submission contains nicknames not on the roster; only when `LeagueRules.auto_register_players_on_match = false`; body carries `missing_nicknames`) | 422 |
 | MatchEditWindowExpiredError (non-admin player tried to PATCH a match older than `PLAYER_SCORE_EDIT_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds`) | 422 |
@@ -65,17 +65,19 @@ flowchart LR
 - Method: POST
 - Path: `/leagues`
 - Purpose: Create a new league and receive access credentials. Optionally pre-register a starting roster of players in the same transaction.
-- Request shape: `{ "title": "str", "host_email": "str (RFC-compliant email)", "description": "str | null", "rules": { ... } | null, "initial_players": ["str", ...] }`
+- Request shape: `{ "title": "str", "host_email": "str (RFC-compliant email)", "description": "str | null", "league_timezone": "str", "rules": { ... } | null, "initial_players": ["str", ...] }`
   - **`host_email` required.** Mandatory contact email for the league host, validated at the API edge by Pydantic `EmailStr` (RFC-compliant). Stored on the `League` aggregate as the `HostEmail` value object (stripped + lowercased). **Immutable after creation in this API version** — no admin endpoint updates it. The value is **not returned on player-facing read endpoints**; it is exposed only via `GET /admin/leagues/{league_id}` when the caller presents a valid `X-Host-Token`. Reserved for future notification features (sending the player/admin page links, new-match notifications); no notifications are sent today.
-  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, v5, or v6 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). v1–v5 inputs are upgraded to v6 transparently: v4's `require_eligible_players` and v5's `require_allowlist` are both inverted into `auto_register_players_on_match`. Rules are **not** mutable after creation in this API version.
+  - **`league_timezone` optional**, default `"America/Los_Angeles"`. Must be a valid IANA timezone string; it is stored on `leagues.league_timezone` and used to compute the league-local calendar day for `match_pair_idempotency = "once_per_day"`.
+  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, v5, v6, or v7 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). v1–v6 inputs are upgraded to v7 transparently: v4's `require_eligible_players` and v5's `require_allowlist` are both inverted into `auto_register_players_on_match`. Rules are **not** mutable after creation in this API version.
   - **`initial_players` optional**, default `[]`. When non-empty, each entry must be a non-blank string; one `Player` row per entry is inserted in the same DB transaction that creates the league row (see [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.auto_register_players_on_match` — strict-roster leagues will typically supply it; open leagues may also supply it as a seeding convenience. In-batch duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row or player rows are persisted.
-- Example `rules` (v6): `{ "version": 6, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
+- Example `rules` (v7): `{ "version": 7, "match_pair_idempotency": "once_per_day", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
 - Example request with inline seeding:
   ```json
   {
     "title": "Summer Doubles 2026",
     "host_email": "host@example.com",
-    "rules": { "version": 6, "match_pair_idempotency": "once_per_league", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won"], "auto_register_players_on_match": false },
+    "league_timezone": "America/Los_Angeles",
+    "rules": { "version": 7, "match_pair_idempotency": "once_per_day", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won"], "auto_register_players_on_match": false },
     "initial_players": ["Alex", "Daniel", "Jason"]
   }
   ```
@@ -137,7 +139,7 @@ flowchart LR
   - 422 RosterMembershipRequiredError (only when `LeagueRules.auto_register_players_on_match = false`; body includes `missing_nicknames` array — see [20_roster_pre_registration.md](20_roster_pre_registration.md))
   - 409 TeamConflictError (a player is already on a different team in this league)
   - 409 SameTeamOnBothSidesError (both teams resolve to the same existing team)
-  - 409 DuplicateTeamPairMatchError (league rules require at most one match per team pair and a match already exists for this pair)
+  - 409 DuplicateTeamPairMatchError (league rules reject another match for this unordered team pair: either globally under `once_per_league`, or within today in the league timezone under `once_per_day`)
 - Auth notes: `league_id` in URL path — possession is sufficient
 
 ---
@@ -245,9 +247,10 @@ flowchart LR
   ```json
   {
     "title": "str",
+    "league_timezone": "America/Los_Angeles",
     "rules": {
-      "version": 6,
-      "match_pair_idempotency": "none | once_per_league",
+      "version": 7,
+      "match_pair_idempotency": "none | once_per_league | once_per_day",
       "one_team_per_player": true,
       "ranking_subject": "team | player",
       "tie_breakers": ["matches_won"],
@@ -266,7 +269,7 @@ flowchart LR
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5 inputs are upgraded to v6 on read so the response `version` is always `6`. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
+- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5/v6 inputs are upgraded to v7 on read so the response `version` is always `7`. `league_timezone` is top-level league metadata, not a `rules` key. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
 
 ---
 

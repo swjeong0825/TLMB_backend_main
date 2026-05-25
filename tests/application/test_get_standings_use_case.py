@@ -117,7 +117,7 @@ class TestGetStandingsUseCase:
         from app.domain.aggregates.league.league_rules import LeagueRules
 
         rules = LeagueRules(
-            version=6,
+            version=7,
             match_pair_idempotency="once_per_league",
             one_team_per_player=True,
             ranking_subject="team",

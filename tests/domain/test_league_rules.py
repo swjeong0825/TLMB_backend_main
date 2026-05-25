@@ -1,4 +1,4 @@
-"""Unit tests for LeagueRules (v6)."""
+"""Unit tests for LeagueRules (v7)."""
 from __future__ import annotations
 
 import pytest
@@ -8,13 +8,13 @@ from app.domain.exceptions import InvalidLeagueRulesError
 
 
 # ---------------------------------------------------------------------------
-# v6 round-trip and v1/v2/v3/v4/v5 upgrade
+# v7 round-trip and v1/v2/v3/v4/v5/v6 upgrade
 # ---------------------------------------------------------------------------
 
 
-def test_from_dict_v6_round_trip() -> None:
+def test_from_dict_v7_round_trip() -> None:
     raw = {
-        "version": 6,
+        "version": 7,
         "match_pair_idempotency": "none",
         "one_team_per_player": True,
         "ranking_subject": "team",
@@ -25,9 +25,9 @@ def test_from_dict_v6_round_trip() -> None:
     assert rules.to_dict() == raw
 
 
-def test_from_dict_v5_round_trip_inverts_require_allowlist_to_v6() -> None:
-    """v5 `require_allowlist=True` becomes v6 `auto_register_players_on_match=False`
-    (boolean is inverted because the v6 flag is the opposite framing)."""
+def test_from_dict_v5_round_trip_inverts_require_allowlist_to_v7() -> None:
+    """v5 `require_allowlist=True` becomes v7 `auto_register_players_on_match=False`
+    (boolean is inverted because the v6+ flag is the opposite framing)."""
     raw_v5 = {
         "version": 5,
         "match_pair_idempotency": "none",
@@ -37,10 +37,10 @@ def test_from_dict_v5_round_trip_inverts_require_allowlist_to_v6() -> None:
         "require_allowlist": True,
     }
     rules = LeagueRules.from_dict(raw_v5)
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.auto_register_players_on_match is False
     assert rules.to_dict() == {
-        "version": 6,
+        "version": 7,
         "match_pair_idempotency": "none",
         "one_team_per_player": True,
         "ranking_subject": "team",
@@ -60,12 +60,12 @@ def test_from_dict_v5_require_allowlist_false_becomes_auto_register_true() -> No
             "require_allowlist": False,
         }
     )
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.auto_register_players_on_match is True
 
 
-def test_from_dict_v4_legacy_key_round_trip_upgrades_to_v6() -> None:
-    """v4 `require_eligible_players=True` becomes v6 `auto_register_players_on_match=False`."""
+def test_from_dict_v4_legacy_key_round_trip_upgrades_to_v7() -> None:
+    """v4 `require_eligible_players=True` becomes v7 `auto_register_players_on_match=False`."""
     raw_v4 = {
         "version": 4,
         "match_pair_idempotency": "none",
@@ -75,10 +75,10 @@ def test_from_dict_v4_legacy_key_round_trip_upgrades_to_v6() -> None:
         "require_eligible_players": True,
     }
     rules = LeagueRules.from_dict(raw_v4)
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.auto_register_players_on_match is False
     assert rules.to_dict() == {
-        "version": 6,
+        "version": 7,
         "match_pair_idempotency": "none",
         "one_team_per_player": True,
         "ranking_subject": "team",
@@ -87,8 +87,8 @@ def test_from_dict_v4_legacy_key_round_trip_upgrades_to_v6() -> None:
     }
 
 
-def test_from_dict_v3_round_trip_upgrades_to_v6_with_default_flag() -> None:
-    """v3 inputs are accepted and upgraded transparently to v6 with
+def test_from_dict_v3_round_trip_upgrades_to_v7_with_default_flag() -> None:
+    """v3 inputs are accepted and upgraded transparently to v7 with
     auto_register_players_on_match=True (default behavior preserved)."""
     raw_v3 = {
         "version": 3,
@@ -98,10 +98,10 @@ def test_from_dict_v3_round_trip_upgrades_to_v6_with_default_flag() -> None:
         "tie_breakers": ["matches_won", "games_diff"],
     }
     rules = LeagueRules.from_dict(raw_v3)
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.auto_register_players_on_match is True
     assert rules.to_dict() == {
-        "version": 6,
+        "version": 7,
         "match_pair_idempotency": "none",
         "one_team_per_player": True,
         "ranking_subject": "team",
@@ -110,19 +110,19 @@ def test_from_dict_v3_round_trip_upgrades_to_v6_with_default_flag() -> None:
     }
 
 
-def test_from_dict_v1_input_is_upgraded_to_v6_with_defaults() -> None:
+def test_from_dict_v1_input_is_upgraded_to_v7_with_defaults() -> None:
     raw_v1 = {
         "version": 1,
         "match_pair_idempotency": "once_per_league",
         "one_team_per_player": True,
     }
     rules = LeagueRules.from_dict(raw_v1)
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.ranking_subject == "team"
     assert rules.tie_breakers == ("matches_won",)
     assert rules.auto_register_players_on_match is True
     assert rules.to_dict() == {
-        "version": 6,
+        "version": 7,
         "match_pair_idempotency": "once_per_league",
         "one_team_per_player": True,
         "ranking_subject": "team",
@@ -131,7 +131,7 @@ def test_from_dict_v1_input_is_upgraded_to_v6_with_defaults() -> None:
     }
 
 
-def test_from_dict_v1_input_with_otpp_false_upgrades_to_v6() -> None:
+def test_from_dict_v1_input_with_otpp_false_upgrades_to_v7() -> None:
     """v3 unlocked OTPP=false; later versions keep it. A v1 input carrying
     OTPP=false upgrades cleanly, defaulting auto_register_players_on_match=True."""
     rules = LeagueRules.from_dict(
@@ -141,14 +141,14 @@ def test_from_dict_v1_input_with_otpp_false_upgrades_to_v6() -> None:
             "one_team_per_player": False,
         }
     )
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.one_team_per_player is False
     assert rules.ranking_subject == "team"
     assert rules.tie_breakers == ("matches_won",)
     assert rules.auto_register_players_on_match is True
 
 
-def test_from_dict_v2_input_upgrades_to_v6() -> None:
+def test_from_dict_v2_input_upgrades_to_v7() -> None:
     raw_v2 = {
         "version": 2,
         "match_pair_idempotency": "once_per_league",
@@ -157,7 +157,7 @@ def test_from_dict_v2_input_upgrades_to_v6() -> None:
         "tie_breakers": ["matches_won", "games_diff"],
     }
     rules = LeagueRules.from_dict(raw_v2)
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.match_pair_idempotency == "once_per_league"
     assert rules.one_team_per_player is True
     assert rules.ranking_subject == "team"
@@ -168,7 +168,7 @@ def test_from_dict_v2_input_upgrades_to_v6() -> None:
 def test_from_dict_ignores_unknown_keys() -> None:
     rules = LeagueRules.from_dict(
         {
-            "version": 6,
+            "version": 7,
             "match_pair_idempotency": "once_per_league",
             "one_team_per_player": True,
             "ranking_subject": "team",
@@ -181,10 +181,24 @@ def test_from_dict_ignores_unknown_keys() -> None:
     assert rules.one_team_per_player is True
 
 
-def test_default_for_new_league_is_v6_with_auto_register_on() -> None:
+def test_from_dict_accepts_once_per_day() -> None:
+    rules = LeagueRules.from_dict(
+        {
+            "version": 7,
+            "match_pair_idempotency": "once_per_day",
+            "one_team_per_player": True,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+            "auto_register_players_on_match": True,
+        }
+    )
+    assert rules.match_pair_idempotency == "once_per_day"
+
+
+def test_default_for_new_league_is_v7_with_auto_register_on_and_once_per_day() -> None:
     rules = LeagueRules.default_for_new_league()
-    assert rules.version == 6
-    assert rules.match_pair_idempotency == "once_per_league"
+    assert rules.version == 7
+    assert rules.match_pair_idempotency == "once_per_day"
     assert rules.one_team_per_player is True
     assert rules.ranking_subject == "team"
     assert rules.tie_breakers == ("matches_won",)
@@ -201,9 +215,8 @@ def test_default_for_new_league_is_v6_with_auto_register_on() -> None:
     [
         {},
         {"version": 1},
-        {"version": 1, "match_pair_idempotency": "once_per_day"},
         {"version": 1, "match_pair_idempotency": "none", "one_team_per_player": "yes"},
-        {"version": 7, "match_pair_idempotency": "none", "one_team_per_player": True},
+        {"version": 8, "match_pair_idempotency": "none", "one_team_per_player": True},
     ],
 )
 def test_from_dict_rejects_legacy_invalid(bad: dict) -> None:
@@ -277,7 +290,7 @@ def test_from_dict_rejects_duplicate_metric() -> None:
 
 
 # ---------------------------------------------------------------------------
-# v3 cross-rule and OTPP=false acceptance (preserved verbatim under v6)
+# v3 cross-rule and OTPP=false acceptance (preserved verbatim under v7)
 # ---------------------------------------------------------------------------
 
 
@@ -291,7 +304,7 @@ def test_from_dict_accepts_team_subject_with_otpp_false() -> None:
             "tie_breakers": ["matches_won"],
         }
     )
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.one_team_per_player is False
     assert rules.ranking_subject == "team"
 
@@ -306,13 +319,13 @@ def test_from_dict_accepts_player_subject_with_otpp_false() -> None:
             "tie_breakers": ["matches_won"],
         }
     )
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.one_team_per_player is False
     assert rules.ranking_subject == "player"
 
 
 def test_from_dict_rejects_player_subject_with_otpp_true() -> None:
-    """v3 cross-rule (still enforced under v6): `ranking_subject='player'`
+    """v3 cross-rule (still enforced under v7): `ranking_subject='player'`
     requires `one_team_per_player=false`."""
     with pytest.raises(InvalidLeagueRulesError) as exc:
         LeagueRules.from_dict(
@@ -331,7 +344,7 @@ def test_from_dict_rejects_player_subject_with_otpp_true() -> None:
 
 def test_from_dict_v2_input_with_player_subject_and_otpp_true_is_rejected() -> None:
     """A v2-shaped input that violates the v3 cross-rule is rejected on read,
-    even when the declared version is older than v6."""
+    even when the declared version is older than v7."""
     with pytest.raises(InvalidLeagueRulesError):
         LeagueRules.from_dict(
             {
@@ -375,7 +388,7 @@ def test_from_dict_v4_with_require_eligible_players_false_upgrades_to_auto_regis
             "require_eligible_players": False,
         }
     )
-    assert rules.version == 6
+    assert rules.version == 7
     assert rules.auto_register_players_on_match is True
 
 

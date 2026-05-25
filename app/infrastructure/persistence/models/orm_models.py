@@ -14,6 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.domain.aggregates.league.value_objects import DEFAULT_LEAGUE_TIMEZONE
 from app.infrastructure.config.database import Base
 
 
@@ -29,6 +30,11 @@ class LeagueORM(Base):
     title_normalized: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     host_token: Mapped[str] = mapped_column(String, nullable=False)
     host_email: Mapped[str] = mapped_column(String, nullable=False)
+    league_timezone: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        server_default=DEFAULT_LEAGUE_TIMEZONE,
+    )
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     rules: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

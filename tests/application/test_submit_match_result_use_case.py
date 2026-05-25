@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import timezone
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,6 +15,7 @@ from app.application.use_cases.submit_match_result_use_case import (
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
+    DuplicateTeamPairMatchError,
     LeagueNotFoundError,
     RosterMembershipRequiredError,
     SamePlayerOnBothTeamsError,
@@ -45,6 +47,26 @@ def _league_require_roster() -> League:
     )
 
 
+def _league_with_match_pair_idempotency(value: str) -> League:
+    rules = LeagueRules.from_dict(
+        {
+            "version": 7,
+            "match_pair_idempotency": value,
+            "one_team_per_player": True,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+            "auto_register_players_on_match": True,
+        }
+    )
+    return League.create(
+        title="Pair Rule League",
+        description=None,
+        host_token="test-host-token",
+        host_email="host@example.com",
+        rules=rules,
+    )
+
+
 # ---------------------------------------------------------------------------
 # UoW mock helper
 # ---------------------------------------------------------------------------
@@ -58,6 +80,7 @@ def _make_uow_factory(league=None):
     uow.league_repo.save = AsyncMock(return_value=None)
     uow.match_repo = AsyncMock()
     uow.match_repo.exists_match_for_team_pair = AsyncMock(return_value=False)
+    uow.match_repo.exists_match_for_team_pair_between = AsyncMock(return_value=False)
     uow.match_repo.save = AsyncMock(return_value=None)
     uow.commit = AsyncMock(return_value=None)
     uow.rollback = AsyncMock(return_value=None)
@@ -206,6 +229,74 @@ class TestSubmitMatchResultUseCase:
                     team2_score="3",
                 )
             )
+
+
+# ---------------------------------------------------------------------------
+# v7: match-pair idempotency
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitMatchResultMatchPairIdempotency:
+    async def test_once_per_day_checks_team_pair_with_calendar_day_bounds(self) -> None:
+        league = _league_with_match_pair_idempotency("once_per_day")
+        factory, uow = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        await use_case.execute(
+            SubmitMatchResultCommand(
+                league_id=str(league.league_id),
+                team1_nicknames=("alice", "bob"),
+                team2_nicknames=("charlie", "diana"),
+                team1_score="6",
+                team2_score="3",
+            )
+        )
+
+        uow.match_repo.exists_match_for_team_pair.assert_not_awaited()
+        uow.match_repo.exists_match_for_team_pair_between.assert_awaited_once()
+        args = uow.match_repo.exists_match_for_team_pair_between.await_args.args
+        assert args[0] == league.league_id
+        assert args[3].tzinfo == timezone.utc
+        assert args[4].tzinfo == timezone.utc
+        assert args[3] < args[4]
+
+    async def test_once_per_day_duplicate_raises(self) -> None:
+        league = _league_with_match_pair_idempotency("once_per_day")
+        factory, uow = _make_uow_factory(league)
+        uow.match_repo.exists_match_for_team_pair_between.return_value = True
+        use_case = SubmitMatchResultUseCase(factory)
+
+        with pytest.raises(DuplicateTeamPairMatchError):
+            await use_case.execute(
+                SubmitMatchResultCommand(
+                    league_id=str(league.league_id),
+                    team1_nicknames=("alice", "bob"),
+                    team2_nicknames=("charlie", "diana"),
+                    team1_score="6",
+                    team2_score="3",
+                )
+            )
+
+        uow.league_repo.save.assert_not_awaited()
+        uow.match_repo.save.assert_not_awaited()
+
+    async def test_once_per_league_still_uses_global_pair_check(self) -> None:
+        league = _league_with_match_pair_idempotency("once_per_league")
+        factory, uow = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        await use_case.execute(
+            SubmitMatchResultCommand(
+                league_id=str(league.league_id),
+                team1_nicknames=("alice", "bob"),
+                team2_nicknames=("charlie", "diana"),
+                team1_score="6",
+                team2_score="3",
+            )
+        )
+
+        uow.match_repo.exists_match_for_team_pair.assert_awaited_once()
+        uow.match_repo.exists_match_for_team_pair_between.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

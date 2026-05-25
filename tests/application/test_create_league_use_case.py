@@ -9,7 +9,7 @@ from app.application.use_cases.create_league_use_case import (
     CreateLeagueCommand,
     CreateLeagueUseCase,
 )
-from app.domain.exceptions import LeagueTitleAlreadyExistsError
+from app.domain.exceptions import InvalidLeagueRulesError, LeagueTitleAlreadyExistsError
 from tests.application.conftest import make_league
 
 
@@ -71,6 +71,43 @@ class TestCreateLeagueUseCase:
         )
 
         assert saved_leagues[0].host_email.value == "host@example.com"
+
+    async def test_forwards_league_timezone_to_aggregate(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        mock_league_repo.get_by_normalized_title.return_value = None
+        saved_leagues: list = []
+        mock_league_repo.save.side_effect = (
+            lambda league: saved_leagues.append(league) or None
+        )
+        use_case = self._use_case(mock_league_repo)
+
+        await use_case.execute(
+            CreateLeagueCommand(
+                title="Timezone League",
+                host_email=_HOST_EMAIL,
+                description=None,
+                league_timezone="Asia/Seoul",
+            )
+        )
+
+        assert saved_leagues[0].league_timezone.value == "Asia/Seoul"
+
+    async def test_invalid_league_timezone_raises(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        mock_league_repo.get_by_normalized_title.return_value = None
+        use_case = self._use_case(mock_league_repo)
+
+        with pytest.raises(InvalidLeagueRulesError):
+            await use_case.execute(
+                CreateLeagueCommand(
+                    title="Bad Timezone League",
+                    host_email=_HOST_EMAIL,
+                    description=None,
+                    league_timezone="not/a-zone",
+                )
+            )
 
     async def test_checks_title_uniqueness_with_normalized_title(
         self, mock_league_repo: AsyncMock

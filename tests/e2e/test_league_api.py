@@ -28,10 +28,13 @@ async def create_league(
     description: str | None = None,
     rules: dict | None = _DEFAULT_E2E_RULES,
     host_email: str = _DEFAULT_HOST_EMAIL,
+    league_timezone: str | None = None,
 ) -> dict:
     payload: dict = {"title": title, "host_email": host_email}
     if description is not None:
         payload["description"] = description
+    if league_timezone is not None:
+        payload["league_timezone"] = league_timezone
     if rules is not None:
         payload["rules"] = rules
     resp = await client.post("/leagues", json=payload)
@@ -178,6 +181,21 @@ async def test_create_league_invalid_rules_version_returns_422(client: AsyncClie
     assert resp.json()["error"] == "InvalidLeagueRulesError"
 
 
+async def test_create_league_invalid_league_timezone_returns_422(
+    client: AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/leagues",
+        json={
+            "title": "Bad Timezone League",
+            "host_email": _DEFAULT_HOST_EMAIL,
+            "league_timezone": "not/a-zone",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "InvalidLeagueRulesError"
+
+
 async def test_create_league_with_otpp_false_succeeds(client: AsyncClient) -> None:
     """v3 unlocks `(team, OTPP=false)` -- a player may belong to multiple teams.
 
@@ -280,7 +298,7 @@ async def test_v2_rules_input_upgrades_to_v3(client: AsyncClient) -> None:
 async def test_second_submit_same_team_pair_returns_409_with_default_league_rules(
     client: AsyncClient,
 ) -> None:
-    """POST /leagues without `rules` uses product default once_per_league."""
+    """POST /leagues without `rules` uses product default once_per_day."""
     resp = await client.post(
         "/leagues",
         json={"title": "Single Meeting League", "host_email": _DEFAULT_HOST_EMAIL},
@@ -298,6 +316,26 @@ async def test_second_submit_same_team_pair_returns_409_with_default_league_rule
     second = await client.post(f"/leagues/{league_id}/matches", json=payload)
     assert second.status_code == 409
     assert second.json()["error"] == "DuplicateTeamPairMatchError"
+
+
+async def test_create_league_without_rules_uses_v7_daily_default(
+    client: AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/leagues",
+        json={"title": "Daily Default League", "host_email": _DEFAULT_HOST_EMAIL},
+    )
+    assert resp.status_code == 201
+    league_id = resp.json()["league_id"]
+
+    roster = await client.get(f"/leagues/{league_id}/roster")
+
+    assert roster.status_code == 200
+    body = roster.json()
+    assert body["league_timezone"] == "America/Los_Angeles"
+    rules = body["rules"]
+    assert rules["version"] == 7
+    assert rules["match_pair_idempotency"] == "once_per_day"
 
 
 async def test_second_submit_same_team_pair_allowed_when_rules_allow_duplicates(
@@ -823,7 +861,8 @@ async def test_get_league_roster_empty(client: AsyncClient) -> None:
     assert body["players"] == []
     assert body["teams"] == []
     # rules echoed so the frontend can fetch league title + rules in one trip.
-    assert body["rules"]["version"] == 6
+    assert body["league_timezone"] == "America/Los_Angeles"
+    assert body["rules"]["version"] == 7
     assert body["rules"]["match_pair_idempotency"] == "none"
     assert body["rules"]["one_team_per_player"] is True
     assert body["rules"]["ranking_subject"] == "team"

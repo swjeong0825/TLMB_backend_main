@@ -72,6 +72,7 @@ erDiagram
 - title_normalized (TEXT, NOT NULL, UNIQUE) — lowercase; used for uniqueness checks and `get_by_normalized_title`
 - host_token (TEXT, NOT NULL) — plaintext UUID generated at use case level
 - host_email (TEXT, NOT NULL) — host contact email; stripped + lowercased on the way in via the `HostEmail` value object. Format is RFC-validated at the API edge by Pydantic `EmailStr` (the column itself stores any TEXT, but every insert from the application goes through `HostEmail` first). Added in alembic `008`, which backfills existing rows with `glhf0825@gmail.com` before tightening to `NOT NULL`. Never exposed on any read endpoint (private contact info).
+- league_timezone (TEXT, NOT NULL) — IANA timezone used for league-local calendar-day boundaries under `match_pair_idempotency = "once_per_day"`. Added in alembic `009`; existing/omitted values default to `America/Los_Angeles`.
 - description (TEXT, nullable)
 - rules (JSONB, NOT NULL) — versioned per-league configuration (`LeagueRules`); see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md); backfilled on migration for existing rows
 - created_at (TIMESTAMPTZ, server default NOW())

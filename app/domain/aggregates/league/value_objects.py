@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from app.domain.exceptions import InvalidLeagueRulesError
+
+
+DEFAULT_LEAGUE_TIMEZONE = "America/Los_Angeles"
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,30 @@ class HostEmail:
         if not self.value or not self.value.strip():
             raise ValueError("HostEmail cannot be empty")
         object.__setattr__(self, "value", self.value.strip().lower())
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
+class LeagueTimezone:
+    """IANA timezone used for league-local calendar-day boundaries."""
+
+    value: str = DEFAULT_LEAGUE_TIMEZONE
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, str) or not self.value.strip():
+            raise InvalidLeagueRulesError(
+                "league_timezone must be a non-empty IANA timezone string"
+            )
+        normalized = self.value.strip()
+        try:
+            ZoneInfo(normalized)
+        except ZoneInfoNotFoundError as exc:
+            raise InvalidLeagueRulesError(
+                f"Invalid league_timezone: {normalized!r}; expected an IANA timezone"
+            ) from exc
+        object.__setattr__(self, "value", normalized)
 
     def __str__(self) -> str:
         return self.value

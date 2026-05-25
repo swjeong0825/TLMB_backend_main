@@ -97,6 +97,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
                 title_normalized=league.title.lower().strip(),
                 host_token=league.host_token.value,
                 host_email=league.host_email.value,
+                league_timezone=league.league_timezone.value,
                 description=league.description,
                 rules=league.rules.to_dict(),
             )
@@ -104,6 +105,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
         else:
             league_orm.title = league.title
             league_orm.title_normalized = league.title.lower().strip()
+            league_orm.league_timezone = league.league_timezone.value
             league_orm.description = league.description
             league_orm.rules = league.rules.to_dict()
             league_orm.updated_at = _utcnow()

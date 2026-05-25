@@ -32,14 +32,13 @@ class TeamEntry:
 class RosterView:
     """Read model returned by `GET /leagues/{id}/roster`.
 
-    `rules` is the serialized `LeagueRules.to_dict()` payload — exposed on
-    the roster so the frontend can fetch league title + rules in a single
-    page-load round-trip and gate UI hints (e.g. the partner-conflict
-    warning emitted by `renderMatchSubmitRosterNotes` is only meaningful
-    when `one_team_per_player` is true).
+    `rules` is the serialized `LeagueRules.to_dict()` payload. The timezone
+    is separate league metadata because it controls calendar boundaries for
+    rules but is not itself a rule toggle.
     """
 
     title: str
+    league_timezone: str
     rules: dict[str, Any]
     players: list[PlayerEntry]
     teams: list[TeamEntry]
@@ -89,6 +88,7 @@ class GetLeagueRosterUseCase:
 
         return RosterView(
             title=league.title,
+            league_timezone=league.league_timezone.value,
             rules=league.rules.to_dict(),
             players=players,
             teams=teams,

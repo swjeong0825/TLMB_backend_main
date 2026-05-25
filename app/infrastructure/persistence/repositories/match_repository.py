@@ -92,6 +92,30 @@ class SqlAlchemyMatchRepository(MatchRepository):
         )
         return result.scalar_one_or_none() is not None
 
+    async def exists_match_for_team_pair_between(
+        self,
+        league_id: LeagueId,
+        team1_id: TeamId,
+        team2_id: TeamId,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> bool:
+        t1, t2 = team1_id.value, team2_id.value
+        result = await self._session.execute(
+            select(MatchORM.match_id)
+            .where(
+                MatchORM.league_id == league_id.value,
+                MatchORM.created_at >= start_at,
+                MatchORM.created_at < end_at,
+                or_(
+                    and_(MatchORM.team1_id == t1, MatchORM.team2_id == t2),
+                    and_(MatchORM.team1_id == t2, MatchORM.team2_id == t1),
+                ),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def save(self, match: Match) -> None:
         match_orm = await self._session.get(MatchORM, match.match_id.value)
         if match_orm is None:

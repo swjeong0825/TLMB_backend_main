@@ -30,7 +30,7 @@ flowchart TD
 ## Use Case: CreateLeagueUseCase
 
 - Business action: Create League (optionally pre-registered with a starting roster in the same transaction)
-- Inputs: CreateLeagueCommand(title: str, host_email: str, description: str | None, rules: LeagueRules | None, initial_players: list[str] = []) — `host_email` is **mandatory** and pre-validated as an RFC-compliant email by Pydantic `EmailStr` at the API edge; the use case forwards the raw string to `League.create`, where the `HostEmail` value object strips + lowercases it and enforces non-blankness. When `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). `initial_players` defaults to an empty list; when non-empty, the entries are pre-registered on the new league's roster before the single `save` call so the league row and every player row reach the database in one transaction. See [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`" for the rationale and error semantics.
+- Inputs: CreateLeagueCommand(title: str, host_email: str, description: str | None, league_timezone: str = "America/Los_Angeles", rules: LeagueRules | None, initial_players: list[str] = []) — `host_email` is **mandatory** and pre-validated as an RFC-compliant email by Pydantic `EmailStr` at the API edge; the use case forwards the raw string to `League.create`, where the `HostEmail` value object strips + lowercases it and enforces non-blankness. `league_timezone` is validated by the `LeagueTimezone` value object and is stored on the league row, not in `rules`. When `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). `initial_players` defaults to an empty list; when non-empty, the entries are pre-registered on the new league's roster before the single `save` call so the league row and every player row reach the database in one transaction. See [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`" for the rationale and error semantics.
 - Output: CreateLeagueResult(league_id: str, host_token: str)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — single repository save (the repository's `save` writes the league row, players, and teams through the same `AsyncSession`, so atomicity is provided by the request-scoped session commit)
@@ -46,11 +46,11 @@ flowchart TD
   2. Call LeagueRepository.get_by_normalized_title(normalized_title) — raise LeagueTitleAlreadyExistsError if a league already exists with that normalized title
   3. Generate host_token as str(uuid.uuid4())
   4. Resolve `LeagueRules` from command.rules or product defaults
-  5. Call League.create(title, description, host_token, host_email, rules) — constructs new aggregate with empty roster, host contact email, and persisted rules
+  5. Call League.create(title, description, host_token, host_email, league_timezone, rules) — constructs new aggregate with empty roster, host contact email, persisted timezone, and persisted rules
   6. If `command.initial_players` is non-empty, call `league.add_players(command.initial_players)` — pre-registers the players on the aggregate; raises `NicknameAlreadyInUseError` (mapped to 409) if any input nickname duplicates another inside the same batch, in which case no `save` is performed and the league is not persisted
   7. Save via LeagueRepository.save(league) — persists the league plus any seeded player rows in the same DB transaction
   8. Return league_id and host_token
-- Domain rules enforced where: League.create (title must be non-empty; `HostEmail` non-blank after strip); title uniqueness pre-check at application layer via repository; `host_email` format validation at the API edge via Pydantic `EmailStr`; LeagueRules validation on construction; League.add_players (in-batch nickname uniqueness; at create time the roster starts empty so against-existing collisions are impossible)
+- Domain rules enforced where: League.create (title must be non-empty; `HostEmail` non-blank after strip; `LeagueTimezone` valid IANA timezone); title uniqueness pre-check at application layer via repository; `host_email` format validation at the API edge via Pydantic `EmailStr`; LeagueRules validation on construction; League.add_players (in-batch nickname uniqueness; at create time the roster starts empty so against-existing collisions are impossible)
 - Errors: LeagueTitleAlreadyExistsError, NicknameAlreadyInUseError (only when `initial_players` contains in-batch duplicates), ValidationError (blank title, missing or malformed `host_email`, blank `initial_players` entry), invalid rules payload
 
 ---
@@ -100,17 +100,18 @@ flowchart TD
   8. Call league.register_players_and_team(team1_nicknames[0], team1_nicknames[1]) → team1 — raises TeamConflictError if either player already belongs to a different team (when league rules require one team per player)
   9. Call league.register_players_and_team(team2_nicknames[0], team2_nicknames[1]) → team2 — same as step 8
   10. If league.rules.match_pair_idempotency is `once_per_league`, call MatchRepository.exists_match_for_team_pair(league_id, team1.team_id, team2.team_id) — raise DuplicateTeamPairMatchError (or equivalent) if true
-  11. Call Match.create(league_id, team1.team_id, team2.team_id, set_score) — raises SameTeamOnBothSidesError if team1_id == team2_id
-  12. LeagueRepository.save(league) — persists any newly registered players and teams
-  13. MatchRepository.save(match) — persists the new match record
-  14. Commit UoW
-  15. Return match_id
+  11. If league.rules.match_pair_idempotency is `once_per_day`, compute the current calendar day in `league.league_timezone`, convert local midnight bounds to UTC `[start, end)`, then call MatchRepository.exists_match_for_team_pair_between(league_id, team1.team_id, team2.team_id, start, end) — raise DuplicateTeamPairMatchError if true
+  12. Call Match.create(league_id, team1.team_id, team2.team_id, set_score) — raises SameTeamOnBothSidesError if team1_id == team2_id
+  13. LeagueRepository.save(league) — persists any newly registered players and teams
+  14. MatchRepository.save(match) — persists the new match record
+  15. Commit UoW
+  16. Return match_id
 - Domain rules enforced where:
   - Application layer: within-team distinct-player check (steps 2–3), cross-team distinct-player check (step 4) — all structural validations before any aggregate is loaded
   - SetScore constructor: non-negative integer validation (step 5)
   - League.register_players_and_team: nickname uniqueness within league, one-team-per-player when enabled by league rules
   - Match.create: team1_id ≠ team2_id
-  - Application layer: match pair idempotency when `once_per_league`
+  - Application layer: match pair idempotency when `once_per_league` or `once_per_day`
 - Errors: LeagueNotFoundError, SamePlayerWithinSingleTeamError, SamePlayerOnBothTeamsError, InvalidSetScoreError, TeamConflictError, SameTeamOnBothSidesError, DuplicateTeamPairMatchError (409 when idempotency violated)
 
 ---
@@ -168,7 +169,7 @@ flowchart TD
 
 - Business action: View League Roster
 - Inputs: GetLeagueRosterQuery(league_id: str)
-- Output: RosterView(title: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
+- Output: RosterView(title: str, league_timezone: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
 - Aggregate(s) loaded: League
@@ -333,4 +334,3 @@ flowchart TD
 - Domain rules enforced where: Application layer (existence, auth, and time-window checks); no domain-level delete method on Match aggregate. Window threshold injected at construction (`window_seconds`, default 600s / 10 min) so deployment knobs and tests can both override without monkeypatching `datetime.now`.
 - Errors: LeagueNotFoundError, UnauthorizedError, MatchNotFoundError, MatchDeleteWindowExpiredError
 - Mirrors `EditMatchScoreUseCase`'s dual-mode shape: same `host_token: str | None` trust model, same injected-window pattern, same exception structure (`Match*WindowExpiredError(match_id, window_seconds, age_seconds)`). Player-window default is tighter (600s vs 3600s for edits) because deletes are irreversible.
-

@@ -6,7 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.aggregates.league.aggregate_root import League
-from app.domain.aggregates.league.value_objects import LeagueId
+from app.domain.aggregates.league.value_objects import (
+    DEFAULT_LEAGUE_TIMEZONE,
+    LeagueId,
+)
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
 )
@@ -52,6 +55,7 @@ async def test_save_and_get_by_id_round_trip(session: AsyncSession) -> None:
     assert found.title == "Round Trip League"
     assert found.host_token.value == "token-abc"
     assert found.host_email.value == _HOST_EMAIL
+    assert found.league_timezone.value == DEFAULT_LEAGUE_TIMEZONE
     assert str(found.league_id) == str(league.league_id)
 
 
@@ -80,6 +84,24 @@ async def test_save_persists_host_email_normalized(session: AsyncSession) -> Non
     found = await repo.get_by_id(league.league_id)
     assert found is not None
     assert found.host_email.value == "host@example.com"
+
+
+async def test_save_persists_league_timezone(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = League.create(
+        "Timezone Round Trip",
+        None,
+        "tok",
+        host_email=_HOST_EMAIL,
+        league_timezone="Asia/Seoul",
+    )
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    found = await repo.get_by_id(league.league_id)
+    assert found is not None
+    assert found.league_timezone.value == "Asia/Seoul"
 
 
 # ---------------------------------------------------------------------------

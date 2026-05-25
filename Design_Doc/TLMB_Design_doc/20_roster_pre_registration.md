@@ -369,8 +369,9 @@ list[str]` with default `[]`:
 {
   "title": "Summer Doubles 2026",
   "description": "Invite-only club tournament",
+  "league_timezone": "America/Los_Angeles",
   "rules": {
-    "version": 6,
+    "version": 7,
     "match_pair_idempotency": "once_per_league",
     "one_team_per_player": true,
     "ranking_subject": "team",

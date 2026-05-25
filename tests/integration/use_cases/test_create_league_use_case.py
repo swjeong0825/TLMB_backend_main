@@ -9,6 +9,7 @@ from app.application.use_cases.create_league_use_case import (
     CreateLeagueUseCase,
 )
 from app.domain.aggregates.league.league_rules import LeagueRules
+from app.domain.aggregates.league.value_objects import DEFAULT_LEAGUE_TIMEZONE
 from app.domain.exceptions import LeagueTitleAlreadyExistsError, InvalidLeagueRulesError
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
@@ -48,7 +49,28 @@ async def test_persists_league_to_db(session: AsyncSession) -> None:
     assert found.description == "Annual summer tournament"
     assert found.host_token.value == result.host_token
     assert found.host_email.value == "host@example.com"  # normalized
+    assert found.league_timezone.value == DEFAULT_LEAGUE_TIMEZONE
     assert found.rules == LeagueRules.default_for_new_league()
+
+
+async def test_persists_explicit_league_timezone(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    result = await CreateLeagueUseCase(repo).execute(
+        CreateLeagueCommand(
+            "Timezone Cup",
+            host_email=_HOST_EMAIL,
+            description=None,
+            league_timezone="Asia/Seoul",
+        )
+    )
+    await session.commit()
+    session.expire_all()
+
+    from app.domain.aggregates.league.value_objects import LeagueId
+    found = await repo.get_by_id(LeagueId.from_str(result.league_id))
+
+    assert found is not None
+    assert found.league_timezone.value == "Asia/Seoul"
 
 
 async def test_persists_explicit_rules(session: AsyncSession) -> None:

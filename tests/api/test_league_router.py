@@ -107,6 +107,20 @@ class TestCreateLeague:
         cmd = mock_create_league_uc.execute.call_args[0][0]
         assert cmd.host_email == "host@example.com"
 
+    async def test_league_timezone_is_forwarded_to_use_case(
+        self, client: AsyncClient, mock_create_league_uc: AsyncMock
+    ) -> None:
+        mock_create_league_uc.execute.return_value = CreateLeagueResult(
+            league_id="lid", host_token="tok"
+        )
+        response = await client.post(
+            "/leagues",
+            json=_create_league_body(league_timezone="Asia/Seoul"),
+        )
+        assert response.status_code == 201
+        cmd = mock_create_league_uc.execute.call_args[0][0]
+        assert cmd.league_timezone == "Asia/Seoul"
+
     async def test_description_is_optional(
         self, client: AsyncClient, mock_create_league_uc: AsyncMock
     ) -> None:
@@ -605,8 +619,8 @@ class TestGetMatchHistoryByPlayer:
 
 
 _DEFAULT_ROSTER_RULES: dict = {
-    "version": 6,
-    "match_pair_idempotency": "once_per_league",
+    "version": 7,
+    "match_pair_idempotency": "once_per_day",
     "one_team_per_player": True,
     "ranking_subject": "team",
     "tie_breakers": ["matches_won"],
@@ -620,6 +634,7 @@ class TestGetLeagueRoster:
     ) -> None:
         mock_get_roster_uc.execute.return_value = RosterView(
             title="Summer Cup",
+            league_timezone="America/Los_Angeles",
             rules=dict(_DEFAULT_ROSTER_RULES),
             players=[PlayerEntry(player_id="p1", nickname="alice")],
             teams=[TeamEntry(team_id="t1", player1_nickname="alice", player2_nickname="bob")],
@@ -628,6 +643,7 @@ class TestGetLeagueRoster:
         assert response.status_code == 200
         data = response.json()
         assert data["title"] == "Summer Cup"
+        assert data["league_timezone"] == "America/Los_Angeles"
         assert len(data["players"]) == 1
         assert data["players"][0]["nickname"] == "alice"
         assert len(data["teams"]) == 1
@@ -645,6 +661,7 @@ class TestGetLeagueRoster:
     ) -> None:
         mock_get_roster_uc.execute.return_value = RosterView(
             title="Empty League",
+            league_timezone="America/Los_Angeles",
             rules=dict(_DEFAULT_ROSTER_RULES),
             players=[],
             teams=[],
@@ -668,6 +685,7 @@ class TestGetLeagueRoster:
         rules["ranking_subject"] = "player"
         mock_get_roster_uc.execute.return_value = RosterView(
             title="Open Roster",
+            league_timezone="America/Los_Angeles",
             rules=rules,
             players=[],
             teams=[],
@@ -677,5 +695,4 @@ class TestGetLeagueRoster:
         data = response.json()
         assert data["rules"]["one_team_per_player"] is False
         assert data["rules"]["ranking_subject"] == "player"
-
 

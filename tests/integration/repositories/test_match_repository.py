@@ -1,6 +1,8 @@
 """Integration tests for SqlAlchemyMatchRepository."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.aggregates.league.aggregate_root import League
@@ -211,6 +213,34 @@ async def test_exists_match_for_team_pair_false_when_no_match(session: AsyncSess
 
     assert not await repo.exists_match_for_team_pair(
         league.league_id, TeamId.from_str(t1), TeamId.from_str(t2)
+    )
+
+
+async def test_exists_match_for_team_pair_between_respects_time_window(
+    session: AsyncSession,
+) -> None:
+    league, t1, t2 = await _seed_league_with_teams(session)
+    repo = SqlAlchemyMatchRepository(session)
+    match = _make_match(league, t1, t2)
+    await repo.save(match)
+    await session.commit()
+
+    from app.domain.aggregates.league.value_objects import TeamId
+
+    created_at = match.created_at or datetime.now(timezone.utc)
+    assert await repo.exists_match_for_team_pair_between(
+        league.league_id,
+        TeamId.from_str(t2),
+        TeamId.from_str(t1),
+        created_at - timedelta(minutes=1),
+        created_at + timedelta(minutes=1),
+    )
+    assert not await repo.exists_match_for_team_pair_between(
+        league.league_id,
+        TeamId.from_str(t1),
+        TeamId.from_str(t2),
+        created_at + timedelta(minutes=1),
+        created_at + timedelta(minutes=2),
     )
 
 

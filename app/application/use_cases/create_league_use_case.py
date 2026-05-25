@@ -7,6 +7,7 @@ from typing import Any
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.repository import LeagueRepository
+from app.domain.aggregates.league.value_objects import DEFAULT_LEAGUE_TIMEZONE
 from app.domain.exceptions import LeagueTitleAlreadyExistsError
 
 
@@ -15,6 +16,7 @@ class CreateLeagueCommand:
     title: str
     host_email: str
     description: str | None = None
+    league_timezone: str = DEFAULT_LEAGUE_TIMEZONE
     rules: dict[str, Any] | None = None
     initial_players: list[str] = field(default_factory=list)
 
@@ -58,6 +60,7 @@ class CreateLeagueUseCase:
             command.description,
             host_token,
             host_email=command.host_email,
+            league_timezone=command.league_timezone,
             rules=rules_vo,
         )
 
