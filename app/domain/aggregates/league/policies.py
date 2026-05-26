@@ -14,9 +14,10 @@ class NicknameUniquenessPolicy:
         exclude_player_id: PlayerId | None = None,
     ) -> bool:
         for player in players:
-            if player.nickname == proposed:
-                if exclude_player_id is None or player.player_id != exclude_player_id:
-                    return False
+            if exclude_player_id is not None and player.player_id == exclude_player_id:
+                continue
+            if player.has_nickname(proposed):
+                return False
         return True
 
 
@@ -52,12 +53,17 @@ class RosterMembershipPolicy:
     `harness_notes/01_when_to_extract_a_policy.md`.
     """
 
+    # todo: what this function do?
     def find_missing_nicknames(
         self,
         candidates: Iterable[PlayerNickname],
         players: list[Player],
     ) -> list[str]:
-        roster_set = {player.nickname.value for player in players}
+        roster_set = {
+            nickname.value
+            for player in players
+            for nickname in player.nicknames
+        }
         missing: list[str] = []
         seen_missing: set[str] = set()
         for nick in candidates:

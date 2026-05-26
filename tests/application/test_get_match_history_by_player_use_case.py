@@ -65,6 +65,27 @@ class TestGetMatchHistoryByPlayerUseCase:
         )
         assert result == []
 
+    async def test_player_name_lookup_accepts_alias(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        alice = league.add_players(["alice"])[0]
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+        league.register_players_and_team("alice", "bob")
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_player.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        result = await use_case.execute(
+            GetMatchHistoryByPlayerQuery(
+                league_id=str(league.league_id),
+                player_name="ALI",
+            )
+        )
+
+        assert result == []
+        mock_match_repo.get_all_by_player.assert_awaited_once()
+
     async def test_returns_empty_list_when_player_has_no_team(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:

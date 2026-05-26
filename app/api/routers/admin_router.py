@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, status
 from starlette.requests import Request
 
 from app.api.schemas.admin_schemas import (
+    AddPlayerAliasRequest,
     AddPlayersRequest,
     AddPlayersResponse,
     EditMatchScoreRequest,
@@ -11,6 +12,11 @@ from app.api.schemas.admin_schemas import (
     EditPlayerNicknameRequest,
     EditPlayerNicknameResponse,
     GetLeagueAdminInfoResponse,
+    PlayerAliasResponse,
+)
+from app.application.use_cases.add_alias_to_player_use_case import (
+    AddAliasToPlayerCommand,
+    AddAliasToPlayerUseCase,
 )
 from app.api.schemas.league_schemas import PlayerEntrySchema
 from app.application.use_cases.add_players_use_case import (
@@ -35,13 +41,19 @@ from app.application.use_cases.remove_player_from_roster_use_case import (
     RemovePlayerFromRosterCommand,
     RemovePlayerFromRosterUseCase,
 )
+from app.application.use_cases.remove_alias_from_player_use_case import (
+    RemoveAliasFromPlayerCommand,
+    RemoveAliasFromPlayerUseCase,
+)
 from app.dependencies import (
+    get_add_alias_to_player_use_case,
     get_add_players_use_case,
     get_delete_match_use_case,
     get_delete_team_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
     get_get_league_admin_info_use_case,
+    get_remove_alias_from_player_use_case,
     get_remove_player_from_roster_use_case,
 )
 from app.rate_limit import limiter
@@ -211,6 +223,60 @@ async def add_players(
             )
             for p in result.players
         ],
+    )
+
+
+@router.post(
+    "/leagues/{league_id}/players/{player_id}/aliases",
+    status_code=status.HTTP_201_CREATED,
+    response_model=PlayerAliasResponse,
+)
+@limiter.limit("60/minute")
+async def add_player_alias(
+    request: Request,
+    league_id: str,
+    player_id: str,
+    body: AddPlayerAliasRequest,
+    x_host_token: str = Header(..., alias="X-Host-Token"),
+    use_case: AddAliasToPlayerUseCase = Depends(get_add_alias_to_player_use_case),
+) -> PlayerAliasResponse:
+    result = await use_case.execute(
+        AddAliasToPlayerCommand(
+            host_token=x_host_token,
+            league_id=league_id,
+            player_id=player_id,
+            alias=body.alias,
+        )
+    )
+    return PlayerAliasResponse(
+        player_id=result.player_id,
+        nickname=result.nickname,
+        aliases=result.aliases,
+    )
+
+
+@router.delete(
+    "/leagues/{league_id}/players/{player_id}/aliases/{alias}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@limiter.limit("60/minute")
+async def remove_player_alias(
+    request: Request,
+    league_id: str,
+    player_id: str,
+    alias: str,
+    x_host_token: str = Header(..., alias="X-Host-Token"),
+    use_case: RemoveAliasFromPlayerUseCase = Depends(
+        get_remove_alias_from_player_use_case
+    ),
+) -> None:
+    await use_case.execute(
+        RemoveAliasFromPlayerCommand(
+            host_token=x_host_token,
+            league_id=league_id,
+            player_id=player_id,
+            alias=alias,
+        )
     )
 
 

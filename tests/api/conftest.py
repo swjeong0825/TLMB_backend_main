@@ -18,6 +18,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.dependencies import (
+    get_add_alias_to_player_use_case,
     get_add_players_use_case,
     get_create_league_use_case,
     get_delete_match_use_case,
@@ -30,6 +31,7 @@ from app.dependencies import (
     get_get_match_history_by_player_use_case,
     get_get_standings_by_player_use_case,
     get_get_standings_use_case,
+    get_remove_alias_from_player_use_case,
     get_remove_player_from_roster_use_case,
     get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
@@ -105,12 +107,22 @@ def mock_add_players_uc() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_add_alias_to_player_uc() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
 def mock_get_league_admin_info_uc() -> AsyncMock:
     return AsyncMock()
 
 
 @pytest.fixture
 def mock_remove_player_from_roster_uc() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_remove_alias_from_player_uc() -> AsyncMock:
     return AsyncMock()
 
 
@@ -129,7 +141,9 @@ async def client(
     mock_get_match_history_by_player_uc: AsyncMock,
     mock_get_standings_by_player_uc: AsyncMock,
     mock_add_players_uc: AsyncMock,
+    mock_add_alias_to_player_uc: AsyncMock,
     mock_remove_player_from_roster_uc: AsyncMock,
+    mock_remove_alias_from_player_uc: AsyncMock,
     mock_get_league_admin_info_uc: AsyncMock,
 ) -> AsyncClient:
     app.dependency_overrides[get_create_league_use_case] = lambda: mock_create_league_uc
@@ -155,8 +169,14 @@ async def client(
     app.dependency_overrides[get_add_players_use_case] = (
         lambda: mock_add_players_uc
     )
+    app.dependency_overrides[get_add_alias_to_player_use_case] = (
+        lambda: mock_add_alias_to_player_uc
+    )
     app.dependency_overrides[get_remove_player_from_roster_use_case] = (
         lambda: mock_remove_player_from_roster_uc
+    )
+    app.dependency_overrides[get_remove_alias_from_player_use_case] = (
+        lambda: mock_remove_alias_from_player_uc
     )
     app.dependency_overrides[get_get_league_admin_info_use_case] = (
         lambda: mock_get_league_admin_info_uc

@@ -8,10 +8,12 @@ from app.api.routers.admin_router import router as admin_router
 from app.api.routers.league_router import router as league_router
 from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
+    CannotRemoveCanonicalNicknameError,
     DuplicateTeamPairMatchError,
     InvalidLeagueRulesError,
     InvalidPlayerRatingError,
     InvalidSetScoreError,
+    LastNicknameError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
     MatchDeleteWindowExpiredError,
@@ -90,6 +92,35 @@ async def team_conflict_handler(request: Request, exc: TeamConflictError) -> JSO
 @app.exception_handler(NicknameAlreadyInUseError)
 async def nickname_in_use_handler(request: Request, exc: NicknameAlreadyInUseError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"error": "NicknameAlreadyInUseError", "detail": str(exc)})
+
+
+@app.exception_handler(CannotRemoveCanonicalNicknameError)
+async def cannot_remove_canonical_nickname_handler(
+    request: Request, exc: CannotRemoveCanonicalNicknameError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "CannotRemoveCanonicalNicknameError",
+            "detail": str(exc),
+            "player_id": exc.player_id,
+            "canonical_nickname": exc.canonical_nickname,
+        },
+    )
+
+
+@app.exception_handler(LastNicknameError)
+async def last_nickname_handler(
+    request: Request, exc: LastNicknameError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "LastNicknameError",
+            "detail": str(exc),
+            "player_id": exc.player_id,
+        },
+    )
 
 
 @app.exception_handler(TeamHasMatchesError)

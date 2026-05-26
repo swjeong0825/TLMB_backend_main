@@ -379,6 +379,7 @@ async def get_league_roster(
             PlayerEntrySchema(
                 player_id=p.player_id,
                 nickname=p.nickname,
+                aliases=p.aliases,
                 rating=p.rating,
                 teams_count=p.teams_count,
                 matches_count=p.matches_count,

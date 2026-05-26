@@ -779,6 +779,108 @@ async def test_add_players_duplicate_nickname_returns_409(client: AsyncClient) -
     assert resp.json()["error"] == "NicknameAlreadyInUseError"
 
 
+async def test_player_alias_lifecycle_and_alias_lookup(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    add_resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alice", "bob", "charlie", "diana"]},
+        headers={"X-Host-Token": host_token},
+    )
+    alice_id = next(
+        p["player_id"] for p in add_resp.json()["players"] if p["nickname"] == "alice"
+    )
+
+    alias_resp = await client.post(
+        f"/admin/leagues/{league_id}/players/{alice_id}/aliases",
+        json={"alias": "Ali"},
+        headers={"X-Host-Token": host_token},
+    )
+    assert alias_resp.status_code == 201, alias_resp.text
+    assert alias_resp.json()["aliases"] == ["ali"]
+
+    roster = await get_roster(client, league_id)
+    alice = next(p for p in roster["players"] if p["nickname"] == "alice")
+    assert alice["aliases"] == ["ali"]
+
+    match_resp = await client.post(
+        f"/leagues/{league_id}/matches",
+        json={
+            "team1_nicknames": ["ali", "bob"],
+            "team2_nicknames": ["charlie", "diana"],
+            "team1_score": "6",
+            "team2_score": "3",
+        },
+    )
+    assert match_resp.status_code == 201, match_resp.text
+
+    history_resp = await client.get(
+        f"/leagues/{league_id}/matches/by-player",
+        params={"player_name": "ali"},
+    )
+    assert history_resp.status_code == 200, history_resp.text
+    assert history_resp.json()["matches"][0]["team1_player1_nickname"] == "alice"
+
+    remove_resp = await client.delete(
+        f"/admin/leagues/{league_id}/players/{alice_id}/aliases/ali",
+        headers={"X-Host-Token": host_token},
+    )
+    assert remove_resp.status_code == 204
+
+    final_roster = await get_roster(client, league_id)
+    final_alice = next(p for p in final_roster["players"] if p["nickname"] == "alice")
+    assert final_alice["aliases"] == []
+
+
+async def test_add_player_rejects_collision_with_existing_alias(
+    client: AsyncClient,
+) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    add_resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alice"]},
+        headers={"X-Host-Token": host_token},
+    )
+    alice_id = add_resp.json()["players"][0]["player_id"]
+    await client.post(
+        f"/admin/leagues/{league_id}/players/{alice_id}/aliases",
+        json={"alias": "ali"},
+        headers={"X-Host-Token": host_token},
+    )
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["ALI"]},
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"] == "NicknameAlreadyInUseError"
+
+
+async def test_remove_canonical_alias_returns_422(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    add_resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={"nicknames": ["alice"]},
+        headers={"X-Host-Token": host_token},
+    )
+    alice_id = add_resp.json()["players"][0]["player_id"]
+
+    resp = await client.delete(
+        f"/admin/leagues/{league_id}/players/{alice_id}/aliases/alice",
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "CannotRemoveCanonicalNicknameError"
+
+
 async def test_add_players_wrong_token_returns_401(client: AsyncClient) -> None:
     league = await _create_strict_roster_league(client)
     league_id = league["league_id"]

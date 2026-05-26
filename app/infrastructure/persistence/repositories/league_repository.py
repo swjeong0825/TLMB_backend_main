@@ -16,6 +16,7 @@ from app.infrastructure.persistence.mappers.team_mapper import team_to_orm
 from app.infrastructure.persistence.models.orm_models import (
     LeagueORM,
     MatchORM,
+    PlayerAliasORM,
     PlayerORM,
     TeamORM,
 )
@@ -35,7 +36,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
         self._session = session
 
     _LEAGUE_LOAD_OPTIONS = (
-        selectinload(LeagueORM.players),
+        selectinload(LeagueORM.players).selectinload(PlayerORM.aliases),
         selectinload(LeagueORM.teams),
     )
 
@@ -113,14 +114,14 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             league_orm.updated_at = _utcnow()
 
         for player in league.players:
-            player_orm = await self._session.get(PlayerORM, player.player_id.value)
+            player_orm = await self._get_player_with_aliases(player.player_id.value)
             if player_orm is None:
                 player_orm = player_to_orm(player, league.league_id)
                 self._session.add(player_orm)
             else:
-                player_orm.nickname_normalized = player.nickname.value
                 player_orm.rating = player.rating
                 player_orm.updated_at = _utcnow()
+                await self._sync_player_aliases(player_orm, player, league.league_id)
 
         for player_id in league.pending_deleted_player_ids:
             player_orm = await self._session.get(PlayerORM, player_id.value)
@@ -137,6 +138,57 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             team_orm = await self._session.get(TeamORM, team_id.value)
             if team_orm is not None:
                 await self._session.delete(team_orm)
+
+    async def _get_player_with_aliases(self, player_id: uuid.UUID) -> PlayerORM | None:
+        result = await self._session.execute(
+            select(PlayerORM)
+            .options(selectinload(PlayerORM.aliases))
+            .where(PlayerORM.player_id == player_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def _sync_player_aliases(
+        self,
+        player_orm: PlayerORM,
+        player,
+        league_id: LeagueId,
+    ) -> None:
+        desired = [
+            (nickname.value, index == 0)
+            for index, nickname in enumerate(player.nicknames)
+        ]
+        desired_values = {alias for alias, _ in desired}
+        desired_canonical = desired[0][0]
+
+        # Clear the old canonical before promoting another existing alias.
+        for alias_orm in player_orm.aliases:
+            if (
+                alias_orm.is_canonical
+                and alias_orm.alias_normalized != desired_canonical
+            ):
+                alias_orm.is_canonical = False
+        await self._session.flush()
+
+        for alias_orm in list(player_orm.aliases):
+            if alias_orm.alias_normalized not in desired_values:
+                player_orm.aliases.remove(alias_orm)
+        await self._session.flush()
+
+        existing = {alias.alias_normalized: alias for alias in player_orm.aliases}
+        for alias_normalized, is_canonical in desired:
+            alias_orm = existing.get(alias_normalized)
+            if alias_orm is None:
+                player_orm.aliases.append(
+                    PlayerAliasORM(
+                        player_id=player.player_id.value,
+                        league_id=league_id.value,
+                        alias_normalized=alias_normalized,
+                        is_canonical=is_canonical,
+                    )
+                )
+            else:
+                alias_orm.league_id = league_id.value
+                alias_orm.is_canonical = is_canonical
 
     async def _load_match_counts_by_player(
         self,

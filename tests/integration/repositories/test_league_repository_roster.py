@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
+from app.domain.aggregates.league.value_objects import PlayerNickname
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
 )
@@ -55,6 +56,68 @@ async def test_player_rating_round_trips(session: AsyncSession) -> None:
     assert reloaded is not None
     ratings = {p.nickname.value: p.rating for p in reloaded.players}
     assert ratings == {"alex": 3.5, "daniel": None}
+
+
+async def test_player_aliases_round_trip(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = _make_league()
+    alex = league.add_players(["alex"])[0]
+    league.add_alias_to_player(str(alex.player_id.value), "Lex")
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    reloaded = await repo.get_by_id(league.league_id)
+
+    assert reloaded is not None
+    player = next(p for p in reloaded.players if p.nickname.value == "alex")
+    assert [a.value for a in player.aliases] == ["lex"]
+    assert player.has_nickname(player.aliases[0])
+
+
+async def test_save_promotes_alias_to_canonical_and_discards_old_canonical(
+    session: AsyncSession,
+) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = _make_league()
+    alex = league.add_players(["alex"])[0]
+    league.add_alias_to_player(str(alex.player_id.value), "lex")
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    reloaded = await repo.get_by_id_with_lock(league.league_id)
+    player = next(p for p in reloaded.players if p.nickname.value == "alex")
+    reloaded.edit_player_nickname(str(player.player_id.value), "lex")
+    await repo.save(reloaded)
+    await session.commit()
+    session.expire_all()
+
+    final = await repo.get_by_id(league.league_id)
+    final_player = next(p for p in final.players if p.nickname.value == "lex")
+    assert final_player.aliases == []
+    assert not final_player.has_nickname(PlayerNickname("alex"))
+
+
+async def test_save_removes_alias(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = _make_league()
+    alex = league.add_players(["alex"])[0]
+    league.add_alias_to_player(str(alex.player_id.value), "lex")
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    reloaded = await repo.get_by_id_with_lock(league.league_id)
+    player = next(p for p in reloaded.players if p.nickname.value == "alex")
+    reloaded.remove_alias_from_player(str(player.player_id.value), "lex")
+    await repo.save(reloaded)
+    await session.commit()
+    session.expire_all()
+
+    final = await repo.get_by_id(league.league_id)
+    final_player = next(p for p in final.players if p.nickname.value == "alex")
+    assert final_player.aliases == []
 
 
 async def test_player_ids_round_trip(session: AsyncSession) -> None:

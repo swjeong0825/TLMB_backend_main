@@ -7,6 +7,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.use_cases.add_players_use_case import AddPlayersUseCase
+from app.application.use_cases.add_alias_to_player_use_case import AddAliasToPlayerUseCase
 from app.application.use_cases.create_league_use_case import CreateLeagueUseCase
 from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
 from app.application.use_cases.delete_team_use_case import DeleteTeamUseCase
@@ -19,6 +20,7 @@ from app.application.use_cases.get_match_history_by_player_use_case import GetMa
 from app.application.use_cases.get_standings_by_player_use_case import GetStandingsByPlayerUseCase
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase
 from app.application.use_cases.remove_player_from_roster_use_case import RemovePlayerFromRosterUseCase
+from app.application.use_cases.remove_alias_from_player_use_case import RemoveAliasFromPlayerUseCase
 from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
     SearchLeaguesByTitlePrefixUseCase,
 )
@@ -152,7 +154,19 @@ def get_add_players_use_case(
     return AddPlayersUseCase(league_repo)
 
 
+def get_add_alias_to_player_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> AddAliasToPlayerUseCase:
+    return AddAliasToPlayerUseCase(league_repo)
+
+
 def get_remove_player_from_roster_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
 ) -> RemovePlayerFromRosterUseCase:
     return RemovePlayerFromRosterUseCase(league_repo)
+
+
+def get_remove_alias_from_player_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+) -> RemoveAliasFromPlayerUseCase:
+    return RemoveAliasFromPlayerUseCase(league_repo)

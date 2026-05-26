@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
@@ -18,6 +18,7 @@ class GetLeagueRosterQuery:
 class PlayerEntry:
     player_id: str
     nickname: str
+    aliases: list[str] = field(default_factory=list)
     rating: float | None = None
     teams_count: int = 0
     matches_count: int = 0
@@ -58,13 +59,14 @@ class GetLeagueRosterUseCase:
         if league is None:
             raise LeagueNotFoundError(f"League '{query.league_id}' not found")
 
-        player_map = {p.player_id: p.nickname.value for p in league.players}
+        player_map = {p.player_id: p.canonical_nickname.value for p in league.players}
 
         players = sorted(
             [
                 PlayerEntry(
                     player_id=str(p.player_id.value),
-                    nickname=p.nickname.value,
+                    nickname=p.canonical_nickname.value,
+                    aliases=[alias.value for alias in p.aliases],
                     rating=p.rating,
                     teams_count=sum(
                         1

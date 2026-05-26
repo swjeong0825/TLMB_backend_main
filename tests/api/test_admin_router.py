@@ -13,10 +13,12 @@ from app.application.use_cases.add_players_use_case import (
     AddPlayersResult,
     PlayerEntry,
 )
+from app.application.use_cases.add_alias_to_player_use_case import PlayerAliasResult
 from app.application.use_cases.edit_match_score_use_case import UpdatedMatchResult
 from app.application.use_cases.edit_player_nickname_use_case import UpdatedPlayerResult
 from app.application.use_cases.get_league_admin_info_use_case import LeagueAdminInfoView
 from app.domain.exceptions import (
+    CannotRemoveCanonicalNicknameError,
     LeagueNotFoundError,
     MatchNotFoundError,
     NicknameAlreadyInUseError,
@@ -528,6 +530,111 @@ class TestAddPlayers:
         )
         assert response.status_code == 409
         assert response.json()["error"] == "NicknameAlreadyInUseError"
+
+
+# ---------------------------------------------------------------------------
+# POST/DELETE /admin/leagues/{league_id}/players/{player_id}/aliases
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerAliases:
+    _ADD_URL = "/admin/leagues/league-id/players/player-id/aliases"
+    _DELETE_URL = "/admin/leagues/league-id/players/player-id/aliases/ali"
+
+    async def test_add_alias_returns_201_on_success(
+        self, client: AsyncClient, mock_add_alias_to_player_uc: AsyncMock
+    ) -> None:
+        mock_add_alias_to_player_uc.execute.return_value = PlayerAliasResult(
+            player_id="player-id",
+            nickname="alice",
+            aliases=["ali"],
+        )
+        response = await client.post(
+            self._ADD_URL,
+            json={"alias": "Ali"},
+            headers={"X-Host-Token": "token"},
+        )
+
+        assert response.status_code == 201
+        assert response.json() == {
+            "player_id": "player-id",
+            "nickname": "alice",
+            "aliases": ["ali"],
+        }
+        command = mock_add_alias_to_player_uc.execute.await_args.args[0]
+        assert command.league_id == "league-id"
+        assert command.player_id == "player-id"
+        assert command.alias == "Ali"
+
+    async def test_add_alias_blank_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            self._ADD_URL,
+            json={"alias": "  "},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_add_alias_duplicate_returns_409(
+        self, client: AsyncClient, mock_add_alias_to_player_uc: AsyncMock
+    ) -> None:
+        mock_add_alias_to_player_uc.execute.side_effect = NicknameAlreadyInUseError(
+            "taken"
+        )
+        response = await client.post(
+            self._ADD_URL,
+            json={"alias": "ali"},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "NicknameAlreadyInUseError"
+
+    async def test_remove_alias_returns_204_on_success(
+        self, client: AsyncClient, mock_remove_alias_from_player_uc: AsyncMock
+    ) -> None:
+        response = await client.delete(
+            self._DELETE_URL,
+            headers={"X-Host-Token": "token"},
+        )
+
+        assert response.status_code == 204
+        command = mock_remove_alias_from_player_uc.execute.await_args.args[0]
+        assert command.league_id == "league-id"
+        assert command.player_id == "player-id"
+        assert command.alias == "ali"
+
+    async def test_remove_canonical_alias_returns_422(
+        self, client: AsyncClient, mock_remove_alias_from_player_uc: AsyncMock
+    ) -> None:
+        mock_remove_alias_from_player_uc.execute.side_effect = (
+            CannotRemoveCanonicalNicknameError(
+                "canonical",
+                player_id="player-id",
+                canonical_nickname="alice",
+            )
+        )
+        response = await client.delete(
+            self._DELETE_URL,
+            headers={"X-Host-Token": "token"},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"] == "CannotRemoveCanonicalNicknameError"
+        assert body["canonical_nickname"] == "alice"
+
+    async def test_remove_unknown_alias_returns_404(
+        self, client: AsyncClient, mock_remove_alias_from_player_uc: AsyncMock
+    ) -> None:
+        mock_remove_alias_from_player_uc.execute.side_effect = PlayerNotFoundError(
+            "not found"
+        )
+        response = await client.delete(
+            self._DELETE_URL,
+            headers={"X-Host-Token": "token"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["error"] == "PlayerNotFoundError"
 
 
 # ---------------------------------------------------------------------------

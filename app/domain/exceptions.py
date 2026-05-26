@@ -34,6 +34,24 @@ class NicknameAlreadyInUseError(DomainError):
     pass
 
 
+class LastNicknameError(DomainError):
+    def __init__(self, message: str, player_id: str) -> None:
+        super().__init__(message)
+        self.player_id = player_id
+
+
+class CannotRemoveCanonicalNicknameError(DomainError):
+    def __init__(
+        self,
+        message: str,
+        player_id: str,
+        canonical_nickname: str,
+    ) -> None:
+        super().__init__(message)
+        self.player_id = player_id
+        self.canonical_nickname = canonical_nickname
+
+
 class TeamHasMatchesError(DomainError):
     pass
 

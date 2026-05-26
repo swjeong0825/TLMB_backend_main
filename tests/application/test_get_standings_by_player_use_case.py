@@ -69,6 +69,27 @@ class TestGetStandingsByPlayerUseCase:
         assert isinstance(result.entries[0], StandingsEntry)
         assert result.tie_breakers == league.rules.tie_breakers
 
+    async def test_player_name_lookup_accepts_alias(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        alice = league.add_players(["alice"])[0]
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+        league.register_players_and_team("alice", "bob")
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        result = await use_case.execute(
+            GetStandingsByPlayerQuery(
+                league_id=str(league.league_id),
+                player_name="ALI",
+            )
+        )
+
+        assert len(result.entries) == 1
+        assert result.entries[0].player1_nickname == "alice"
+
     async def test_returns_empty_when_player_has_no_team(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:

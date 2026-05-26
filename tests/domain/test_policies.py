@@ -85,6 +85,19 @@ class TestNicknameUniquenessPolicy:
     def test_single_player_list_same_nickname_not_available(self) -> None:
         assert self.policy.is_nickname_available(PlayerNickname("alice"), [self.alice]) is False
 
+    def test_alias_on_any_player_is_not_available(self) -> None:
+        self.alice.nicknames.append(PlayerNickname("ali"))
+        assert self.policy.is_nickname_available(PlayerNickname("ali"), self.players) is False
+
+    def test_exclude_same_player_makes_alias_available_for_canonical_rename(self) -> None:
+        self.alice.nicknames.append(PlayerNickname("ali"))
+        result = self.policy.is_nickname_available(
+            PlayerNickname("ali"),
+            self.players,
+            exclude_player_id=self.alice.player_id,
+        )
+        assert result is True
+
 
 # ---------------------------------------------------------------------------
 # OneTeamPerPlayerPolicy
@@ -156,6 +169,13 @@ class TestRosterMembershipPolicy:
     def test_all_candidates_present_returns_empty_list(self) -> None:
         players = [_player("alice"), _player("bob")]
         candidates = [PlayerNickname("alice"), PlayerNickname("bob")]
+        assert self.policy.find_missing_nicknames(candidates, players) == []
+
+    def test_alias_satisfies_roster_membership(self) -> None:
+        alice = _player("alice")
+        alice.nicknames.append(PlayerNickname("ali"))
+        players = [alice, _player("bob")]
+        candidates = [PlayerNickname("ali"), PlayerNickname("bob")]
         assert self.policy.find_missing_nicknames(candidates, players) == []
 
     def test_partial_overlap_returns_only_missing(self) -> None:

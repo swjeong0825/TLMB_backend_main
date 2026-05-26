@@ -714,7 +714,14 @@ class TestGetLeagueRoster:
             league_timezone="America/Los_Angeles",
             latest_match_date=date(2026, 5, 24),
             rules=dict(_DEFAULT_ROSTER_RULES),
-            players=[PlayerEntry(player_id="p1", nickname="alice", rating=3.5)],
+            players=[
+                PlayerEntry(
+                    player_id="p1",
+                    nickname="alice",
+                    aliases=["ali"],
+                    rating=3.5,
+                )
+            ],
             teams=[TeamEntry(team_id="t1", player1_nickname="alice", player2_nickname="bob")],
         )
         response = await client.get("/leagues/lid/roster")
@@ -725,6 +732,7 @@ class TestGetLeagueRoster:
         assert data["latest_match_date"] == "2026-05-24"
         assert len(data["players"]) == 1
         assert data["players"][0]["nickname"] == "alice"
+        assert data["players"][0]["aliases"] == ["ali"]
         assert data["players"][0]["rating"] == 3.5
         assert len(data["teams"]) == 1
         assert data["rules"] == _DEFAULT_ROSTER_RULES

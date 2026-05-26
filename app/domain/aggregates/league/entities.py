@@ -9,7 +9,7 @@ from app.domain.aggregates.league.value_objects import (
 )
 
 
-@dataclass
+@dataclass(init=False)
 class Player:
     """Roster player.
 
@@ -25,9 +25,48 @@ class Player:
     """
 
     player_id: PlayerId
-    nickname: PlayerNickname
+    nicknames: list[PlayerNickname]
     rating: float | None = None
     match_count: int = 0
+
+    def __init__(
+        self,
+        player_id: PlayerId,
+        nicknames: list[PlayerNickname] | None = None,
+        rating: float | None = None,
+        match_count: int = 0,
+        nickname: PlayerNickname | None = None,
+    ) -> None:
+        if nicknames is None:
+            if nickname is None:
+                raise ValueError("Player must have at least one nickname")
+            nicknames = [nickname]
+        if not nicknames:
+            raise ValueError("Player must have at least one nickname")
+        self.player_id = player_id
+        self.nicknames = list(nicknames)
+        self.rating = rating
+        self.match_count = match_count
+
+    @property
+    def canonical_nickname(self) -> PlayerNickname:
+        return self.nicknames[0]
+
+    @property
+    def aliases(self) -> list[PlayerNickname]:
+        return self.nicknames[1:]
+
+    @property
+    def nickname(self) -> PlayerNickname:
+        """Backward-compatible alias for the canonical nickname."""
+        return self.canonical_nickname
+
+    @nickname.setter
+    def nickname(self, value: PlayerNickname) -> None:
+        self.nicknames[0] = value
+
+    def has_nickname(self, candidate: PlayerNickname) -> bool:
+        return any(nick == candidate for nick in self.nicknames)
 
 
 @dataclass(frozen=True)

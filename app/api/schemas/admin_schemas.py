@@ -95,5 +95,22 @@ class AddPlayersResponse(BaseModel):
     players: list[PlayerEntrySchema]
 
 
+class AddPlayerAliasRequest(BaseModel):
+    alias: str
+
+    @field_validator("alias")
+    @classmethod
+    def alias_must_not_be_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("alias must not be blank")
+        return v
+
+
+class PlayerAliasResponse(BaseModel):
+    player_id: str
+    nickname: str
+    aliases: list[str]
+
+
 class GetLeagueAdminInfoResponse(BaseModel):
     host_email: str

@@ -34,7 +34,7 @@ class GetMatchHistoryByPlayerUseCase:
 
         normalized_name = PlayerNickname(query.player_name)
         player = next(
-            (p for p in league.players if p.nickname == normalized_name),
+            (p for p in league.players if p.has_nickname(normalized_name)),
             None,
         )
         if player is None:
@@ -56,7 +56,7 @@ class GetMatchHistoryByPlayerUseCase:
 
         player_matches = await self._match_repo.get_all_by_player(league_id, team_ids)
 
-        player_map = {p.player_id: p.nickname.value for p in league.players}
+        player_map = {p.player_id: p.canonical_nickname.value for p in league.players}
         team_map: dict[TeamId, Team] = {t.team_id: t for t in league.teams}
 
         records: list[MatchHistoryRecord] = []

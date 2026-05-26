@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 RankingMetricLiteral = Literal[
@@ -195,6 +195,7 @@ class GetMatchHistoryResponse(BaseModel):
 class PlayerEntrySchema(BaseModel):
     player_id: str
     nickname: str
+    aliases: list[str] = Field(default_factory=list)
     rating: float | None = None
     teams_count: int = 0
     matches_count: int = 0

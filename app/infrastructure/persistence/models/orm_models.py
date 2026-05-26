@@ -4,6 +4,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -61,7 +63,6 @@ class LeagueORM(Base):
 class PlayerORM(Base):
     __tablename__ = "players"
     __table_args__ = (
-        UniqueConstraint("league_id", "nickname_normalized", name="uq_players_league_nickname"),
         Index("ix_players_league_id", "league_id"),
     )
 
@@ -71,7 +72,6 @@ class PlayerORM(Base):
         ForeignKey("leagues.league_id", ondelete="CASCADE"),
         nullable=False,
     )
-    nickname_normalized: Mapped[str] = mapped_column(String, nullable=False)
     rating: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -81,6 +81,50 @@ class PlayerORM(Base):
     )
 
     league: Mapped[LeagueORM] = relationship("LeagueORM", back_populates="players")
+    aliases: Mapped[list[PlayerAliasORM]] = relationship(
+        "PlayerAliasORM",
+        back_populates="player",
+        cascade="all, delete-orphan",
+        order_by=lambda: (
+            PlayerAliasORM.is_canonical.desc(),
+            PlayerAliasORM.created_at.asc(),
+            PlayerAliasORM.alias_normalized.asc(),
+        ),
+    )
+
+
+class PlayerAliasORM(Base):
+    __tablename__ = "player_aliases"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id",
+            "alias_normalized",
+            name="uq_player_aliases_league_alias",
+        ),
+        Index(
+            "uq_player_aliases_canonical",
+            "player_id",
+            unique=True,
+            postgresql_where=text("is_canonical"),
+        ),
+        Index("ix_player_aliases_league_alias", "league_id", "alias_normalized"),
+    )
+
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.player_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    league_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    alias_normalized: Mapped[str] = mapped_column(String, primary_key=True)
+    is_canonical: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    player: Mapped[PlayerORM] = relationship("PlayerORM", back_populates="aliases")
 
 
 class TeamORM(Base):

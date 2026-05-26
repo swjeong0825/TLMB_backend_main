@@ -41,7 +41,7 @@ class GetStandingsByPlayerUseCase:
 
         normalized_name = PlayerNickname(query.player_name)
         player = next(
-            (p for p in league.players if p.nickname == normalized_name),
+            (p for p in league.players if p.has_nickname(normalized_name)),
             None,
         )
         if player is None:

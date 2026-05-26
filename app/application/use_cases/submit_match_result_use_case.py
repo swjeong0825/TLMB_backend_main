@@ -60,9 +60,7 @@ class SubmitMatchResultUseCase:
                 "Team 2 has the same player listed twice"
             )
 
-        team1_set = {t1_n1, t1_n2}
-        team2_set = {t2_n1, t2_n2}
-        if team1_set & team2_set:
+        if {t1_n1, t1_n2} & {t2_n1, t2_n2}:
             raise SamePlayerOnBothTeamsError(
                 "The same player appears on both teams"
             )
@@ -79,6 +77,7 @@ class SubmitMatchResultUseCase:
 
             _, team1 = league.register_players_and_team(t1_n1, t1_n2)
             _, team2 = league.register_players_and_team(t2_n1, t2_n2)
+            league.validate_teams_do_not_share_players(team1, team2)
 
             if league.rules.match_pair_idempotency == "once_per_league":
                 pair_exists = await uow.match_repo.exists_match_for_team_pair(

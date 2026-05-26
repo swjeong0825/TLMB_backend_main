@@ -24,11 +24,14 @@ from app.domain.aggregates.league.value_objects import (
     TeamId,
 )
 from app.domain.exceptions import (
+    CannotRemoveCanonicalNicknameError,
     InvalidPlayerRatingError,
+    LastNicknameError,
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
+    SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
     TeamNotFoundError,
@@ -115,14 +118,19 @@ class League:
         new_players: list[Player] = []
 
         if p1 is None:
-            p1 = Player(player_id=PlayerId.generate(), nickname=nick1)
+            p1 = Player(player_id=PlayerId.generate(), nicknames=[nick1])
             self.players.append(p1)
             new_players.append(p1)
 
         if p2 is None:
-            p2 = Player(player_id=PlayerId.generate(), nickname=nick2)
+            p2 = Player(player_id=PlayerId.generate(), nicknames=[nick2])
             self.players.append(p2)
             new_players.append(p2)
+
+        if p1.player_id == p2.player_id:
+            raise SamePlayerWithinSingleTeamError(
+                "Both nicknames resolve to the same player"
+            )
 
         existing_team = self._find_team_for_players(p1.player_id, p2.player_id)
         if existing_team is not None:
@@ -155,13 +163,67 @@ class League:
             raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
 
         new_nick = PlayerNickname(new_nickname)
+        if new_nick == player.canonical_nickname:
+            return player
+        if player.has_nickname(new_nick):
+            player.nicknames = [
+                new_nick,
+                *[nick for nick in player.aliases if nick != new_nick],
+            ]
+            return player
+
         policy = NicknameUniquenessPolicy()
         if not policy.is_nickname_available(new_nick, self.players, exclude_player_id=pid):
             raise NicknameAlreadyInUseError(
                 f"Nickname '{new_nickname}' is already in use by another player"
             )
 
-        player.nickname = new_nick
+        player.nicknames = [new_nick, *player.aliases]
+        return player
+
+    def add_alias_to_player(self, player_id: str, alias: str) -> Player:
+        pid = PlayerId.from_str(player_id)
+        player = self._find_player_by_id(pid)
+        if player is None:
+            raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
+
+        alias_nick = PlayerNickname(alias)
+        policy = NicknameUniquenessPolicy()
+        if not policy.is_nickname_available(alias_nick, self.players):
+            raise NicknameAlreadyInUseError(
+                f"Nickname '{alias_nick.value}' is already in use in this league"
+            )
+
+        player.nicknames.append(alias_nick)
+        return player
+
+    def remove_alias_from_player(self, player_id: str, alias: str) -> Player:
+        pid = PlayerId.from_str(player_id)
+        player = self._find_player_by_id(pid)
+        if player is None:
+            raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
+
+        alias_nick = PlayerNickname(alias)
+        if alias_nick == player.canonical_nickname:
+            raise CannotRemoveCanonicalNicknameError(
+                (
+                    f"Cannot remove canonical nickname "
+                    f"'{player.canonical_nickname.value}' directly"
+                ),
+                player_id=player_id,
+                canonical_nickname=player.canonical_nickname.value,
+            )
+        if len(player.nicknames) <= 1:
+            raise LastNicknameError(
+                f"Cannot remove the last nickname for player '{player_id}'",
+                player_id=player_id,
+            )
+        if not player.has_nickname(alias_nick):
+            raise PlayerNotFoundError(
+                f"Alias '{alias_nick.value}' not found for player '{player_id}'"
+            )
+
+        player.nicknames = [nick for nick in player.nicknames if nick != alias_nick]
         return player
 
     def update_player_rating(self, player_id: str, rating: float | None) -> Player:
@@ -229,11 +291,19 @@ class League:
             else [self._normalize_rating(rating) for rating in ratings]
         )
         new_players = [
-            Player(player_id=PlayerId.generate(), nickname=nick, rating=rating)
+            Player(player_id=PlayerId.generate(), nicknames=[nick], rating=rating)
             for nick, rating in zip(normalized, normalized_ratings)
         ]
         self.players.extend(new_players)
         return new_players
+
+    def validate_teams_do_not_share_players(self, team1: Team, team2: Team) -> None:
+        team1_player_ids = {team1.player_id_1, team1.player_id_2}
+        team2_player_ids = {team2.player_id_1, team2.player_id_2}
+        if team1_player_ids & team2_player_ids:
+            raise SamePlayerOnBothTeamsError(
+                "The same player appears on both teams"
+            )
 
     def remove_player(self, player_id: str) -> None:
         """Remove a pre-registered roster player.
@@ -306,7 +376,7 @@ class League:
 
     def _find_player_by_nickname(self, nickname: PlayerNickname) -> Player | None:
         for p in self.players:
-            if p.nickname == nickname:
+            if p.has_nickname(nickname):
                 return p
         return None
 

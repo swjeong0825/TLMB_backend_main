@@ -17,12 +17,14 @@ from app.domain.aggregates.league.value_objects import (
     PlayerNickname,
 )
 from app.domain.exceptions import (
+    CannotRemoveCanonicalNicknameError,
     InvalidLeagueRulesError,
     InvalidPlayerRatingError,
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
+    SamePlayerOnBothTeamsError,
     SamePlayerWithinSingleTeamError,
     TeamConflictError,
     TeamNotFoundError,
@@ -387,6 +389,103 @@ class TestEditPlayerNickname:
 
         with pytest.raises(InvalidPlayerRatingError):
             league.update_player_rating(str(alice.player_id.value), -1.0)
+
+
+# ---------------------------------------------------------------------------
+# League player aliases
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerAliases:
+    def _league_with_players(self) -> League:
+        league = _league()
+        league.add_players(["alice", "bob", "charlie"])
+        return league
+
+    def _get_player(self, league: League, nickname: str):  # type: ignore[return]
+        return next(p for p in league.players if p.has_nickname(PlayerNickname(nickname)))
+
+    def test_add_alias_to_player(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+
+        updated = league.add_alias_to_player(str(alice.player_id.value), "Ali")
+
+        assert updated.canonical_nickname.value == "alice"
+        assert [a.value for a in updated.aliases] == ["ali"]
+        assert league._find_player_by_nickname(PlayerNickname("ali")) == alice
+
+    def test_add_alias_rejects_collision_with_other_canonical(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_alias_to_player(str(alice.player_id.value), "bob")
+
+    def test_add_alias_rejects_collision_with_other_alias(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+        bob = self._get_player(league, "bob")
+        league.add_alias_to_player(str(bob.player_id.value), "bobby")
+
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_alias_to_player(str(alice.player_id.value), "BOBBY")
+
+    def test_remove_alias_from_player(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+
+        updated = league.remove_alias_from_player(str(alice.player_id.value), "ali")
+
+        assert updated.aliases == []
+        assert not updated.has_nickname(PlayerNickname("ali"))
+
+    def test_remove_canonical_alias_raises(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+
+        with pytest.raises(CannotRemoveCanonicalNicknameError):
+            league.remove_alias_from_player(str(alice.player_id.value), "alice")
+
+    def test_edit_to_existing_alias_promotes_alias_and_discards_old_canonical(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+
+        updated = league.edit_player_nickname(str(alice.player_id.value), "ali")
+
+        assert updated.canonical_nickname.value == "ali"
+        assert updated.aliases == []
+        assert not updated.has_nickname(PlayerNickname("alice"))
+
+    def test_add_players_rejects_collision_against_alias(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+
+        with pytest.raises(NicknameAlreadyInUseError):
+            league.add_players(["ALI"])
+
+    def test_same_player_with_two_aliases_on_one_team_raises(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+
+        with pytest.raises(SamePlayerWithinSingleTeamError):
+            league.register_players_and_team("alice", "ali")
+
+    def test_same_player_via_aliases_on_both_teams_raises(self) -> None:
+        league = _league_otpp_false()
+        league.add_players(["alice", "bob", "charlie"])
+        alice = self._get_player(league, "alice")
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+
+        _, team1 = league.register_players_and_team("ali", "bob")
+        _, team2 = league.register_players_and_team("alice", "charlie")
+
+        with pytest.raises(SamePlayerOnBothTeamsError):
+            league.validate_teams_do_not_share_players(team1, team2)
 
 
 # ---------------------------------------------------------------------------

@@ -67,6 +67,26 @@ def _league_with_match_pair_idempotency(value: str) -> League:
     )
 
 
+def _league_otpp_false() -> League:
+    rules = LeagueRules.from_dict(
+        {
+            "version": 7,
+            "match_pair_idempotency": "none",
+            "one_team_per_player": False,
+            "ranking_subject": "team",
+            "tie_breakers": ["matches_won"],
+            "auto_register_players_on_match": True,
+        }
+    )
+    return League.create(
+        title="Alias League",
+        description=None,
+        host_token="test-host-token",
+        host_email="host@example.com",
+        rules=rules,
+    )
+
+
 # ---------------------------------------------------------------------------
 # UoW mock helper
 # ---------------------------------------------------------------------------
@@ -179,6 +199,24 @@ class TestSubmitMatchResultUseCase:
                 )
             )
 
+    async def test_same_player_on_both_teams_via_alias_raises(self) -> None:
+        league = _league_otpp_false()
+        alice = league.add_players(["alice", "bob", "charlie"])[0]
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+        factory, _ = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        with pytest.raises(SamePlayerOnBothTeamsError):
+            await use_case.execute(
+                SubmitMatchResultCommand(
+                    league_id=str(league.league_id),
+                    team1_nicknames=("ali", "bob"),
+                    team2_nicknames=("alice", "charlie"),
+                    team1_score="6",
+                    team2_score="3",
+                )
+            )
+
     async def test_nicknames_normalised_before_validation(self) -> None:
         league = make_league()
         factory, _ = _make_uow_factory(league)
@@ -214,6 +252,32 @@ class TestSubmitMatchResultUseCase:
         uow.match_repo.save.assert_awaited_once()
         uow.commit.assert_awaited_once()
         assert league.latest_match_date is not None
+
+    async def test_match_submission_with_alias_reuses_existing_player(self) -> None:
+        league = make_league()
+        alice = league.add_players(["alice"])[0]
+        league.add_alias_to_player(str(alice.player_id.value), "ali")
+        factory, _ = _make_uow_factory(league)
+        use_case = SubmitMatchResultUseCase(factory)
+
+        await use_case.execute(
+            SubmitMatchResultCommand(
+                league_id=str(league.league_id),
+                team1_nicknames=("ali", "bob"),
+                team2_nicknames=("charlie", "diana"),
+                team1_score="6",
+                team2_score="3",
+            )
+        )
+
+        alice_rows = [p for p in league.players if p.player_id == alice.player_id]
+        assert len(alice_rows) == 1
+        assert {p.nickname.value for p in league.players} == {
+            "alice",
+            "bob",
+            "charlie",
+            "diana",
+        }
 
     async def test_player_on_different_team_raises_team_conflict(self) -> None:
         league = make_league()
