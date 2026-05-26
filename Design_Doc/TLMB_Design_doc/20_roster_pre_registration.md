@@ -19,6 +19,7 @@ now a first-class operation that writes `Player` rows directly.
 |---|---|---|
 | `players` (roster) | Every nickname registered on the league — either pre-registered via `add_players`, or auto-registered on first confirmed match submission. | League aggregate (this doc). |
 | `match_participants` | The four nicknames recorded on a single `Match`. | Match aggregate (existing). |
+| `player.rating` | Optional host/admin metadata for a roster player. Null means unrated. | League aggregate / admin endpoints. |
 
 ## Scope of this iteration
 
@@ -78,15 +79,26 @@ flowchart TD
 ### `League` aggregate methods
 
 ```python
-def add_players(self, nicknames: list[str]) -> list[Player]:
+def add_players(
+    self,
+    nicknames: list[str],
+    ratings: list[float | None] | None = None,
+) -> list[Player]:
     """Atomic batch add. Raises NicknameAlreadyInUseError if any input
     nickname (after normalization) duplicates an existing roster nickname
     or another nickname inside the same batch. On error, no players are
-    added.
+    added. When ratings are supplied, the list must line up with the
+    nickname list; present ratings must be non-negative finite numbers.
 
     Each input nickname creates a fresh Player row with a generated
     PlayerId. The repository's existing save(league) loop picks them up
     in the same transaction."""
+
+def update_player_rating(self, player_id: str, rating: float | None) -> Player:
+    """Set, update, or clear a host-curated rating on an existing player.
+    `rating=None` clears the field. Raises PlayerNotFoundError when the id
+    is not in the league and InvalidPlayerRatingError for negative/non-finite
+    ratings."""
 
 def remove_player(self, player_id: str) -> None:
     """Hard-delete iff the player has zero teams and zero matches.

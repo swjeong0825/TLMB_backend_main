@@ -8,7 +8,7 @@ flowchart TD
         ROOT["League Root  (aggregate_root.py)\ncreate · register_players_and_team\nedit_player_nickname · delete_team\nadd_players · remove_player\nvalidate_match_participants_on_roster"]
 
         subgraph ENT ["Internal Entities  (entities.py)"]
-            PE["Player\nplayerId · PlayerNickname · match_count"]
+            PE["Player\nplayerId · PlayerNickname · rating? · match_count"]
             TE["Team\nteamId · playerId_1 · playerId_2"]
         end
 
@@ -85,6 +85,13 @@ flowchart TD
 - Invariants checked: new nickname, after normalization, must not already be in use by a different player in this league
 - Returns: the updated Player entity
 
+### `update_player_rating(player_id: UUID, rating: float | None) -> Player`
+- Purpose: Allow the host (admin) to set, update, or clear a player's optional rating.
+- Inputs: playerId (must exist in this league), rating (nullable numeric value; `None` clears the rating)
+- State changes: updates the target Player's `rating` field.
+- Invariants checked: rating must be non-negative and finite when present.
+- Returns: the updated Player entity.
+
 ### `delete_team(team_id: UUID) -> None`
 - Purpose: Remove a team record from the league roster.
 - Inputs: teamId (must exist in this league)
@@ -92,11 +99,11 @@ flowchart TD
 - Invariants checked: none inside the aggregate — the precondition that the team has no associated match records is enforced at the application layer before this method is called
 - Notes: In V1, teams cannot be reassigned or have their composition updated. Delete is the only mutation available on an existing team. Players whose team is deleted become "teamless" in the roster; they may form part of a new team implicitly if a future match submission pairs them with a new partner.
 
-### `add_players(nicknames: list[str]) -> list[Player]`
+### `add_players(nicknames: list[str], ratings: list[float | None] | None = None) -> list[Player]`
 - Purpose: Atomically pre-register one or more players on the roster. Used by the host (admin) to seed players before they have played any match. Full feature specification: [../20_roster_pre_registration.md](../20_roster_pre_registration.md).
-- Inputs: list of raw nicknames (normalization applied inside via `PlayerNickname`).
+- Inputs: list of raw nicknames (normalization applied inside via `PlayerNickname`) and an optional same-length list of nullable ratings.
 - State changes: appends one new `Player` per input nickname with a freshly generated `PlayerId`.
-- Invariants checked: each input nickname (after normalization) must be unique against existing roster nicknames AND against other entries in the same batch; otherwise raises `NicknameAlreadyInUseError` and no players are added.
+- Invariants checked: each input nickname (after normalization) must be unique against existing roster nicknames AND against other entries in the same batch; otherwise raises `NicknameAlreadyInUseError` and no players are added. If ratings are supplied, the list length must match the nickname list, and every present rating must be non-negative and finite.
 - Returns: the list of newly created `Player` objects, in input order.
 - Callers:
   - `AddPlayersUseCase` — post-create host action via `POST /admin/leagues/{league_id}/players`.
@@ -125,10 +132,10 @@ flowchart TD
 
 ### Entity: Player
 - Identity: playerId (UUID, generated on first implicit registration)
-- Purpose: Represent a participant in the league, identified by a unique normalized nickname
-- Lifecycle: created by `register_players_and_team` (implicit on first match submission) OR by `add_players` (when the host pre-registers a roster nickname); nickname may be updated by `edit_player_nickname`; hard-deleted by `remove_player` only when the player has zero teams and zero matches (otherwise `PlayerHasParticipationError`).
+- Purpose: Represent a participant in the league, identified by a unique normalized nickname, with an optional host-curated numeric rating.
+- Lifecycle: created by `register_players_and_team` (implicit on first match submission) OR by `add_players` (when the host pre-registers a roster nickname); nickname may be updated by `edit_player_nickname`; rating may be set, updated, or cleared by `update_player_rating`; hard-deleted by `remove_player` only when the player has zero teams and zero matches (otherwise `PlayerHasParticipationError`).
 - Owned by root because: player nickname uniqueness and one-team-per-player membership must be checked atomically within the League consistency boundary
-- Behavior: exposes normalized nickname for comparison; carries a transient `match_count` field that the repository populates on load so the aggregate can enforce the `remove_player` zero-participation guard without an extra round-trip. Does not hold team reference directly (membership is tracked via Team entity).
+- Behavior: exposes normalized nickname for comparison; carries nullable `rating` metadata owned by the host/admin; carries a transient `match_count` field that the repository populates on load so the aggregate can enforce the `remove_player` zero-participation guard without an extra round-trip. Does not hold team reference directly (membership is tracked via Team entity).
 
 ### Entity: Team
 - Identity: teamId (UUID, generated on implicit registration)

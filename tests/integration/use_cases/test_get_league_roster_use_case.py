@@ -72,6 +72,26 @@ async def test_players_sorted_alphabetically(persisted_league_with_match: dict) 
     assert player_nicknames == sorted(player_nicknames)
 
 
+async def test_player_rating_is_returned(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = League.create(
+        "Rated",
+        None,
+        "tok-rated",
+        host_email="host@example.com",
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+    )
+    league.add_players(["alex"], ratings=[3.5])
+    await repo.save(league)
+
+    roster = await GetLeagueRosterUseCase(repo).execute(
+        GetLeagueRosterQuery(league_id=str(league.league_id))
+    )
+
+    assert roster.players[0].nickname == "alex"
+    assert roster.players[0].rating == 3.5
+
+
 async def test_raises_for_unknown_league(session: AsyncSession) -> None:
     with pytest.raises(LeagueNotFoundError):
         await GetLeagueRosterUseCase(SqlAlchemyLeagueRepository(session)).execute(

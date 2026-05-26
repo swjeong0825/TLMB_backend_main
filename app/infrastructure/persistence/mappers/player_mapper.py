@@ -11,6 +11,7 @@ def player_to_domain(orm: PlayerORM) -> Player:
     return Player(
         player_id=PlayerId(value=orm.player_id),
         nickname=PlayerNickname(orm.nickname_normalized),
+        rating=orm.rating,
     )
 
 
@@ -19,4 +20,5 @@ def player_to_orm(domain: Player, league_id: LeagueId) -> PlayerORM:
         player_id=domain.player_id.value,
         league_id=league_id.value,
         nickname_normalized=domain.nickname.value,
+        rating=domain.rating,
     )

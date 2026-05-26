@@ -169,7 +169,7 @@ flowchart TD
 
 - Business action: View League Roster
 - Inputs: GetLeagueRosterQuery(league_id: str)
-- Output: RosterView(title: str, league_timezone: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
+- Output: RosterView(title: str, league_timezone: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname, rating, teams_count, matches_count)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
 - Aggregate(s) loaded: League
@@ -235,9 +235,9 @@ flowchart TD
 
 ## Use Case: EditPlayerNicknameUseCase (Admin)
 
-- Business action: Edit Player Nickname
-- Inputs: EditPlayerNicknameCommand(host_token: str, league_id: str, player_id: str, new_nickname: str)
-- Output: UpdatedPlayerResult(player_id, new_nickname)
+- Business action: Edit Player Nickname / Rating
+- Inputs: EditPlayerNicknameCommand(host_token: str, league_id: str, player_id: str, new_nickname: str | None, rating: float | None, rating_supplied: bool)
+- Output: UpdatedPlayerResult(player_id, new_nickname, rating)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — single repository save
 - Aggregate(s) loaded: League
@@ -250,11 +250,13 @@ flowchart TD
 - Steps:
   1. Load League via LeagueRepository.get_by_id_with_lock(league_id) — raise LeagueNotFoundError if missing
   2. Verify host_token matches league.host_token.value — raise UnauthorizedError if not
-  3. Call league.edit_player_nickname(player_id, new_nickname) — enforces nickname uniqueness and player existence
-  4. LeagueRepository.save(league)
-  5. Return updated player info
-- Domain rules enforced where: League.edit_player_nickname (nickname uniqueness within league, player existence)
-- Errors: LeagueNotFoundError, UnauthorizedError, PlayerNotFoundError, NicknameAlreadyInUseError
+  3. Require at least one mutable field: `new_nickname` or `rating_supplied`.
+  4. If `new_nickname` is supplied, call league.edit_player_nickname(player_id, new_nickname) — enforces nickname uniqueness and player existence.
+  5. If `rating_supplied` is true, call league.update_player_rating(player_id, rating) — `rating=None` clears the optional rating.
+  6. LeagueRepository.save(league)
+  7. Return updated player info
+- Domain rules enforced where: League.edit_player_nickname (nickname uniqueness within league, player existence); League.update_player_rating (player existence, non-negative finite rating when present)
+- Errors: LeagueNotFoundError, UnauthorizedError, PlayerNotFoundError, NicknameAlreadyInUseError, InvalidPlayerRatingError
 
 ---
 

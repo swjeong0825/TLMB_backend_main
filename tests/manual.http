@@ -83,13 +83,47 @@ X-Host-Token: {{hostToken}}
 
 ###
 
-### Edit Player Nickname
+### Edit Player — Nickname only
 PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/players/{{playerId}}
 Content-Type: application/json
 X-Host-Token: {{hostToken}}
 
 {
   "new_nickname": "Serena"
+}
+
+###
+
+### Edit Player — Rating only (must be a finite number >= 0)
+PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/players/{{playerId}}
+Content-Type: application/json
+X-Host-Token: {{hostToken}}
+
+{
+  "rating": 2.75
+}
+
+###
+
+### Edit Player — Nickname + Rating in one request
+PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/players/{{playerId}}
+Content-Type: application/json
+X-Host-Token: {{hostToken}}
+
+{
+  "new_nickname": "hyewon",
+  "rating": 2.75
+}
+
+###
+
+### Edit Player — Clear rating (explicit null clears; omitting the field leaves it unchanged)
+PATCH {{baseUrl}}/admin/leagues/{{leagueId}}/players/{{playerId}}
+Content-Type: application/json
+X-Host-Token: {{hostToken}}
+
+{
+  "rating": null
 }
 
 ###

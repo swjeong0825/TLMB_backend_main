@@ -13,6 +13,9 @@ from app.domain.aggregates.league.value_objects import (
 class Player:
     """Roster player.
 
+    `rating` is optional host-curated metadata. It stays `None` for players
+    auto-created by match submission until an admin sets it.
+
     `match_count` is a transient field populated by the repository at load
     time so that `League.remove_player` can enforce the "no participation"
     guard without re-querying. It defaults to `0` for freshly-created
@@ -23,6 +26,7 @@ class Player:
 
     player_id: PlayerId
     nickname: PlayerNickname
+    rating: float | None = None
     match_count: int = 0
 
 

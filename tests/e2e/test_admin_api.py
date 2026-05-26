@@ -255,6 +255,30 @@ async def test_edit_player_nickname_persists(client: AsyncClient) -> None:
     assert "alice" not in nicknames
 
 
+async def test_update_player_rating_persists(client: AsyncClient) -> None:
+    league = await create_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    await submit_match(client, league_id)
+    player_id = await get_player_id(client, league_id, "alice")
+
+    resp = await client.patch(
+        f"/admin/leagues/{league_id}/players/{player_id}",
+        json={"rating": 3.5},
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["player_id"] == player_id
+    assert body["new_nickname"] == "alice"
+    assert body["rating"] == 3.5
+
+    roster = await get_roster(client, league_id)
+    alice = next(p for p in roster["players"] if p["player_id"] == player_id)
+    assert alice["rating"] == 3.5
+
+
 # ---------------------------------------------------------------------------
 # DELETE /admin/leagues/{league_id}/teams/{team_id}
 # ---------------------------------------------------------------------------
@@ -655,6 +679,31 @@ async def test_add_players_to_roster_success(client: AsyncClient) -> None:
     assert len(body["players"]) == 3
     nicknames = {p["nickname"] for p in body["players"]}
     assert nicknames == {"alex", "daniel", "jason"}
+
+
+async def test_add_players_to_roster_accepts_ratings(client: AsyncClient) -> None:
+    league = await _create_strict_roster_league(client)
+    league_id, host_token = league["league_id"], league["host_token"]
+
+    resp = await client.post(
+        f"/admin/leagues/{league_id}/players",
+        json={
+            "players": [
+                {"nickname": "Alex", "rating": 3.5},
+                {"nickname": "Daniel", "rating": None},
+            ]
+        },
+        headers={"X-Host-Token": host_token},
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    ratings = {p["nickname"]: p["rating"] for p in body["players"]}
+    assert ratings == {"alex": 3.5, "daniel": None}
+
+    roster = await get_roster(client, league_id)
+    roster_ratings = {p["nickname"]: p["rating"] for p in roster["players"]}
+    assert roster_ratings == {"alex": 3.5, "daniel": None}
 
 
 async def test_add_players_makes_them_match_eligible(client: AsyncClient) -> None:

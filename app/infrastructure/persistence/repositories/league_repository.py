@@ -119,6 +119,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
                 self._session.add(player_orm)
             else:
                 player_orm.nickname_normalized = player.nickname.value
+                player_orm.rating = player.rating
                 player_orm.updated_at = _utcnow()
 
         for player_id in league.pending_deleted_player_ids:

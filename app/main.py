@@ -10,6 +10,7 @@ from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     DuplicateTeamPairMatchError,
     InvalidLeagueRulesError,
+    InvalidPlayerRatingError,
     InvalidSetScoreError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
@@ -129,6 +130,16 @@ async def invalid_score_handler(request: Request, exc: InvalidSetScoreError) -> 
 @app.exception_handler(InvalidLeagueRulesError)
 async def invalid_league_rules_handler(request: Request, exc: InvalidLeagueRulesError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "InvalidLeagueRulesError", "detail": str(exc)})
+
+
+@app.exception_handler(InvalidPlayerRatingError)
+async def invalid_player_rating_handler(
+    request: Request, exc: InvalidPlayerRatingError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"error": "InvalidPlayerRatingError", "detail": str(exc)},
+    )
 
 
 @app.exception_handler(RosterMembershipRequiredError)

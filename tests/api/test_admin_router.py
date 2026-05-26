@@ -99,7 +99,7 @@ class TestEditPlayerNickname:
         self, client: AsyncClient, mock_edit_player_nickname_uc: AsyncMock
     ) -> None:
         mock_edit_player_nickname_uc.execute.return_value = UpdatedPlayerResult(
-            player_id="pid-123", new_nickname="newname"
+            player_id="pid-123", new_nickname="newname", rating=3.5
         )
         response = await client.patch(
             self._URL,
@@ -109,6 +109,64 @@ class TestEditPlayerNickname:
         data = response.json()
         assert data["player_id"] == "pid-123"
         assert data["new_nickname"] == "newname"
+        assert data["rating"] == 3.5
+
+    async def test_rating_only_update_is_allowed(
+        self, client: AsyncClient, mock_edit_player_nickname_uc: AsyncMock
+    ) -> None:
+        mock_edit_player_nickname_uc.execute.return_value = UpdatedPlayerResult(
+            player_id="pid-123", new_nickname="alice", rating=3.5
+        )
+        response = await client.patch(
+            self._URL,
+            json={"rating": 3.5},
+            headers={"X-Host-Token": "valid-token"},
+        )
+        assert response.status_code == 200
+        command = mock_edit_player_nickname_uc.execute.await_args.args[0]
+        assert command.new_nickname is None
+        assert command.rating == 3.5
+        assert command.rating_supplied is True
+
+    async def test_rating_null_clears_rating(
+        self, client: AsyncClient, mock_edit_player_nickname_uc: AsyncMock
+    ) -> None:
+        mock_edit_player_nickname_uc.execute.return_value = UpdatedPlayerResult(
+            player_id="pid-123", new_nickname="alice", rating=None
+        )
+        response = await client.patch(
+            self._URL,
+            json={"rating": None},
+            headers={"X-Host-Token": "valid-token"},
+        )
+        assert response.status_code == 200
+        command = mock_edit_player_nickname_uc.execute.await_args.args[0]
+        assert command.rating is None
+        assert command.rating_supplied is True
+
+    async def test_empty_patch_body_returns_422(self, client: AsyncClient) -> None:
+        response = await client.patch(
+            self._URL,
+            json={},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_null_nickname_returns_422(self, client: AsyncClient) -> None:
+        response = await client.patch(
+            self._URL,
+            json={"new_nickname": None},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_negative_rating_returns_422(self, client: AsyncClient) -> None:
+        response = await client.patch(
+            self._URL,
+            json={"rating": -1},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
 
     async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
         response = await client.patch(self._URL, json={"new_nickname": "newname"})
@@ -351,15 +409,18 @@ class TestAddPlayers:
     ) -> None:
         mock_add_players_uc.execute.return_value = AddPlayersResult(
             players=[
-                PlayerEntry(player_id="p-1", nickname="alex"),
+                PlayerEntry(player_id="p-1", nickname="alex", rating=3.5),
             ]
         )
         response = await client.post(
             self._URL,
-            json={"nicknames": ["Alex"]},
+            json={"players": [{"nickname": "Alex", "rating": 3.5}]},
             headers={"X-Host-Token": "valid-token"},
         )
         assert response.status_code == 201
+        command = mock_add_players_uc.execute.await_args.args[0]
+        assert command.nicknames == ["Alex"]
+        assert command.ratings == [3.5]
 
     async def test_response_contains_added_players(
         self, client: AsyncClient, mock_add_players_uc: AsyncMock
@@ -379,6 +440,7 @@ class TestAddPlayers:
         assert len(data["players"]) == 2
         assert data["players"][0]["player_id"] == "p-1"
         assert data["players"][0]["nickname"] == "alex"
+        assert data["players"][0]["rating"] is None
 
     async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
         response = await client.post(self._URL, json={"nicknames": ["alex"]})
@@ -396,6 +458,39 @@ class TestAddPlayers:
         response = await client.post(
             self._URL,
             json={"nicknames": ["alex", "  "]},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_players_shape_blank_nickname_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        response = await client.post(
+            self._URL,
+            json={"players": [{"nickname": "  ", "rating": 3.5}]},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_players_shape_negative_rating_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        response = await client.post(
+            self._URL,
+            json={"players": [{"nickname": "alex", "rating": -1}]},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 422
+
+    async def test_cannot_mix_nicknames_and_players_shapes(
+        self, client: AsyncClient
+    ) -> None:
+        response = await client.post(
+            self._URL,
+            json={
+                "nicknames": ["alex"],
+                "players": [{"nickname": "daniel", "rating": 3.5}],
+            },
             headers={"X-Host-Token": "token"},
         )
         assert response.status_code == 422

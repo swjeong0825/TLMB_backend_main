@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import (
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     String,
@@ -71,6 +72,7 @@ class PlayerORM(Base):
         nullable=False,
     )
     nickname_normalized: Mapped[str] = mapped_column(String, nullable=False)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

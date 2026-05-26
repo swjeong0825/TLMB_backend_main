@@ -12,12 +12,14 @@ class AddPlayersCommand:
     host_token: str
     league_id: str
     nicknames: list[str]
+    ratings: list[float | None] | None = None
 
 
 @dataclass
 class PlayerEntry:
     player_id: str
     nickname: str
+    rating: float | None = None
 
 
 @dataclass
@@ -47,7 +49,7 @@ class AddPlayersUseCase:
         if league.host_token.value != command.host_token:
             raise UnauthorizedError("Invalid host token")
 
-        new_players = league.add_players(command.nicknames)
+        new_players = league.add_players(command.nicknames, command.ratings)
         await self._league_repo.save(league)
 
         return AddPlayersResult(
@@ -55,6 +57,7 @@ class AddPlayersUseCase:
                 PlayerEntry(
                     player_id=str(p.player_id.value),
                     nickname=p.nickname.value,
+                    rating=p.rating,
                 )
                 for p in new_players
             ]

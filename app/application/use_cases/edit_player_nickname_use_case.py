@@ -12,13 +12,16 @@ class EditPlayerNicknameCommand:
     host_token: str
     league_id: str
     player_id: str
-    new_nickname: str
+    new_nickname: str | None = None
+    rating: float | None = None
+    rating_supplied: bool = False
 
 
 @dataclass
 class UpdatedPlayerResult:
     player_id: str
     new_nickname: str
+    rating: float | None = None
 
 
 class EditPlayerNicknameUseCase:
@@ -35,10 +38,27 @@ class EditPlayerNicknameUseCase:
         if league.host_token.value != command.host_token:
             raise UnauthorizedError("Invalid host token")
 
-        updated_player = league.edit_player_nickname(command.player_id, command.new_nickname)
+        if command.new_nickname is None and not command.rating_supplied:
+            raise ValueError("At least one player field must be supplied")
+
+        if command.new_nickname is not None:
+            updated_player = league.edit_player_nickname(
+                command.player_id, command.new_nickname
+            )
+        else:
+            updated_player = league.update_player_rating(
+                command.player_id, command.rating
+            )
+
+        if command.new_nickname is not None and command.rating_supplied:
+            updated_player = league.update_player_rating(
+                command.player_id, command.rating
+            )
+
         await self._league_repo.save(league)
 
         return UpdatedPlayerResult(
             player_id=str(updated_player.player_id.value),
             new_nickname=updated_player.nickname.value,
+            rating=updated_player.rating,
         )

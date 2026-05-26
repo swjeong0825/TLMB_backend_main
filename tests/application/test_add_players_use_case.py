@@ -37,7 +37,29 @@ class TestAddPlayersUseCase:
         )
 
         assert [p.nickname for p in result.players] == ["alex", "daniel"]
+        assert [p.rating for p in result.players] == [None, None]
         assert all(p.player_id for p in result.players)
+
+    async def test_happy_path_can_include_ratings(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        league = make_league(host_token="valid-token")
+        mock_league_repo.get_by_id_with_lock.return_value = league
+        use_case = self._use_case(mock_league_repo)
+
+        result = await use_case.execute(
+            AddPlayersCommand(
+                host_token="valid-token",
+                league_id=str(league.league_id),
+                nicknames=["Alex", "Daniel"],
+                ratings=[3.5, None],
+            )
+        )
+
+        assert [(p.nickname, p.rating) for p in result.players] == [
+            ("alex", 3.5),
+            ("daniel", None),
+        ]
 
     async def test_persists_via_save(self, mock_league_repo: AsyncMock) -> None:
         league = make_league(host_token="valid-token")

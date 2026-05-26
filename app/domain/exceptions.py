@@ -58,6 +58,10 @@ class InvalidLeagueRulesError(DomainError):
     pass
 
 
+class InvalidPlayerRatingError(DomainError):
+    pass
+
+
 class DuplicateTeamPairMatchError(DomainError):
     pass
 

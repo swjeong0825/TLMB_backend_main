@@ -90,10 +90,14 @@ async def edit_player_nickname(
             league_id=league_id,
             player_id=player_id,
             new_nickname=body.new_nickname,
+            rating=body.rating,
+            rating_supplied="rating" in body.model_fields_set,
         )
     )
     return EditPlayerNicknameResponse(
-        player_id=result.player_id, new_nickname=result.new_nickname
+        player_id=result.player_id,
+        new_nickname=result.new_nickname,
+        rating=result.rating,
     )
 
 
@@ -186,12 +190,25 @@ async def add_players(
         AddPlayersCommand(
             host_token=x_host_token,
             league_id=league_id,
-            nicknames=body.nicknames,
+            nicknames=(
+                [player.nickname for player in body.players]
+                if body.players is not None
+                else list(body.nicknames or [])
+            ),
+            ratings=(
+                [player.rating for player in body.players]
+                if body.players is not None
+                else None
+            ),
         )
     )
     return AddPlayersResponse(
         players=[
-            PlayerEntrySchema(player_id=p.player_id, nickname=p.nickname)
+            PlayerEntrySchema(
+                player_id=p.player_id,
+                nickname=p.nickname,
+                rating=p.rating,
+            )
             for p in result.players
         ],
     )

@@ -18,6 +18,7 @@ from app.domain.aggregates.league.value_objects import (
 )
 from app.domain.exceptions import (
     InvalidLeagueRulesError,
+    InvalidPlayerRatingError,
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
     PlayerNotFoundError,
@@ -363,6 +364,30 @@ class TestEditPlayerNickname:
         assert "alicia" in nicknames
         assert "alice" not in nicknames
 
+    def test_update_player_rating_sets_rating(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+
+        updated = league.update_player_rating(str(alice.player_id.value), 3.5)
+
+        assert updated.rating == 3.5
+
+    def test_update_player_rating_can_clear_rating(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+        league.update_player_rating(str(alice.player_id.value), 3.5)
+
+        updated = league.update_player_rating(str(alice.player_id.value), None)
+
+        assert updated.rating is None
+
+    def test_update_player_rating_rejects_negative_rating(self) -> None:
+        league = self._league_with_players()
+        alice = self._get_player(league, "alice")
+
+        with pytest.raises(InvalidPlayerRatingError):
+            league.update_player_rating(str(alice.player_id.value), -1.0)
+
 
 # ---------------------------------------------------------------------------
 # League.delete_team
@@ -422,6 +447,13 @@ class TestAddPlayers:
         assert added[0].nickname.value == "alex"
         assert {p.nickname.value for p in league.players} == {"alex"}
 
+    def test_adds_single_nickname_with_rating(self) -> None:
+        league = _league()
+        added = league.add_players(["alex"], ratings=[3.5])
+        assert len(added) == 1
+        assert added[0].nickname.value == "alex"
+        assert added[0].rating == 3.5
+
     def test_adds_multiple_nicknames_atomically(self) -> None:
         league = _league()
         added = league.add_players(["alex", "daniel", "jason"])
@@ -472,6 +504,16 @@ class TestAddPlayers:
         league = _league()
         with pytest.raises(ValueError):
             league.add_players([])
+
+    def test_ratings_length_must_match_nicknames(self) -> None:
+        league = _league()
+        with pytest.raises(ValueError):
+            league.add_players(["alex"], ratings=[])
+
+    def test_add_players_rejects_negative_rating(self) -> None:
+        league = _league()
+        with pytest.raises(InvalidPlayerRatingError):
+            league.add_players(["alex"], ratings=[-1.0])
 
     def test_add_players_does_not_create_teams(self) -> None:
         """Teams are still created only inside register_players_and_team."""

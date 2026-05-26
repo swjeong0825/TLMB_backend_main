@@ -47,6 +47,7 @@ class TestEditPlayerNicknameUseCase:
 
         assert result.player_id == str(alice.player_id.value)
         assert result.new_nickname == "alicia"
+        assert result.rating is None
 
     async def test_nickname_stored_lowercased(self, mock_league_repo: AsyncMock) -> None:
         league = self._league_with_players()
@@ -65,6 +66,72 @@ class TestEditPlayerNicknameUseCase:
         )
 
         assert result.new_nickname == "alicia"
+
+    async def test_happy_path_updates_rating_only(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        league = self._league_with_players()
+        alice = next(p for p in league.players if p.nickname.value == "alice")
+
+        mock_league_repo.get_by_id_with_lock.return_value = league
+        use_case = self._use_case(mock_league_repo)
+
+        result = await use_case.execute(
+            EditPlayerNicknameCommand(
+                host_token="valid-token",
+                league_id=str(league.league_id),
+                player_id=str(alice.player_id),
+                rating=3.5,
+                rating_supplied=True,
+            )
+        )
+
+        assert result.player_id == str(alice.player_id.value)
+        assert result.new_nickname == "alice"
+        assert result.rating == 3.5
+
+    async def test_can_clear_rating(self, mock_league_repo: AsyncMock) -> None:
+        league = self._league_with_players()
+        alice = next(p for p in league.players if p.nickname.value == "alice")
+        alice.rating = 3.5
+
+        mock_league_repo.get_by_id_with_lock.return_value = league
+        use_case = self._use_case(mock_league_repo)
+
+        result = await use_case.execute(
+            EditPlayerNicknameCommand(
+                host_token="valid-token",
+                league_id=str(league.league_id),
+                player_id=str(alice.player_id),
+                rating=None,
+                rating_supplied=True,
+            )
+        )
+
+        assert result.rating is None
+
+    async def test_can_update_nickname_and_rating(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        league = self._league_with_players()
+        alice = next(p for p in league.players if p.nickname.value == "alice")
+
+        mock_league_repo.get_by_id_with_lock.return_value = league
+        use_case = self._use_case(mock_league_repo)
+
+        result = await use_case.execute(
+            EditPlayerNicknameCommand(
+                host_token="valid-token",
+                league_id=str(league.league_id),
+                player_id=str(alice.player_id),
+                new_nickname="ALICIA",
+                rating=4.0,
+                rating_supplied=True,
+            )
+        )
+
+        assert result.new_nickname == "alicia"
+        assert result.rating == 4.0
 
     async def test_league_saved_after_update(self, mock_league_repo: AsyncMock) -> None:
         league = self._league_with_players()

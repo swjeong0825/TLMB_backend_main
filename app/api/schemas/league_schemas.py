@@ -195,6 +195,7 @@ class GetMatchHistoryResponse(BaseModel):
 class PlayerEntrySchema(BaseModel):
     player_id: str
     nickname: str
+    rating: float | None = None
     teams_count: int = 0
     matches_count: int = 0
 

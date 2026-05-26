@@ -76,6 +76,28 @@ async def test_new_nickname_persisted_to_db(session: AsyncSession) -> None:
     assert "alice" not in nicknames
 
 
+async def test_player_rating_persisted_to_db(session: AsyncSession) -> None:
+    league, alice_id, _ = await _setup_league_with_players(session)
+    repo = SqlAlchemyLeagueRepository(session)
+
+    result = await EditPlayerNicknameUseCase(repo).execute(
+        EditPlayerNicknameCommand(
+            host_token="host-token-edit",
+            league_id=str(league.league_id),
+            player_id=alice_id,
+            rating=3.5,
+            rating_supplied=True,
+        )
+    )
+    await session.commit()
+    session.expire_all()
+
+    refreshed = await repo.get_by_id(league.league_id)
+    alice = next(p for p in refreshed.players if str(p.player_id.value) == alice_id)
+    assert result.rating == 3.5
+    assert alice.rating == 3.5
+
+
 async def test_raises_for_wrong_token(session: AsyncSession) -> None:
     league, alice_id, _ = await _setup_league_with_players(session)
 

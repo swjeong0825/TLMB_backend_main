@@ -42,6 +42,21 @@ async def test_save_persists_added_players(session: AsyncSession) -> None:
     assert nicks == {"alex", "daniel", "jason"}
 
 
+async def test_player_rating_round_trips(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = _make_league()
+    league.add_players(["alex", "daniel"], ratings=[3.5, None])
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    reloaded = await repo.get_by_id(league.league_id)
+
+    assert reloaded is not None
+    ratings = {p.nickname.value: p.rating for p in reloaded.players}
+    assert ratings == {"alex": 3.5, "daniel": None}
+
+
 async def test_player_ids_round_trip(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     league = _make_league()

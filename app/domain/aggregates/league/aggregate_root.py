@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from math import isfinite
 from zoneinfo import ZoneInfo
 
 from app.domain.aggregates.league.entities import Player, Team
@@ -23,6 +24,7 @@ from app.domain.aggregates.league.value_objects import (
     TeamId,
 )
 from app.domain.exceptions import (
+    InvalidPlayerRatingError,
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
     PlayerNotFoundError,
@@ -162,6 +164,15 @@ class League:
         player.nickname = new_nick
         return player
 
+    def update_player_rating(self, player_id: str, rating: float | None) -> Player:
+        pid = PlayerId.from_str(player_id)
+        player = self._find_player_by_id(pid)
+        if player is None:
+            raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
+
+        player.rating = self._normalize_rating(rating)
+        return player
+
     def delete_team(self, team_id: str) -> None:
         tid = TeamId.from_str(team_id)
         team = self._find_team_by_id(tid)
@@ -171,7 +182,11 @@ class League:
         self.teams = [t for t in self.teams if t.team_id != tid]
         self.pending_deleted_team_ids.append(tid)
 
-    def add_players(self, nicknames: list[str]) -> list[Player]:
+    def add_players(
+        self,
+        nicknames: list[str],
+        ratings: list[float | None] | None = None,
+    ) -> list[Player]:
         """Atomic batch add of pre-registered players to the roster.
 
         Replaces the v5 `add_allowlist_entries`: the `allowlist_entries` side
@@ -188,6 +203,8 @@ class League:
         """
         if not nicknames:
             raise ValueError("nicknames must be a non-empty list")
+        if ratings is not None and len(ratings) != len(nicknames):
+            raise ValueError("ratings must have the same length as nicknames")
 
         normalized: list[PlayerNickname] = []
         seen_in_batch: set[str] = set()
@@ -206,8 +223,14 @@ class League:
                     f"Nickname '{nick.value}' is already on the roster"
                 )
 
+        normalized_ratings = (
+            [None for _ in normalized]
+            if ratings is None
+            else [self._normalize_rating(rating) for rating in ratings]
+        )
         new_players = [
-            Player(player_id=PlayerId.generate(), nickname=nick) for nick in normalized
+            Player(player_id=PlayerId.generate(), nickname=nick, rating=rating)
+            for nick, rating in zip(normalized, normalized_ratings)
         ]
         self.players.extend(new_players)
         return new_players
@@ -306,3 +329,13 @@ class League:
             ):
                 return t
         return None
+
+    @staticmethod
+    def _normalize_rating(rating: float | None) -> float | None:
+        if rating is None:
+            return None
+        if not isfinite(rating) or rating < 0:
+            raise InvalidPlayerRatingError(
+                "Player rating must be a non-negative finite number"
+            )
+        return float(rating)

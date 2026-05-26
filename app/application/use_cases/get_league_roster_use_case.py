@@ -18,6 +18,7 @@ class GetLeagueRosterQuery:
 class PlayerEntry:
     player_id: str
     nickname: str
+    rating: float | None = None
     teams_count: int = 0
     matches_count: int = 0
 
@@ -64,6 +65,7 @@ class GetLeagueRosterUseCase:
                 PlayerEntry(
                     player_id=str(p.player_id.value),
                     nickname=p.nickname.value,
+                    rating=p.rating,
                     teams_count=sum(
                         1
                         for t in league.teams

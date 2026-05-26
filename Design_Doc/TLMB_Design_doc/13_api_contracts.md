@@ -52,6 +52,7 @@ flowchart LR
 | SamePlayerWithinSingleTeamError | 422 |
 | SamePlayerOnBothTeamsError | 422 |
 | InvalidSetScoreError | 422 |
+| InvalidPlayerRatingError (admin supplied a negative or non-finite player rating) | 422 |
 | InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5/v6/v7 rules body, invalid `league_timezone`, or v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
 | PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a team or appears on a match; body carries `teams_count`, `matches_count`) | 409 |
 | RosterMembershipRequiredError (match submission contains nicknames not on the roster; only when `LeagueRules.auto_register_players_on_match = false`; body carries `missing_nicknames`) | 422 |
@@ -257,7 +258,7 @@ flowchart LR
       "auto_register_players_on_match": true
     },
     "players": [
-      { "player_id": "uuid", "nickname": "str" }
+      { "player_id": "uuid", "nickname": "str", "rating": 3.5 }
     ],
     "teams": [
       { "team_id": "uuid", "player1_nickname": "str", "player2_nickname": "str" }
@@ -270,6 +271,7 @@ flowchart LR
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
 - Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5/v6 inputs are upgraded to v7 on read so the response `version` is always `7`. `league_timezone` is top-level league metadata, not a `rules` key. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
+  `rating` is nullable; unrated players return `"rating": null`.
 
 ---
 
@@ -374,16 +376,16 @@ Likely candidates (not implemented; listed for orientation):
 
 - Method: PATCH
 - Path: `/admin/leagues/{league_id}/players/{player_id}`
-- Purpose: Correct or update a player's nickname within a league
-- Request shape: `{ "new_nickname": "str" }`
-- Response shape: `{ "player_id": "uuid", "new_nickname": "str" }`
+- Purpose: Correct or update a player's nickname, set/update their optional rating, or clear it.
+- Request shape: `{ "new_nickname": "str" | omitted, "rating": number | null | omitted }` — at least one field is required. `rating: null` clears the rating; omitting `rating` leaves it unchanged.
+- Response shape: `{ "player_id": "uuid", "new_nickname": "str", "rating": number | null }`
 - Use case called: EditPlayerNicknameUseCase
 - Error responses:
   - 404 LeagueNotFoundError
   - 404 PlayerNotFoundError
   - 401 UnauthorizedError (missing or mismatched X-Host-Token)
   - 409 NicknameAlreadyInUseError
-  - 422 validation (blank nickname)
+  - 422 validation (blank nickname, empty PATCH body, or invalid rating)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header must both be present and the token must match the league's `host_token`
 
 ---
@@ -459,12 +461,12 @@ Likely candidates (not implemented; listed for orientation):
 - Method: POST
 - Path: `/admin/leagues/{league_id}/players`
 - Purpose: Atomically pre-register one or more players on the league roster. Bulk-batch shape supports the natural "host pre-populates the list" workflow; single-add is a one-element list. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
-- Request shape: `{ "nicknames": ["str", "str", ...] }` — non-empty list; each entry non-blank after trim.
+- Request shape: either `{ "nicknames": ["str", "str", ...] }` for backward-compatible nickname-only adds, or `{ "players": [{ "nickname": "str", "rating": number | null }, ...] }` to create players with optional ratings. Supply exactly one shape. Lists must be non-empty; nicknames must be non-blank; ratings must be non-negative and finite when present.
 - Response shape: 201 Created
   ```json
   {
     "players": [
-      { "player_id": "uuid", "nickname": "str" }
+      { "player_id": "uuid", "nickname": "str", "rating": 3.5 }
     ]
   }
   ```
@@ -473,7 +475,7 @@ Likely candidates (not implemented; listed for orientation):
   - 404 LeagueNotFoundError
   - 401 UnauthorizedError
   - 409 NicknameAlreadyInUseError (any input nickname duplicates an existing roster nickname OR another nickname inside the same batch — entire request rejected, no partial inserts)
-  - 422 validation (empty list, blank nickname)
+  - 422 validation (empty list, blank nickname, both payload shapes supplied, or invalid rating)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header
 
 ---

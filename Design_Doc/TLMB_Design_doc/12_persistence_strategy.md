@@ -28,6 +28,7 @@ erDiagram
         UUID player_id PK
         UUID league_id FK
         TEXT nickname_normalized
+        FLOAT rating
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
     }
@@ -82,6 +83,7 @@ erDiagram
 - player_id (UUID, PK)
 - league_id (UUID, NOT NULL, FK → leagues.league_id ON DELETE CASCADE)
 - nickname_normalized (TEXT, NOT NULL) — always stored lowercase; enforces case-insensitive uniqueness at DB level
+- rating (FLOAT, nullable) — optional host-curated player rating. `NULL` means unrated; auto-registered players default to `NULL` until an admin sets a value.
 - created_at (TIMESTAMPTZ, server default NOW())
 - updated_at (TIMESTAMPTZ, updated on change)
 - UNIQUE constraint on (league_id, nickname_normalized)
@@ -98,6 +100,7 @@ erDiagram
 
 **Value object mapping (League aggregate)**
 - `PlayerNickname` → `nickname_normalized TEXT` — reconstructed through the PlayerNickname validator on load (which enforces lowercase and non-empty); never stored as raw input
+- `Player.rating` → `rating FLOAT NULL` — copied through as nullable numeric metadata; domain validation rejects negative or non-finite values before save.
 - `LeagueId`, `PlayerId`, `TeamId` → PostgreSQL `UUID` type
 - `HostToken` → `host_token TEXT` (plaintext UUID string)
 - `HostEmail` → `host_email TEXT` — reconstructed through the `HostEmail` validator on load (strip + lowercase + non-blank)

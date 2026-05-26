@@ -80,6 +80,7 @@ class TestGetLeagueRosterUseCase:
         league = make_league()
         league.register_players_and_team("alice", "bob")
         alice = next(p for p in league.players if p.nickname.value == "alice")
+        alice.rating = 3.5
 
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo)
@@ -89,6 +90,7 @@ class TestGetLeagueRosterUseCase:
         entry = next(p for p in result.players if p.nickname == "alice")
         assert entry.player_id == str(alice.player_id.value)
         assert entry.nickname == "alice"
+        assert entry.rating == 3.5
 
     async def test_team_entry_contains_player_nicknames(
         self, mock_league_repo: AsyncMock
