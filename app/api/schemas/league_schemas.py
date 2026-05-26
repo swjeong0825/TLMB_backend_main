@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, field_validator
@@ -245,6 +245,7 @@ class GetLeagueRosterResponse(BaseModel):
 
     title: str
     league_timezone: str
+    latest_match_date: date | None = None
     rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
     teams: list[TeamEntrySchema]

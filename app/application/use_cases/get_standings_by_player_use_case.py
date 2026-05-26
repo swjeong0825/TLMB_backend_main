@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
-from app.application.use_cases.get_standings_use_case import StandingsView
+from app.application.use_cases.get_standings_use_case import (
+    StandingsView,
+    league_date_filter_to_utc_bounds,
+)
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId, PlayerNickname
 from app.domain.aggregates.match.repository import MatchRepository
@@ -14,6 +18,8 @@ from app.domain.services.standings_calculator import StandingsCalculator
 class GetStandingsByPlayerQuery:
     league_id: str
     player_name: str
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class GetStandingsByPlayerUseCase:
@@ -43,7 +49,17 @@ class GetStandingsByPlayerUseCase:
                 f"Player '{query.player_name}' not found in league '{query.league_id}'"
             )
 
-        matches = await self._match_repo.get_all_by_league(league_id)
+        start_at, end_at = league_date_filter_to_utc_bounds(
+            query.start_date,
+            query.end_date,
+            league.league_timezone.value,
+        )
+        if start_at is None and end_at is None:
+            matches = await self._match_repo.get_all_by_league(league_id)
+        else:
+            matches = await self._match_repo.get_all_by_league(
+                league_id, start_at=start_at, end_at=end_at
+            )
         all_entries = self._calculator.compute(
             matches, league.teams, league.players, league.rules
         )

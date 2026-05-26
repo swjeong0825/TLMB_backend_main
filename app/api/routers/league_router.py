@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.requests import Request
 
@@ -224,9 +226,22 @@ async def delete_match_by_player(
 )
 async def get_standings(
     league_id: str,
+    start_date: date | None = Query(
+        None, description="Inclusive league-local start date (YYYY-MM-DD)"
+    ),
+    end_date: date | None = Query(
+        None, description="Inclusive league-local end date (YYYY-MM-DD)"
+    ),
     use_case: GetStandingsUseCase = Depends(get_get_standings_use_case),
 ) -> GetStandingsResponse:
-    view = await use_case.execute(GetStandingsQuery(league_id=league_id))
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="start_date must be before or equal to end_date",
+        )
+    view = await use_case.execute(
+        GetStandingsQuery(league_id=league_id, start_date=start_date, end_date=end_date)
+    )
     return GetStandingsResponse(
         standings=[_to_standings_entry_schema(e) for e in view.entries],
         tie_breakers=list(view.tie_breakers),
@@ -241,10 +256,26 @@ async def get_standings(
 async def get_standings_by_player(
     league_id: str,
     player_name: str = Query(..., description="Player nickname (case-insensitive)"),
+    start_date: date | None = Query(
+        None, description="Inclusive league-local start date (YYYY-MM-DD)"
+    ),
+    end_date: date | None = Query(
+        None, description="Inclusive league-local end date (YYYY-MM-DD)"
+    ),
     use_case: GetStandingsByPlayerUseCase = Depends(get_get_standings_by_player_use_case),
 ) -> GetStandingsResponse:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="start_date must be before or equal to end_date",
+        )
     view = await use_case.execute(
-        GetStandingsByPlayerQuery(league_id=league_id, player_name=player_name)
+        GetStandingsByPlayerQuery(
+            league_id=league_id,
+            player_name=player_name,
+            start_date=start_date,
+            end_date=end_date,
+        )
     )
     return GetStandingsResponse(
         standings=[_to_standings_entry_schema(e) for e in view.entries],
@@ -342,6 +373,7 @@ async def get_league_roster(
     return GetLeagueRosterResponse(
         title=roster.title,
         league_timezone=roster.league_timezone,
+        latest_match_date=roster.latest_match_date,
         rules=LeagueRulesResponseSchema(**roster.rules),
         players=[
             PlayerEntrySchema(

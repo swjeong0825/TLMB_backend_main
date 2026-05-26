@@ -860,6 +860,7 @@ async def test_get_league_roster_empty(client: AsyncClient) -> None:
     assert body["title"] == "Test League"
     assert body["players"] == []
     assert body["teams"] == []
+    assert body["latest_match_date"] is None
     # rules echoed so the frontend can fetch league title + rules in one trip.
     assert body["league_timezone"] == "America/Los_Angeles"
     assert body["rules"]["version"] == 7
@@ -907,6 +908,7 @@ async def test_get_league_roster_after_matches(client: AsyncClient) -> None:
     body = resp.json()
 
     assert body["title"] == "Test League"
+    assert body["latest_match_date"] is not None
     assert len(body["players"]) == 4
     nicknames = {p["nickname"] for p in body["players"]}
     assert nicknames == {"alice", "bob", "charlie", "diana"}

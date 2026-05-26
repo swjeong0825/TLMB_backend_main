@@ -31,13 +31,33 @@ class SqlAlchemyMatchRepository(MatchRepository):
         orm = result.scalar_one_or_none()
         return match_to_domain(orm) if orm is not None else None
 
-    async def get_all_by_league(self, league_id: LeagueId) -> list[Match]:
+    async def get_all_by_league(
+        self,
+        league_id: LeagueId,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[Match]:
+        filters = [MatchORM.league_id == league_id.value]
+        if start_at is not None:
+            filters.append(MatchORM.created_at >= start_at)
+        if end_at is not None:
+            filters.append(MatchORM.created_at < end_at)
+        result = await self._session.execute(
+            select(MatchORM)
+            .where(*filters)
+            .order_by(MatchORM.created_at.desc())
+        )
+        return [match_to_domain(row) for row in result.scalars().all()]
+
+    async def get_latest_by_league(self, league_id: LeagueId) -> Match | None:
         result = await self._session.execute(
             select(MatchORM)
             .where(MatchORM.league_id == league_id.value)
             .order_by(MatchORM.created_at.desc())
+            .limit(1)
         )
-        return [match_to_domain(row) for row in result.scalars().all()]
+        orm = result.scalar_one_or_none()
+        return match_to_domain(orm) if orm is not None else None
 
     async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]:
         result = await self._session.execute(

@@ -1,6 +1,7 @@
 """Unit tests for GetStandingsUseCase."""
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -75,6 +76,70 @@ class TestGetStandingsUseCase:
         await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
         mock_match_repo.get_all_by_league.assert_awaited_once_with(league.league_id)
+
+    async def test_match_repo_queried_with_league_local_date_bounds(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        await use_case.execute(
+            GetStandingsQuery(
+                league_id=str(league.league_id),
+                start_date=date(2026, 5, 24),
+                end_date=date(2026, 5, 24),
+            )
+        )
+
+        mock_match_repo.get_all_by_league.assert_awaited_once_with(
+            league.league_id,
+            start_at=datetime(2026, 5, 24, 7, 0, tzinfo=timezone.utc),
+            end_at=datetime(2026, 5, 25, 7, 0, tzinfo=timezone.utc),
+        )
+
+    async def test_match_repo_queried_with_start_date_only(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        await use_case.execute(
+            GetStandingsQuery(
+                league_id=str(league.league_id),
+                start_date=date(2026, 5, 24),
+            )
+        )
+
+        mock_match_repo.get_all_by_league.assert_awaited_once_with(
+            league.league_id,
+            start_at=datetime(2026, 5, 24, 7, 0, tzinfo=timezone.utc),
+            end_at=None,
+        )
+
+    async def test_match_repo_queried_with_end_date_only(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        await use_case.execute(
+            GetStandingsQuery(
+                league_id=str(league.league_id),
+                end_date=date(2026, 5, 24),
+            )
+        )
+
+        mock_match_repo.get_all_by_league.assert_awaited_once_with(
+            league.league_id,
+            start_at=None,
+            end_at=datetime(2026, 5, 25, 7, 0, tzinfo=timezone.utc),
+        )
 
     async def test_returns_standings_entry_objects(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock

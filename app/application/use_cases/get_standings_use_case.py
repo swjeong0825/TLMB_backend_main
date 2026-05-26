@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.domain.aggregates.league.league_rules import RankingMetric
 from app.domain.aggregates.league.repository import LeagueRepository
@@ -13,6 +15,8 @@ from app.domain.services.standings_calculator import StandingsCalculator, Standi
 @dataclass
 class GetStandingsQuery:
     league_id: str
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -48,9 +52,44 @@ class GetStandingsUseCase:
         if league is None:
             raise LeagueNotFoundError(f"League '{query.league_id}' not found")
 
-        matches = await self._match_repo.get_all_by_league(league_id)
+        start_at, end_at = league_date_filter_to_utc_bounds(
+            query.start_date,
+            query.end_date,
+            league.league_timezone.value,
+        )
+        if start_at is None and end_at is None:
+            matches = await self._match_repo.get_all_by_league(league_id)
+        else:
+            matches = await self._match_repo.get_all_by_league(
+                league_id, start_at=start_at, end_at=end_at
+            )
 
         entries = self._calculator.compute(
             matches, league.teams, league.players, league.rules
         )
         return StandingsView(entries=entries, tie_breakers=league.rules.tie_breakers)
+
+
+def league_date_filter_to_utc_bounds(
+    start_date: date | None,
+    end_date: date | None,
+    league_timezone: str,
+) -> tuple[datetime | None, datetime | None]:
+    """Convert inclusive league-local date filters into UTC datetimes."""
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise ValueError("start_date must be before or equal to end_date")
+
+    tz = ZoneInfo(league_timezone)
+    start_at = (
+        datetime.combine(start_date, time.min, tzinfo=tz).astimezone(timezone.utc)
+        if start_date is not None
+        else None
+    )
+    end_at = (
+        datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(
+            timezone.utc
+        )
+        if end_date is not None
+        else None
+    )
+    return start_at, end_at

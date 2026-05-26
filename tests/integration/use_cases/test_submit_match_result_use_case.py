@@ -118,6 +118,9 @@ async def test_creates_players_teams_and_match(
         saved_league = await SqlAlchemyLeagueRepository(s).get_by_id(league.league_id)
         assert len(saved_league.players) == 4
         assert len(saved_league.teams) == 2
+        assert saved_league.latest_match_date == result.created_at.astimezone(
+            ZoneInfo(saved_league.league_timezone.value)
+        ).date()
 
         matches = await SqlAlchemyMatchRepository(s).get_all_by_league(league.league_id)
         assert len(matches) == 1

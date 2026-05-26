@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from app.domain.aggregates.league.entities import Player, Team
 from app.domain.aggregates.league.league_rules import LeagueRules
@@ -37,6 +39,7 @@ class League:
     host_token: HostToken
     host_email: HostEmail
     league_timezone: LeagueTimezone
+    latest_match_date: date | None
     title: str
     description: str | None
     rules: LeagueRules
@@ -63,6 +66,7 @@ class League:
             host_token=HostToken(value=host_token),
             host_email=HostEmail(value=host_email),
             league_timezone=LeagueTimezone(value=league_timezone),
+            latest_match_date=None,
             title=title,
             description=description,
             rules=resolved_rules,
@@ -71,6 +75,23 @@ class League:
             pending_deleted_team_ids=[],
             pending_deleted_player_ids=[],
         )
+
+    def note_match_recorded_at(self, created_at: datetime) -> None:
+        """Update league metadata from a persisted match timestamp."""
+        local_date = self._local_date_for(created_at)
+        if self.latest_match_date is None or local_date > self.latest_match_date:
+            self.latest_match_date = local_date
+
+    def reset_latest_match_date(self, created_at: datetime | None) -> None:
+        self.latest_match_date = (
+            self._local_date_for(created_at) if created_at is not None else None
+        )
+
+    def _local_date_for(self, created_at: datetime) -> date:
+        dt = created_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo(self.league_timezone.value)).date()
 
     def register_players_and_team(
         self, p1_nickname: str, p2_nickname: str

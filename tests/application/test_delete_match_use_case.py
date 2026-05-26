@@ -1,7 +1,7 @@
 """Unit tests for DeleteMatchUseCase."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,7 +32,7 @@ class TestDeleteMatchUseCase:
         team2_id = TeamId.generate()
         match = make_match(league.league_id, team1_id, team2_id)
 
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
 
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -45,11 +45,37 @@ class TestDeleteMatchUseCase:
         )
 
         mock_match_repo.delete.assert_awaited_once_with(match.match_id, league.league_id)
+        mock_league_repo.save.assert_awaited_once_with(league)
+
+    async def test_recomputes_latest_match_date_after_delete(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league(host_token="valid-token")
+        team1_id = TeamId.generate()
+        team2_id = TeamId.generate()
+        deleted_match = make_match(league.league_id, team1_id, team2_id)
+        remaining_match = make_match(league.league_id, team1_id, team2_id)
+        remaining_match.created_at = datetime(2026, 5, 24, 18, 0, tzinfo=timezone.utc)
+
+        mock_league_repo.get_by_id_with_lock.return_value = league
+        mock_match_repo.get_by_id.return_value = deleted_match
+        mock_match_repo.get_latest_by_league.return_value = remaining_match
+
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+        await use_case.execute(
+            DeleteMatchCommand(
+                host_token="valid-token",
+                league_id=str(league.league_id),
+                match_id=str(deleted_match.match_id),
+            )
+        )
+
+        assert league.latest_match_date == date(2026, 5, 24)
 
     async def test_league_not_found_raises(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
-        mock_league_repo.get_by_id.return_value = None
+        mock_league_repo.get_by_id_with_lock.return_value = None
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         with pytest.raises(LeagueNotFoundError):
@@ -65,7 +91,7 @@ class TestDeleteMatchUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="correct-token")
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         with pytest.raises(UnauthorizedError):
@@ -81,7 +107,7 @@ class TestDeleteMatchUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = None
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
@@ -98,7 +124,7 @@ class TestDeleteMatchUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="correct-token")
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         with pytest.raises(UnauthorizedError):
@@ -116,7 +142,7 @@ class TestDeleteMatchUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="token")
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = None
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
@@ -129,7 +155,7 @@ class TestDeleteMatchUseCase:
                 )
             )
 
-        mock_league_repo.get_by_id.assert_awaited_once_with(league.league_id)
+        mock_league_repo.get_by_id_with_lock.assert_awaited_once_with(league.league_id)
 
 
 class TestDeleteMatchUseCasePlayerWindow:
@@ -160,7 +186,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         match = make_match(league.league_id, team1_id, team2_id)
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=30)
 
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
         use_case = self._use_case(mock_league_repo, mock_match_repo, window_seconds=600)
 
@@ -181,7 +207,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=1200)
 
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
         use_case = self._use_case(mock_league_repo, mock_match_repo, window_seconds=600)
 
@@ -206,7 +232,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(days=30)
 
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
         use_case = self._use_case(mock_league_repo, mock_match_repo, window_seconds=60)
 
@@ -231,7 +257,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
         match.created_at = None
 
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
@@ -249,7 +275,7 @@ class TestDeleteMatchUseCasePlayerWindow:
     async def test_player_league_not_found_raises_league_not_found(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
-        mock_league_repo.get_by_id.return_value = None
+        mock_league_repo.get_by_id_with_lock.return_value = None
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
         with pytest.raises(LeagueNotFoundError):
@@ -265,7 +291,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="any-token")
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = None
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
@@ -287,7 +313,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=700)
 
-        mock_league_repo.get_by_id.return_value = league
+        mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
         use_case = DeleteMatchUseCase(mock_league_repo, mock_match_repo)
 

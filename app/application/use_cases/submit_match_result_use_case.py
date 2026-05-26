@@ -109,12 +109,13 @@ class SubmitMatchResultUseCase:
 
             await uow.league_repo.save(league)
             await uow.match_repo.save(match)
+            # `match.created_at` is populated by the repo on insert via flush.
+            # If somehow missing (e.g. a non-persisting repo fake in a test),
+            # fall back to current UTC so callers always have a non-null value.
+            created_at = match.created_at or datetime.now(timezone.utc)
+            league.note_match_recorded_at(created_at)
+            await uow.league_repo.save(league)
             await uow.commit()
-
-        # `match.created_at` is populated by the repo on insert via flush.
-        # If somehow missing (e.g. a non-persisting repo fake in a test),
-        # fall back to current UTC so callers always have a non-null value.
-        created_at = match.created_at or datetime.now(timezone.utc)
 
         return SubmitMatchResultResult(
             match_id=str(match.match_id.value),

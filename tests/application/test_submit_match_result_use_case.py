@@ -81,6 +81,7 @@ def _make_uow_factory(league=None):
     uow.match_repo = AsyncMock()
     uow.match_repo.exists_match_for_team_pair = AsyncMock(return_value=False)
     uow.match_repo.exists_match_for_team_pair_between = AsyncMock(return_value=False)
+    uow.match_repo.get_latest_by_league = AsyncMock(return_value=None)
     uow.match_repo.save = AsyncMock(return_value=None)
     uow.commit = AsyncMock(return_value=None)
     uow.rollback = AsyncMock(return_value=None)
@@ -209,9 +210,10 @@ class TestSubmitMatchResultUseCase:
             )
         )
 
-        uow.league_repo.save.assert_awaited_once()
+        assert uow.league_repo.save.await_count == 2
         uow.match_repo.save.assert_awaited_once()
         uow.commit.assert_awaited_once()
+        assert league.latest_match_date is not None
 
     async def test_player_on_different_team_raises_team_conflict(self) -> None:
         league = make_league()

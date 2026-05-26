@@ -42,8 +42,10 @@ async def test_deletes_match_successfully(persisted_league_with_match: dict) -> 
 
     async with _session_factory() as s:
         matches = await SqlAlchemyMatchRepository(s).get_all_by_league(league.league_id)
+        saved_league = await SqlAlchemyLeagueRepository(s).get_by_id(league.league_id)
 
     assert all(str(m.match_id.value) != match_id for m in matches)
+    assert saved_league.latest_match_date is None
 
 
 async def test_raises_for_wrong_token(persisted_league_with_match: dict) -> None:

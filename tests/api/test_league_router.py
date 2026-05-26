@@ -4,7 +4,7 @@ All use cases are mocked; no database or infrastructure code is exercised.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -374,6 +374,51 @@ class TestGetStandings:
         assert response.status_code == 200
         assert response.json()["tie_breakers"] == ["games_won", "games_diff"]
 
+    async def test_passes_optional_date_filters_to_use_case(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("matches_won",),
+        )
+        response = await client.get(
+            "/leagues/lid/standings?start_date=2026-05-24&end_date=2026-05-25"
+        )
+        assert response.status_code == 200
+        call_args = mock_get_standings_uc.execute.call_args[0][0]
+        assert call_args.league_id == "lid"
+        assert call_args.start_date == date(2026, 5, 24)
+        assert call_args.end_date == date(2026, 5, 25)
+
+    async def test_passes_one_sided_date_filters_to_use_case(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("matches_won",),
+        )
+
+        start_response = await client.get("/leagues/lid/standings?start_date=2026-05-24")
+        assert start_response.status_code == 200
+        start_args = mock_get_standings_uc.execute.call_args[0][0]
+        assert start_args.start_date == date(2026, 5, 24)
+        assert start_args.end_date is None
+
+        end_response = await client.get("/leagues/lid/standings?end_date=2026-05-25")
+        assert end_response.status_code == 200
+        end_args = mock_get_standings_uc.execute.call_args[0][0]
+        assert end_args.start_date is None
+        assert end_args.end_date == date(2026, 5, 25)
+
+    async def test_invalid_date_filter_range_returns_422(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        response = await client.get(
+            "/leagues/lid/standings?start_date=2026-05-25&end_date=2026-05-24"
+        )
+        assert response.status_code == 422
+        mock_get_standings_uc.execute.assert_not_awaited()
+
     async def test_league_not_found_returns_404(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock
     ) -> None:
@@ -466,10 +511,42 @@ class TestGetStandingsByPlayer:
         mock_get_standings_by_player_uc.execute.return_value = StandingsView(
             entries=[], tie_breakers=("matches_won",)
         )
-        await client.get("/leagues/lid/standings/by-player?player_name=alice")
+        await client.get(
+            "/leagues/lid/standings/by-player?player_name=alice"
+            "&start_date=2026-05-24&end_date=2026-05-25"
+        )
         call_args = mock_get_standings_by_player_uc.execute.call_args[0][0]
         assert call_args.player_name == "alice"
         assert call_args.league_id == "lid"
+        assert call_args.start_date == date(2026, 5, 24)
+        assert call_args.end_date == date(2026, 5, 25)
+
+    async def test_passes_one_sided_date_filter_to_use_case(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.return_value = StandingsView(
+            entries=[], tie_breakers=("matches_won",)
+        )
+
+        response = await client.get(
+            "/leagues/lid/standings/by-player?player_name=alice&start_date=2026-05-24"
+        )
+
+        assert response.status_code == 200
+        call_args = mock_get_standings_by_player_uc.execute.call_args[0][0]
+        assert call_args.player_name == "alice"
+        assert call_args.start_date == date(2026, 5, 24)
+        assert call_args.end_date is None
+
+    async def test_invalid_by_player_date_filter_range_returns_422(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        response = await client.get(
+            "/leagues/lid/standings/by-player?player_name=alice"
+            "&start_date=2026-05-25&end_date=2026-05-24"
+        )
+        assert response.status_code == 422
+        mock_get_standings_by_player_uc.execute.assert_not_awaited()
 
     async def test_missing_player_name_returns_422(self, client: AsyncClient) -> None:
         response = await client.get("/leagues/lid/standings/by-player")
@@ -635,6 +712,7 @@ class TestGetLeagueRoster:
         mock_get_roster_uc.execute.return_value = RosterView(
             title="Summer Cup",
             league_timezone="America/Los_Angeles",
+            latest_match_date=date(2026, 5, 24),
             rules=dict(_DEFAULT_ROSTER_RULES),
             players=[PlayerEntry(player_id="p1", nickname="alice")],
             teams=[TeamEntry(team_id="t1", player1_nickname="alice", player2_nickname="bob")],
@@ -644,6 +722,7 @@ class TestGetLeagueRoster:
         data = response.json()
         assert data["title"] == "Summer Cup"
         assert data["league_timezone"] == "America/Los_Angeles"
+        assert data["latest_match_date"] == "2026-05-24"
         assert len(data["players"]) == 1
         assert data["players"][0]["nickname"] == "alice"
         assert len(data["teams"]) == 1
@@ -695,4 +774,3 @@ class TestGetLeagueRoster:
         data = response.json()
         assert data["rules"]["one_team_per_player"] is False
         assert data["rules"]["ranking_subject"] == "player"
-

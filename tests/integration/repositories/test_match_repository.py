@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.aggregates.league.aggregate_root import League
@@ -15,6 +17,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
+from app.infrastructure.persistence.models.orm_models import MatchORM
 from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
 
 
@@ -49,6 +52,16 @@ def _make_match(league: League, t1_id_str: str, t2_id_str: str, t1_score: str = 
         TeamId.from_str(t1_id_str),
         TeamId.from_str(t2_id_str),
         SetScore(t1_score, t2_score),
+    )
+
+
+async def _set_match_created_at(
+    session: AsyncSession, match_id: str, created_at: datetime
+) -> None:
+    await session.execute(
+        update(MatchORM)
+        .where(MatchORM.match_id == UUID(match_id))
+        .values(created_at=created_at, updated_at=created_at)
     )
 
 
@@ -160,6 +173,57 @@ async def test_get_all_by_league_does_not_return_other_leagues_matches(session: 
 
     matches = await repo.get_all_by_league(league1.league_id)
     assert len(matches) == 1
+
+
+async def test_get_all_by_league_respects_created_at_bounds(
+    session: AsyncSession,
+) -> None:
+    league, t1, t2 = await _seed_league_with_teams(session)
+    repo = SqlAlchemyMatchRepository(session)
+    older = _make_match(league, t1, t2, "6", "3")
+    newer = _make_match(league, t1, t2, "7", "5")
+    await repo.save(older)
+    await repo.save(newer)
+    await session.commit()
+    await _set_match_created_at(
+        session, str(older.match_id.value), datetime(2026, 5, 23, 12, 0, tzinfo=timezone.utc)
+    )
+    await _set_match_created_at(
+        session, str(newer.match_id.value), datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc)
+    )
+    await session.commit()
+
+    matches = await repo.get_all_by_league(
+        league.league_id,
+        start_at=datetime(2026, 5, 24, 0, 0, tzinfo=timezone.utc),
+        end_at=datetime(2026, 5, 25, 0, 0, tzinfo=timezone.utc),
+    )
+
+    assert [m.match_id for m in matches] == [newer.match_id]
+
+
+async def test_get_latest_by_league_returns_newest_match(
+    session: AsyncSession,
+) -> None:
+    league, t1, t2 = await _seed_league_with_teams(session)
+    repo = SqlAlchemyMatchRepository(session)
+    older = _make_match(league, t1, t2, "6", "3")
+    newer = _make_match(league, t1, t2, "7", "5")
+    await repo.save(older)
+    await repo.save(newer)
+    await session.commit()
+    await _set_match_created_at(
+        session, str(older.match_id.value), datetime(2026, 5, 23, 12, 0, tzinfo=timezone.utc)
+    )
+    await _set_match_created_at(
+        session, str(newer.match_id.value), datetime(2026, 5, 24, 12, 0, tzinfo=timezone.utc)
+    )
+    await session.commit()
+
+    latest = await repo.get_latest_by_league(league.league_id)
+
+    assert latest is not None
+    assert latest.match_id == newer.match_id
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from app.domain.aggregates.league.repository import LeagueRepository
@@ -42,6 +43,7 @@ class RosterView:
     rules: dict[str, Any]
     players: list[PlayerEntry]
     teams: list[TeamEntry]
+    latest_match_date: date | None = None
 
 
 class GetLeagueRosterUseCase:
@@ -89,6 +91,7 @@ class GetLeagueRosterUseCase:
         return RosterView(
             title=league.title,
             league_timezone=league.league_timezone.value,
+            latest_match_date=league.latest_match_date,
             rules=league.rules.to_dict(),
             players=players,
             teams=teams,

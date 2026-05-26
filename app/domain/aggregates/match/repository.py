@@ -13,7 +13,21 @@ class MatchRepository(ABC):
     async def get_by_id(self, match_id: MatchId, league_id: LeagueId) -> Match | None: ...
 
     @abstractmethod
-    async def get_all_by_league(self, league_id: LeagueId) -> list[Match]: ...
+    async def get_all_by_league(
+        self,
+        league_id: LeagueId,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[Match]:
+        """Return league matches sorted newest first.
+
+        Optional UTC bounds constrain `created_at` with an inclusive lower
+        bound and exclusive upper bound.
+        """
+        ...
+
+    @abstractmethod
+    async def get_latest_by_league(self, league_id: LeagueId) -> Match | None: ...
 
     @abstractmethod
     async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]: ...

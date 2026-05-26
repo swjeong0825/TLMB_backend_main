@@ -35,6 +35,7 @@ async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> Non
     assert roster.players == []
     assert roster.teams == []
     assert roster.rules == league.rules.to_dict()
+    assert roster.latest_match_date is None
 
 
 async def test_returns_players_and_teams_after_match(persisted_league_with_match: dict) -> None:
@@ -47,6 +48,7 @@ async def test_returns_players_and_teams_after_match(persisted_league_with_match
         )
 
     assert roster.title == league.title
+    assert roster.latest_match_date == league.latest_match_date
     nicknames = {p.nickname for p in roster.players}
     assert nicknames == {"alice", "bob", "charlie", "diana"}
     assert len(roster.teams) == 2

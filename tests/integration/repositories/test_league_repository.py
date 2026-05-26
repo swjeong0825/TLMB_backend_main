@@ -1,6 +1,8 @@
 """Integration tests for SqlAlchemyLeagueRepository."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,6 +104,20 @@ async def test_save_persists_league_timezone(session: AsyncSession) -> None:
     found = await repo.get_by_id(league.league_id)
     assert found is not None
     assert found.league_timezone.value == "Asia/Seoul"
+
+
+async def test_save_persists_latest_match_date(session: AsyncSession) -> None:
+    repo = SqlAlchemyLeagueRepository(session)
+    league = _make_league("Latest Date League")
+    league.latest_match_date = date(2026, 5, 24)
+    await repo.save(league)
+    await session.commit()
+    session.expire_all()
+
+    found = await repo.get_by_id(league.league_id)
+
+    assert found is not None
+    assert found.latest_match_date == date(2026, 5, 24)
 
 
 # ---------------------------------------------------------------------------

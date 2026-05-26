@@ -1,6 +1,7 @@
 """Unit tests for GetStandingsByPlayerUseCase."""
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -122,6 +123,53 @@ class TestGetStandingsByPlayerUseCase:
         )
 
         mock_match_repo.get_all_by_league.assert_awaited_once_with(league.league_id)
+
+    async def test_match_repo_queried_with_league_local_date_bounds(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        league.register_players_and_team("alice", "bob")
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        await use_case.execute(
+            GetStandingsByPlayerQuery(
+                league_id=str(league.league_id),
+                player_name="alice",
+                start_date=date(2026, 5, 24),
+                end_date=date(2026, 5, 24),
+            )
+        )
+
+        mock_match_repo.get_all_by_league.assert_awaited_once_with(
+            league.league_id,
+            start_at=datetime(2026, 5, 24, 7, 0, tzinfo=timezone.utc),
+            end_at=datetime(2026, 5, 25, 7, 0, tzinfo=timezone.utc),
+        )
+
+    async def test_match_repo_queried_with_one_sided_date_filter(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        league.register_players_and_team("alice", "bob")
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = []
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        await use_case.execute(
+            GetStandingsByPlayerQuery(
+                league_id=str(league.league_id),
+                player_name="alice",
+                end_date=date(2026, 5, 24),
+            )
+        )
+
+        mock_match_repo.get_all_by_league.assert_awaited_once_with(
+            league.league_id,
+            start_at=None,
+            end_at=datetime(2026, 5, 25, 7, 0, tzinfo=timezone.utc),
+        )
 
     async def test_player_subject_returns_players_own_row(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock

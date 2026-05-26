@@ -1,6 +1,7 @@
 """Unit tests for GetLeagueRosterUseCase."""
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import AsyncMock
 
 import pytest
@@ -145,3 +146,16 @@ class TestGetLeagueRosterUseCase:
             "auto_register_players_on_match",
         }
         assert result.league_timezone == league.league_timezone.value
+
+    async def test_latest_match_date_returned(
+        self, mock_league_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        league.latest_match_date = date(2026, 5, 24)
+
+        mock_league_repo.get_by_id.return_value = league
+        use_case = self._use_case(mock_league_repo)
+
+        result = await use_case.execute(GetLeagueRosterQuery(league_id=str(league.league_id)))
+
+        assert result.latest_match_date == date(2026, 5, 24)

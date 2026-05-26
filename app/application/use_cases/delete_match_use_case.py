@@ -77,7 +77,7 @@ class DeleteMatchUseCase:
     async def execute(self, command: DeleteMatchCommand) -> None:
         league_id = LeagueId.from_str(command.league_id)
 
-        league = await self._league_repo.get_by_id(league_id)
+        league = await self._league_repo.get_by_id_with_lock(league_id)
         if league is None:
             raise LeagueNotFoundError(f"League '{command.league_id}' not found")
 
@@ -94,6 +94,11 @@ class DeleteMatchUseCase:
             self._enforce_player_delete_window(match.created_at, command.match_id)
 
         await self._match_repo.delete(match_id, league_id)
+        latest_match = await self._match_repo.get_latest_by_league(league_id)
+        league.reset_latest_match_date(
+            latest_match.created_at if latest_match is not None else None
+        )
+        await self._league_repo.save(league)
 
     def _enforce_player_delete_window(
         self, created_at: datetime | None, match_id: str
