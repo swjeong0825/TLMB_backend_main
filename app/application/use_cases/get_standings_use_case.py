@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.domain.aggregates.league.league_rules import RankingMetric
+from app.domain.aggregates.league.league_rules import RankingMetric, RankingSubject
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.match.repository import MatchRepository
@@ -17,6 +17,7 @@ class GetStandingsQuery:
     league_id: str
     start_date: date | None = None
     end_date: date | None = None
+    subject: RankingSubject | None = None
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,11 @@ class GetStandingsUseCase:
             )
 
         entries = self._calculator.compute(
-            matches, league.pairs, league.players, league.rules
+            matches,
+            league.pairs,
+            league.players,
+            league.rules,
+            subject=query.subject,
         )
         return StandingsView(entries=entries, tie_breakers=league.rules.tie_breakers)
 

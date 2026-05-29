@@ -54,6 +54,32 @@ class TestGetStandingsUseCase:
         assert winner.losses == 0
         assert winner.rank == 1
 
+    async def test_subject_override_returns_player_rows_for_pair_ranked_league(
+        self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
+    ) -> None:
+        league = make_league()
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        pair1 = league.pairs[0]
+        pair2 = league.pairs[1]
+        match = make_match(league.league_id, pair1.pair_id, pair2.pair_id, "6", "3")
+
+        mock_league_repo.get_by_id.return_value = league
+        mock_match_repo.get_all_by_league.return_value = [match]
+        use_case = self._use_case(mock_league_repo, mock_match_repo)
+
+        result = await use_case.execute(
+            GetStandingsQuery(league_id=str(league.league_id), subject="player")
+        )
+
+        assert {e.subject_kind for e in result.entries} == {"player"}
+        assert {e.nickname for e in result.entries} == {
+            "alice",
+            "bob",
+            "charlie",
+            "diana",
+        }
+
     async def test_league_not_found_raises(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:

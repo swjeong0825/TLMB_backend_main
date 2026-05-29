@@ -120,7 +120,7 @@ There is no `(ranking_subject, one_pair_per_player)` cross-rule in v2; rule 3 ma
 
 ## Standings response shape (polymorphic)
 
-The same two endpoints, `GET /leagues/{id}/standings` and `GET /leagues/{id}/standings/by-player`, are reused. The response carries the league's ordered ranking metrics at the top level, and each row carries a `subject_kind` discriminator:
+The same two endpoints, `GET /leagues/{id}/standings` and `GET /leagues/{id}/standings/by-player`, are reused. `GET /leagues/{id}/standings` defaults to the league's configured `ranking_subject`, but also accepts `?subject=pair|player` as a read-only projection override. This does not mutate `LeagueRules`; it only chooses which row subject the read model emits. The response carries the league's ordered ranking metrics at the top level, and each row carries a `subject_kind` discriminator:
 
 ```json
 {

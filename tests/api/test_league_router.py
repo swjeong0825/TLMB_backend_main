@@ -389,6 +389,49 @@ class TestGetStandings:
         assert call_args.league_id == "lid"
         assert call_args.start_date == date(2026, 5, 24)
         assert call_args.end_date == date(2026, 5, 25)
+        assert call_args.subject is None
+
+    async def test_passes_optional_subject_to_use_case(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("matches_won",),
+        )
+
+        response = await client.get("/leagues/lid/standings?subject=player")
+
+        assert response.status_code == 200
+        call_args = mock_get_standings_uc.execute.call_args[0][0]
+        assert call_args.league_id == "lid"
+        assert call_args.subject == "player"
+
+    async def test_passes_subject_with_date_filters_to_use_case(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("matches_won",),
+        )
+
+        response = await client.get(
+            "/leagues/lid/standings?subject=pair"
+            "&start_date=2026-05-24&end_date=2026-05-25"
+        )
+
+        assert response.status_code == 200
+        call_args = mock_get_standings_uc.execute.call_args[0][0]
+        assert call_args.subject == "pair"
+        assert call_args.start_date == date(2026, 5, 24)
+        assert call_args.end_date == date(2026, 5, 25)
+
+    async def test_invalid_subject_returns_422(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        response = await client.get("/leagues/lid/standings?subject=team")
+
+        assert response.status_code == 422
+        mock_get_standings_uc.execute.assert_not_awaited()
 
     async def test_passes_one_sided_date_filters_to_use_case(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock

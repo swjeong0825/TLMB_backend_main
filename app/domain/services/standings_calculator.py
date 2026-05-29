@@ -103,17 +103,15 @@ class StandingsCalculator:
         pairs: list[Pair],
         players: list[Player],
         rules: LeagueRules,
+        subject: RankingSubject | None = None,
     ) -> list[StandingsEntry]:
-        subject: RankingSubject = rules.ranking_subject
-        if subject == "pair":
+        effective_subject: RankingSubject = subject or rules.ranking_subject
+        if effective_subject == "pair":
             return self._compute_for_pairs(matches, pairs, players, rules)
-        # Player-subject branch. Under v3 the (player, OTPP=true) cross-rule is
-        # rejected by `LeagueRules.from_dict`, so this branch only ever runs for
-        # leagues with one_pair_per_player=false. Each player row aggregates
-        # per-match outcomes across every pair the player belongs to, so a
-        # player who partnered with different pairmates across matches can have
-        # a different metric tuple than any individual pairmate.
-        # See design doc 18 (configurable_ranking_v3).
+        # Player-subject branch. As a configured league rule, player ranking
+        # requires OTPP=false. As a read-only projection override, callers may
+        # request player rows for any league; fixed pairmates simply share the
+        # same metric tuple.
         return self._compute_for_players(matches, pairs, players, rules)
 
     def _compute_for_pairs(

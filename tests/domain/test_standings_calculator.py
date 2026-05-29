@@ -335,6 +335,47 @@ class TestTieBreakersPair:
 
 
 class TestPlayerSubjectRanking:
+    def test_subject_override_can_emit_player_rows_for_pair_ranked_league(self) -> None:
+        alice, bob = _player("alice"), _player("bob")
+        charlie, diana = _player("charlie"), _player("diana")
+        pair_ab = _pair(alice, bob)
+        pair_cd = _pair(charlie, diana)
+        m = _match(LEAGUE, pair_ab, pair_cd, "6", "3")
+
+        rules = _rules(ranking_subject="pair")
+        entries = StandingsCalculator().compute(
+            [m],
+            [pair_ab, pair_cd],
+            [alice, bob, charlie, diana],
+            rules,
+            subject="player",
+        )
+
+        assert {e.subject_kind for e in entries} == {"player"}
+        assert {e.nickname for e in entries} == {"alice", "bob", "charlie", "diana"}
+
+    def test_subject_override_can_emit_pair_rows_for_player_ranked_league(self) -> None:
+        alice, bob = _player("alice"), _player("bob")
+        charlie, diana = _player("charlie"), _player("diana")
+        pair_ab = _pair(alice, bob)
+        pair_cd = _pair(charlie, diana)
+        m = _match(LEAGUE, pair_ab, pair_cd, "6", "3")
+
+        rules = _rules(ranking_subject="player", one_pair_per_player=False)
+        entries = StandingsCalculator().compute(
+            [m],
+            [pair_ab, pair_cd],
+            [alice, bob, charlie, diana],
+            rules,
+            subject="pair",
+        )
+
+        assert {e.subject_kind for e in entries} == {"pair"}
+        assert {e.pair_id for e in entries} == {
+            str(pair_ab.pair_id.value),
+            str(pair_cd.pair_id.value),
+        }
+
     def test_player_rows_match_pair_rows_when_partners_are_fixed(self) -> None:
         alice, bob = _player("alice"), _player("bob")
         charlie, diana = _player("charlie"), _player("diana")

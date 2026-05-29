@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.requests import Request
@@ -226,6 +227,13 @@ async def delete_match_by_player(
 )
 async def get_standings(
     league_id: str,
+    subject: Literal["pair", "player"] | None = Query(
+        None,
+        description=(
+            "Optional read projection override. Omit to use the league's "
+            "configured ranking subject."
+        ),
+    ),
     start_date: date | None = Query(
         None, description="Inclusive league-local start date (YYYY-MM-DD)"
     ),
@@ -240,7 +248,12 @@ async def get_standings(
             detail="start_date must be before or equal to end_date",
         )
     view = await use_case.execute(
-        GetStandingsQuery(league_id=league_id, start_date=start_date, end_date=end_date)
+        GetStandingsQuery(
+            league_id=league_id,
+            start_date=start_date,
+            end_date=end_date,
+            subject=subject,
+        )
     )
     return GetStandingsResponse(
         standings=[_to_standings_entry_schema(e) for e in view.entries],

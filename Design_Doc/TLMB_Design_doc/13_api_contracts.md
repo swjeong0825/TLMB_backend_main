@@ -149,8 +149,8 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/standings`
-- Purpose: Get the current standings for the league, ranked according to the league's configured `ranking_subject` and ordered `tie_breakers` list (see [17_configurable_ranking.md](17_configurable_ranking.md))
-- Request shape: —
+- Purpose: Get the current standings for the league. By default this uses the league's configured `ranking_subject`; callers may request a read-only pair/player projection with `subject=pair|player`. Ordering still uses the league's configured `tie_breakers` list (see [17_configurable_ranking.md](17_configurable_ranking.md)).
+- Request shape: optional query params `subject=pair|player`, `start_date=YYYY-MM-DD`, `end_date=YYYY-MM-DD`
 - Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Pair variants additionally carry `pair_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`. The top-level `tie_breakers` field echoes the league's ordered ranking metrics (a copy of `LeagueRules.tie_breakers`) so clients can label the displayed metric column to match the league's primary tie-breaker — e.g. a league configured with `tie_breakers=["games_won", ...]` shows a "Games won" column rather than a generic "Games ±".
   ```json
   {
@@ -187,9 +187,9 @@ flowchart LR
   }
   ```
 - Use case called: GetStandingsUseCase
-- Error responses: 404 LeagueNotFoundError
+- Error responses: 404 LeagueNotFoundError; 422 invalid `subject` or invalid date range
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: For a single response, every row's `subject_kind` is identical (a league has one ranking subject). The discriminator is included on every row so individual rows are still self-describing for downstream consumers (chat handlers, render loops). Old clients reading only `pair_id` / `player1_nickname` / `player2_nickname` / `wins` / `losses` will silently break for player-subject leagues — coordinate frontend + backend rollouts.
+- Notes: For a single response, every row's `subject_kind` is identical because the request chooses one projection subject. The discriminator is included on every row so individual rows are still self-describing for downstream consumers (chat handlers, render loops). Old clients reading only `pair_id` / `player1_nickname` / `player2_nickname` / `wins` / `losses` will silently break for player-subject responses — coordinate frontend + backend rollouts.
 
 ---
 
