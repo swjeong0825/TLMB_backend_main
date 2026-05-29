@@ -18,7 +18,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 async def test_returns_empty_standings_for_league_with_no_matches(session: AsyncSession) -> None:
@@ -28,7 +28,7 @@ async def test_returns_empty_standings_for_league_with_no_matches(session: Async
         None,
         "tok",
         host_email="host@example.com",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
     await repo.save(league)
 

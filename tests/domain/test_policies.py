@@ -1,20 +1,20 @@
 """Unit tests for domain policies.
 
-NicknameUniquenessPolicy, OneTeamPerPlayerPolicy and RosterMembershipPolicy
+NicknameUniquenessPolicy, OnePairPerPlayerPolicy and RosterMembershipPolicy
 are pure in-memory objects; no database or async I/O is involved.
 """
 from __future__ import annotations
 
-from app.domain.aggregates.league.entities import Player, Team
+from app.domain.aggregates.league.entities import Player, Pair
 from app.domain.aggregates.league.policies import (
     NicknameUniquenessPolicy,
-    OneTeamPerPlayerPolicy,
+    OnePairPerPlayerPolicy,
     RosterMembershipPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
     PlayerId,
     PlayerNickname,
-    TeamId,
+    PairId,
 )
 
 
@@ -27,8 +27,8 @@ def _player(nickname: str) -> Player:
     return Player(player_id=PlayerId.generate(), nickname=PlayerNickname(nickname))
 
 
-def _team(p1: Player, p2: Player) -> Team:
-    return Team(team_id=TeamId.generate(), player_id_1=p1.player_id, player_id_2=p2.player_id)
+def _pair(p1: Player, p2: Player) -> Pair:
+    return Pair(pair_id=PairId.generate(), player_id_1=p1.player_id, player_id_2=p2.player_id)
 
 
 # ---------------------------------------------------------------------------
@@ -100,61 +100,61 @@ class TestNicknameUniquenessPolicy:
 
 
 # ---------------------------------------------------------------------------
-# OneTeamPerPlayerPolicy
+# OnePairPerPlayerPolicy
 # ---------------------------------------------------------------------------
 
 
-class TestOneTeamPerPlayerPolicy:
+class TestOnePairPerPlayerPolicy:
     def setup_method(self) -> None:
-        self.policy = OneTeamPerPlayerPolicy()
+        self.policy = OnePairPerPlayerPolicy()
         self.alice = _player("alice")
         self.bob = _player("bob")
         self.charlie = _player("charlie")
 
-    def test_player_with_no_teams_can_join(self) -> None:
-        assert self.policy.can_join_team(self.alice.player_id, []) is True
+    def test_player_with_no_pairs_can_join(self) -> None:
+        assert self.policy.can_join_pair(self.alice.player_id, []) is True
 
-    def test_player_already_on_team_cannot_join(self) -> None:
-        team = _team(self.alice, self.bob)
-        assert self.policy.can_join_team(self.alice.player_id, [team]) is False
+    def test_player_already_on_pair_cannot_join(self) -> None:
+        pair = _pair(self.alice, self.bob)
+        assert self.policy.can_join_pair(self.alice.player_id, [pair]) is False
 
-    def test_second_player_on_team_also_blocked(self) -> None:
-        team = _team(self.alice, self.bob)
-        assert self.policy.can_join_team(self.bob.player_id, [team]) is False
+    def test_second_player_on_pair_also_blocked(self) -> None:
+        pair = _pair(self.alice, self.bob)
+        assert self.policy.can_join_pair(self.bob.player_id, [pair]) is False
 
     def test_unrelated_player_can_join(self) -> None:
-        team = _team(self.alice, self.bob)
-        assert self.policy.can_join_team(self.charlie.player_id, [team]) is True
+        pair = _pair(self.alice, self.bob)
+        assert self.policy.can_join_pair(self.charlie.player_id, [pair]) is True
 
-    def test_exclude_own_team_id_allows_player(self) -> None:
-        team = _team(self.alice, self.bob)
-        result = self.policy.can_join_team(
+    def test_exclude_own_pair_id_allows_player(self) -> None:
+        pair = _pair(self.alice, self.bob)
+        result = self.policy.can_join_pair(
             self.alice.player_id,
-            [team],
-            exclude_team_id=team.team_id,
+            [pair],
+            exclude_pair_id=pair.pair_id,
         )
         assert result is True
 
-    def test_exclude_different_team_id_still_blocks(self) -> None:
-        team = _team(self.alice, self.bob)
-        other_team = _team(self.charlie, _player("diana"))
-        result = self.policy.can_join_team(
+    def test_exclude_different_pair_id_still_blocks(self) -> None:
+        pair = _pair(self.alice, self.bob)
+        other_pair = _pair(self.charlie, _player("diana"))
+        result = self.policy.can_join_pair(
             self.alice.player_id,
-            [team],
-            exclude_team_id=other_team.team_id,
+            [pair],
+            exclude_pair_id=other_pair.pair_id,
         )
         assert result is False
 
-    def test_multiple_teams_player_blocked_if_on_any(self) -> None:
-        team1 = _team(self.alice, self.bob)
-        team2 = _team(self.charlie, _player("diana"))
-        assert self.policy.can_join_team(self.alice.player_id, [team1, team2]) is False
+    def test_multiple_pairs_player_blocked_if_on_any(self) -> None:
+        pair1 = _pair(self.alice, self.bob)
+        pair2 = _pair(self.charlie, _player("diana"))
+        assert self.policy.can_join_pair(self.alice.player_id, [pair1, pair2]) is False
 
-    def test_multiple_teams_unrelated_player_can_join(self) -> None:
-        team1 = _team(self.alice, self.bob)
-        team2 = _team(self.charlie, _player("diana"))
+    def test_multiple_pairs_unrelated_player_can_join(self) -> None:
+        pair1 = _pair(self.alice, self.bob)
+        pair2 = _pair(self.charlie, _player("diana"))
         eve = _player("eve")
-        assert self.policy.can_join_team(eve.player_id, [team1, team2]) is True
+        assert self.policy.can_join_pair(eve.player_id, [pair1, pair2]) is True
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ class RemovePlayerFromRosterUseCase:
     """Remove a single pre-registered player from the league roster.
 
     Replaces the v5 `RemoveAllowlistEntryUseCase` with stricter semantics:
-    the `Player` row is hard-deleted only when the player has zero teams
+    the `Player` row is hard-deleted only when the player has zero pairs
     and zero matches. The aggregate enforces the guard (raises
     `PlayerHasParticipationError` with 409 semantics) — the repository
     has already populated `Player.match_count` at load time so the check

@@ -55,8 +55,8 @@ replaced with in-memory mocks.
 ### Run a single test class or test
 
 ```bash
-.venv/bin/pytest tests/domain/test_league_aggregate.py::TestRegisterPlayersAndTeam
-.venv/bin/pytest tests/domain/test_league_aggregate.py::TestRegisterPlayersAndTeam::test_same_player_listed_twice_raises_same_player_error
+.venv/bin/pytest tests/domain/test_league_aggregate.py::TestRegisterPlayersAndPair
+.venv/bin/pytest tests/domain/test_league_aggregate.py::TestRegisterPlayersAndPair::test_same_player_listed_twice_raises_same_player_error
 ```
 
 ---

@@ -110,15 +110,15 @@ class PlayerNickname:
 
 
 @dataclass(frozen=True)
-class TeamId:
+class PairId:
     value: uuid.UUID
 
     @classmethod
-    def generate(cls) -> TeamId:
+    def generate(cls) -> PairId:
         return cls(value=uuid.uuid4())
 
     @classmethod
-    def from_str(cls, s: str) -> TeamId:
+    def from_str(cls, s: str) -> PairId:
         return cls(value=uuid.UUID(s))
 
     def __str__(self) -> str:

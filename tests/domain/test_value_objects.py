@@ -13,7 +13,7 @@ from app.domain.aggregates.league.value_objects import (
     LeagueId,
     PlayerId,
     PlayerNickname,
-    TeamId,
+    PairId,
 )
 from app.domain.aggregates.match.value_objects import MatchId, SetScore
 from app.domain.exceptions import InvalidSetScoreError
@@ -137,26 +137,26 @@ class TestPlayerNickname:
 
 
 # ---------------------------------------------------------------------------
-# TeamId
+# PairId
 # ---------------------------------------------------------------------------
 
 
-class TestTeamId:
+class TestPairId:
     def test_generate_produces_valid_uuid(self) -> None:
-        tid = TeamId.generate()
+        tid = PairId.generate()
         assert isinstance(tid.value, uuid.UUID)
 
     def test_two_generated_ids_are_distinct(self) -> None:
-        assert TeamId.generate() != TeamId.generate()
+        assert PairId.generate() != PairId.generate()
 
     def test_from_str_round_trip(self) -> None:
         raw = str(uuid.uuid4())
-        tid = TeamId.from_str(raw)
+        tid = PairId.from_str(raw)
         assert str(tid) == raw
 
     def test_from_str_invalid_raises(self) -> None:
         with pytest.raises(ValueError):
-            TeamId.from_str("not-a-uuid")
+            PairId.from_str("not-a-uuid")
 
 
 # ---------------------------------------------------------------------------
@@ -185,52 +185,52 @@ class TestMatchId:
 
 class TestSetScore:
     def test_valid_non_zero_scores_accepted(self) -> None:
-        s = SetScore(team1_score="6", team2_score="3")
-        assert s.team1_score == "6"
-        assert s.team2_score == "3"
+        s = SetScore(pair1_score="6", pair2_score="3")
+        assert s.pair1_score == "6"
+        assert s.pair2_score == "3"
 
     def test_zero_scores_are_valid(self) -> None:
-        s = SetScore(team1_score="0", team2_score="0")
-        assert s.team1_score == "0"
-        assert s.team2_score == "0"
+        s = SetScore(pair1_score="0", pair2_score="0")
+        assert s.pair1_score == "0"
+        assert s.pair2_score == "0"
 
     def test_large_scores_are_valid(self) -> None:
-        s = SetScore(team1_score="100", team2_score="99")
-        assert s.team1_score == "100"
+        s = SetScore(pair1_score="100", pair2_score="99")
+        assert s.pair1_score == "100"
 
-    def test_negative_team1_score_raises(self) -> None:
+    def test_negative_pair1_score_raises(self) -> None:
         with pytest.raises(InvalidSetScoreError):
-            SetScore(team1_score="-1", team2_score="6")
+            SetScore(pair1_score="-1", pair2_score="6")
 
-    def test_negative_team2_score_raises(self) -> None:
+    def test_negative_pair2_score_raises(self) -> None:
         with pytest.raises(InvalidSetScoreError):
-            SetScore(team1_score="6", team2_score="-1")
+            SetScore(pair1_score="6", pair2_score="-1")
 
-    def test_non_integer_team1_score_raises(self) -> None:
+    def test_non_integer_pair1_score_raises(self) -> None:
         with pytest.raises(InvalidSetScoreError):
-            SetScore(team1_score="abc", team2_score="6")
+            SetScore(pair1_score="abc", pair2_score="6")
 
-    def test_non_integer_team2_score_raises(self) -> None:
+    def test_non_integer_pair2_score_raises(self) -> None:
         with pytest.raises(InvalidSetScoreError):
-            SetScore(team1_score="6", team2_score="xyz")
+            SetScore(pair1_score="6", pair2_score="xyz")
 
     def test_float_string_raises(self) -> None:
         with pytest.raises(InvalidSetScoreError):
-            SetScore(team1_score="6.5", team2_score="3")
+            SetScore(pair1_score="6.5", pair2_score="3")
 
-    def test_winner_side_team1_wins(self) -> None:
-        assert SetScore(team1_score="6", team2_score="3").winner_side() == "team1"
+    def test_winner_side_pair1_wins(self) -> None:
+        assert SetScore(pair1_score="6", pair2_score="3").winner_side() == "pair1"
 
-    def test_winner_side_team2_wins(self) -> None:
-        assert SetScore(team1_score="2", team2_score="6").winner_side() == "team2"
+    def test_winner_side_pair2_wins(self) -> None:
+        assert SetScore(pair1_score="2", pair2_score="6").winner_side() == "pair2"
 
     def test_winner_side_draw(self) -> None:
-        assert SetScore(team1_score="6", team2_score="6").winner_side() == "draw"
+        assert SetScore(pair1_score="6", pair2_score="6").winner_side() == "draw"
 
     def test_zero_zero_is_draw(self) -> None:
-        assert SetScore(team1_score="0", team2_score="0").winner_side() == "draw"
+        assert SetScore(pair1_score="0", pair2_score="0").winner_side() == "draw"
 
     def test_immutable(self) -> None:
-        s = SetScore(team1_score="6", team2_score="3")
+        s = SetScore(pair1_score="6", pair2_score="3")
         with pytest.raises((AttributeError, TypeError)):
-            s.team1_score = "7"  # type: ignore[misc]
+            s.pair1_score = "7"  # type: ignore[misc]

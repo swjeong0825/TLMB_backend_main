@@ -37,15 +37,15 @@ class EditMatchScoreCommand:
     host_token: str | None
     league_id: str
     match_id: str
-    team1_score: str
-    team2_score: str
+    pair1_score: str
+    pair2_score: str
 
 
 @dataclass
 class UpdatedMatchResult:
     match_id: str
-    team1_score: str
-    team2_score: str
+    pair1_score: str
+    pair2_score: str
 
 
 class EditMatchScoreUseCase:
@@ -93,7 +93,7 @@ class EditMatchScoreUseCase:
             raise UnauthorizedError("Invalid host token")
 
         new_set_score = SetScore(
-            team1_score=command.team1_score, team2_score=command.team2_score
+            pair1_score=command.pair1_score, pair2_score=command.pair2_score
         )
 
         match_id = MatchId.from_str(command.match_id)
@@ -109,8 +109,8 @@ class EditMatchScoreUseCase:
 
         return UpdatedMatchResult(
             match_id=str(match.match_id.value),
-            team1_score=match.set_score.team1_score,
-            team2_score=match.set_score.team2_score,
+            pair1_score=match.set_score.pair1_score,
+            pair2_score=match.set_score.pair2_score,
         )
 
     def _enforce_player_edit_window(

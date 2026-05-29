@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
-from app.domain.aggregates.league.entities import Team
+from app.domain.aggregates.league.entities import Pair
 from app.domain.aggregates.league.repository import LeagueRepository
-from app.domain.aggregates.league.value_objects import LeagueId, PlayerNickname, TeamId
+from app.domain.aggregates.league.value_objects import LeagueId, PlayerNickname, PairId
 from app.domain.aggregates.match.repository import MatchRepository
 from app.domain.exceptions import LeagueNotFoundError, PlayerNotFoundError
 
@@ -42,42 +42,51 @@ class GetMatchHistoryByPlayerUseCase:
                 f"Player '{query.player_name}' not found in league '{query.league_id}'"
             )
 
-        # Under OTPP=true the player has at most one team. Under OTPP=false
-        # they may belong to multiple teams; the repo returns the union of
-        # matches across every supplied team ID, deduped by `match_id`. See
+        # Under OTPP=true the player has at most one pair. Under OTPP=false
+        # they may belong to multiple pairs; the repo returns the union of
+        # matches across every supplied pair ID, deduped by `match_id`. See
         # design doc 18.
-        team_ids = [
-            t.team_id
-            for t in league.teams
-            if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
+        pair_ids = [
+            pair.pair_id
+            for pair in league.pairs
+            if pair.player_id_1 == player.player_id
+            or pair.player_id_2 == player.player_id
         ]
-        if not team_ids:
+        if not pair_ids:
             return []
 
-        player_matches = await self._match_repo.get_all_by_player(league_id, team_ids)
+        player_matches = await self._match_repo.get_all_by_player(league_id, pair_ids)
 
         player_map = {p.player_id: p.canonical_nickname.value for p in league.players}
-        team_map: dict[TeamId, Team] = {t.team_id: t for t in league.teams}
+        pair_map: dict[PairId, Pair] = {pair.pair_id: pair for pair in league.pairs}
 
         records: list[MatchHistoryRecord] = []
         for match in player_matches:
-            t1 = team_map.get(match.team1_id)
-            t2 = team_map.get(match.team2_id)
+            pair1 = pair_map.get(match.pair1_id)
+            pair2 = pair_map.get(match.pair2_id)
 
-            t1_p1 = player_map.get(t1.player_id_1, "unknown") if t1 else "unknown"
-            t1_p2 = player_map.get(t1.player_id_2, "unknown") if t1 else "unknown"
-            t2_p1 = player_map.get(t2.player_id_1, "unknown") if t2 else "unknown"
-            t2_p2 = player_map.get(t2.player_id_2, "unknown") if t2 else "unknown"
+            pair1_player1 = (
+                player_map.get(pair1.player_id_1, "unknown") if pair1 else "unknown"
+            )
+            pair1_player2 = (
+                player_map.get(pair1.player_id_2, "unknown") if pair1 else "unknown"
+            )
+            pair2_player1 = (
+                player_map.get(pair2.player_id_1, "unknown") if pair2 else "unknown"
+            )
+            pair2_player2 = (
+                player_map.get(pair2.player_id_2, "unknown") if pair2 else "unknown"
+            )
 
             records.append(
                 MatchHistoryRecord(
                     match_id=str(match.match_id.value),
-                    team1_player1_nickname=t1_p1,
-                    team1_player2_nickname=t1_p2,
-                    team2_player1_nickname=t2_p1,
-                    team2_player2_nickname=t2_p2,
-                    team1_score=match.set_score.team1_score,
-                    team2_score=match.set_score.team2_score,
+                    pair1_player1_nickname=pair1_player1,
+                    pair1_player2_nickname=pair1_player2,
+                    pair2_player1_nickname=pair2_player1,
+                    pair2_player2_nickname=pair2_player2,
+                    pair1_score=match.set_score.pair1_score,
+                    pair2_score=match.set_score.pair2_score,
                     created_at=match.created_at,
                 )
             )

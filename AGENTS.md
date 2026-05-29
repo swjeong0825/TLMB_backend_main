@@ -83,23 +83,23 @@ ADRs live separately in `Design_Doc/Technical_Descision/`.
 A use case loads the relevant aggregate via its repository, invokes a
 domain method, and persists through the repository. **No domain
 service coordinates cross-aggregate persistence in V1.** Implicit
-player/team registration is performed inside the `League` aggregate's
-`register_players_and_team` method, called from
+player/pair registration is performed inside the `League` aggregate's
+`register_players_and_pair` method, called from
 `SubmitMatchResultUseCase` inside a Unit of Work. See
 `08_unit_of_work_and_transactions.md` and `09_application_use_cases.md`.
 
 ### Policies (stateless predicates)
 See `harness_notes/01_when_to_extract_a_policy.md` and
 `.cursor/rules/backend-policy-vs-method.mdc`. Today: `NicknameUniquenessPolicy`,
-`OneTeamPerPlayerPolicy`, `RosterMembershipPolicy`. The rule-flag gate
+`OnePairPerPlayerPolicy`, `RosterMembershipPolicy`. The rule-flag gate
 (e.g. `if not rules.auto_register_players_on_match:`) lives at the call
 site on the aggregate, not inside the policy.
 
 ### `LeagueRules`
 Per-league JSONB configuration with a fixed value set:
-`one_team_per_player`, `match_pair_idempotency`, `ranking_subject`,
+`one_pair_per_player`, `pair_matchup_idempotency`, `ranking_subject`,
 `tie_breakers`, `auto_register_players_on_match`. Versioned (current
-schema is v7), immutable after league creation. The league timezone
+schema is v8), immutable after league creation. The league timezone
 is a separate `League` field/DB column, not a `LeagueRules` key. See
 `16_league_rules_and_match_policies.md`.
 
@@ -110,9 +110,9 @@ table lives in `README.md` and in `13_api_contracts.md`.
 
 | Error | Status |
 |---|---|
-| Not found (League / Player / Team / Match) | 404 |
+| Not found (League / Player / Pair / Match) | 404 |
 | Unauthorized (`host_token` mismatch / missing) | 401 |
-| Duplicate (title, nickname, team conflict) | 409 |
+| Duplicate (title, nickname, pair conflict) | 409 |
 | Structural validation (same player, invalid score) | 422 |
 
 ## Tests

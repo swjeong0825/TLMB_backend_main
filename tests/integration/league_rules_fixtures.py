@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from app.domain.aggregates.league.league_rules import LeagueRules
 
-# Matches pre–league-rules behavior: multiple matches allowed for the same team pair.
-LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS = LeagueRules.from_dict(
+# Matches pre-rules behavior: multiple matches allowed for the same pair matchup.
+LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS = LeagueRules.from_dict(
     {
-        "version": 1,
-        "match_pair_idempotency": "none",
-        "one_team_per_player": True,
+        "version": 8,
+        "pair_matchup_idempotency": "none",
+        "one_pair_per_player": True,
+        "ranking_subject": "pair",
+        "tie_breakers": ["matches_won"],
+        "auto_register_players_on_match": True,
     }
 )

@@ -5,11 +5,11 @@
 ```mermaid
 flowchart TD
     subgraph LEAGUE ["League Aggregate  (domain/aggregates/league/)"]
-        ROOT["League Root  (aggregate_root.py)\ncreate · register_players_and_team\nedit_player_nickname · delete_team\nadd_players · remove_player\nvalidate_match_participants_on_roster"]
+        ROOT["League Root  (aggregate_root.py)\ncreate · register_players_and_pair\nedit_player_nickname · delete_pair\nadd_players · remove_player\nvalidate_match_participants_on_roster"]
 
         subgraph ENT ["Internal Entities  (entities.py)"]
             PE["Player\nplayerId · PlayerNickname · rating? · match_count"]
-            TE["Team\nteamId · playerId_1 · playerId_2"]
+            TE["Pair\npairId · playerId_1 · playerId_2"]
         end
 
         subgraph VOS ["Value Objects  (value_objects.py)"]
@@ -17,13 +17,13 @@ flowchart TD
             HT["HostToken"]
             HE["HostEmail  (stripped + lowercased)"]
             PN["PlayerNickname  (lowercased)"]
-            TI["TeamId"]
+            TI["PairId"]
             LR["LeagueRules  (JSON-backed, versioned)"]
         end
 
         subgraph POL ["Policies  (policies.py)"]
             NUP["NicknameUniquenessPolicy"]
-            OTP["OneTeamPerPlayerPolicy"]
+            OTP["OnePairPerPlayerPolicy"]
             RMP["RosterMembershipPolicy"]
         end
     end
@@ -42,18 +42,18 @@ flowchart TD
 
 ## Aggregate Root
 - Name: League
-- Purpose: Own the full lifecycle of a league — its identity, access credentials, and the roster of players and teams. Enforce all membership and roster invariants atomically.
+- Purpose: Own the full lifecycle of a league — its identity, access credentials, and the roster of players and pairs. Enforce all membership and roster invariants atomically.
 - Identity field: leagueId (UUID)
 
 ---
 
 ## Invariants Enforced by Root
 - League title uniqueness: system-wide, case-insensitive (pre-checked at application layer via repository; aggregate trusts the check was done before `create` is called)
-- Player nickname uniqueness within a league: case-insensitive, enforced on `register_players_and_team` and `edit_player_nickname`
-- One team per player per league: conditional on `LeagueRules.one_team_per_player`. When `true` (the default for new leagues), a player may belong to at most one team; enforced on `register_players_and_team` via `OneTeamPerPlayerPolicy`. When `false` (legal under v3), the policy is skipped and a player may belong to multiple teams; the by-player read models (`GetStandingsByPlayerUseCase`, `GetMatchHistoryByPlayerUseCase`) aggregate across every team the player belongs to. See [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md).
-- Team has exactly two distinct players: enforced on team creation inside `register_players_and_team`
-- Teams are created only through match submission: no standalone team creation endpoint; the only path is `register_players_and_team` called by the SubmitMatchResult use case.
-- Players are created through match submission OR `add_players`: no standalone player creation endpoint. A `Player` row is appended either by `register_players_and_team` (implicit on first match submission) or by `add_players` (when the host pre-registers a roster nickname; see [../20_roster_pre_registration.md](../20_roster_pre_registration.md)). Players can also be hard-deleted via `remove_player`, but only when `Player.match_count == 0` and the player belongs to zero teams; otherwise `PlayerHasParticipationError` is raised. The repository surfaces `match_count` on every aggregate load so the guard can be enforced without an extra round-trip.
+- Player nickname uniqueness within a league: case-insensitive, enforced on `register_players_and_pair` and `edit_player_nickname`
+- One pair per player per league: conditional on `LeagueRules.one_pair_per_player`. When `true` (the default for new leagues), a player may belong to at most one pair; enforced on `register_players_and_pair` via `OnePairPerPlayerPolicy`. When `false` (legal under v3), the policy is skipped and a player may belong to multiple pairs; the by-player read models (`GetStandingsByPlayerUseCase`, `GetMatchHistoryByPlayerUseCase`) aggregate across every pair the player belongs to. See [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md).
+- Pair has exactly two distinct players: enforced on pair creation inside `register_players_and_pair`
+- Pairs are created only through match submission: no standalone pair creation endpoint; the only path is `register_players_and_pair` called by the SubmitMatchResult use case.
+- Players are created through match submission OR `add_players`: no standalone player creation endpoint. A `Player` row is appended either by `register_players_and_pair` (implicit on first match submission) or by `add_players` (when the host pre-registers a roster nickname; see [../20_roster_pre_registration.md](../20_roster_pre_registration.md)). Players can also be hard-deleted via `remove_player`, but only when `Player.match_count == 0` and the player belongs to zero pairs; otherwise `PlayerHasParticipationError` is raised. The repository surfaces `match_count` on every aggregate load so the guard can be enforced without an extra round-trip.
 - **Match pair idempotency** is **not** enforced inside the League aggregate: it is a cross-aggregate check in `SubmitMatchResultUseCase` using `League.rules` and `MatchRepository` (see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md))
 
 ---
@@ -63,20 +63,20 @@ flowchart TD
 ### `create(title: str, description: str | None, host_token: str, host_email: str, league_timezone: str = "America/Los_Angeles", rules: LeagueRules | None = ...) -> League`
 - Purpose: Initialize a new league with an empty roster, access credentials, host contact email, league timezone, and **per-league rules** (defaults applied when the use case does not supply a custom `LeagueRules`).
 - Inputs: title (required), description (optional), host_token (opaque string generated by the use case), host_email (required RFC-compliant email string; format validation is done at the API edge by Pydantic `EmailStr` — the aggregate only normalizes and rejects blanks), league_timezone (IANA timezone string; defaults to `America/Los_Angeles`), optional rules (value object; typically built from API input or product defaults)
-- State changes: sets leagueId (new UUID), hostToken, hostEmail (`HostEmail` VO; stripped + lowercased), leagueTimezone (`LeagueTimezone` VO), title (stored as-is; normalized comparison done at use-case level), description, **rules** (`LeagueRules`), initializes empty player list and team list
+- State changes: sets leagueId (new UUID), hostToken, hostEmail (`HostEmail` VO; stripped + lowercased), leagueTimezone (`LeagueTimezone` VO), title (stored as-is; normalized comparison done at use-case level), description, **rules** (`LeagueRules`), initializes empty player list and pair list
 - Invariants checked: title uniqueness is pre-checked by the application use case via LeagueRepository before this method is called; `host_email` must be non-blank after strip (enforced by `HostEmail.__post_init__`)
 - Notes: Returns the newly created League aggregate instance. Rules are **immutable after creation** in the current product version (no PATCH league rules). `hostEmail` is likewise **immutable after creation** (no admin endpoint mutates it) and is **never echoed** on any read endpoint — it is private contact info reserved for future notification features.
 
-### `register_players_and_team(p1_nickname: str, p2_nickname: str) -> (list[Player], Team)`
-- Purpose: Atomically register any combination of new/existing players and, if the player pair is new, create their team. Called by the SubmitMatchResult use case when a match submission contains players not yet known to the league.
+### `register_players_and_pair(p1_nickname: str, p2_nickname: str) -> (list[Player], Pair)`
+- Purpose: Atomically register any combination of new/existing players and, if the player pair is new, create their pair. Called by the SubmitMatchResult use case when a match submission contains players not yet known to the league.
 - Inputs: two player nicknames (raw strings; normalization applied inside)
-- State changes: adds new Player records for any nickname not already present; adds a new Team record linking the two resolved player IDs if the pair has not been registered before
+- State changes: adds new Player records for any nickname not already present; adds a new Pair record linking the two resolved player IDs if the pair has not been registered before
 - Invariants checked:
   - Player nickname uniqueness (case-insensitive): each nickname, after normalization, must not already belong to a different logical player than the one being resolved
-  - One team per player: **if** `self.rules.one_team_per_player` is true (the default for new leagues), neither player may already be a member of a different team. When the flag is `false` (legal under v3), this check is skipped and a player may join a second team partnered with a different player.
+  - One pair per player: **if** `self.rules.one_pair_per_player` is true (the default for new leagues), neither player may already be a member of a different pair. When the flag is `false` (legal under v3), this check is skipped and a player may join a second pair partnered with a different player.
   - Two distinct players: p1 and p2 must normalize to different nicknames
-- Returns: the list of newly created Player objects and the Team object (new or existing if the pair already played)
-- Notes: If both players already exist and already share a team, this is a no-op for registration and returns the existing player/team references. If both players exist but belong to different teams, the one-team-per-player invariant is violated and an error is raised.
+- Returns: the list of newly created Player objects and the Pair object (new or existing if the pair already played)
+- Notes: If both players already exist and already share a pair, this is a no-op for registration and returns the existing player/pair references. If both players exist but belong to different pairs, the one-pair-per-player invariant is violated and an error is raised.
 
 ### `edit_player_nickname(player_id: UUID, new_nickname: str) -> Player`
 - Purpose: Allow the host (admin) to correct or update a player's nickname.
@@ -92,12 +92,12 @@ flowchart TD
 - Invariants checked: rating must be non-negative and finite when present.
 - Returns: the updated Player entity.
 
-### `delete_team(team_id: UUID) -> None`
-- Purpose: Remove a team record from the league roster.
-- Inputs: teamId (must exist in this league)
-- State changes: removes the Team record from the team roster; the player records for those players remain in the league (players are not deleted when their team is deleted)
-- Invariants checked: none inside the aggregate — the precondition that the team has no associated match records is enforced at the application layer before this method is called
-- Notes: In V1, teams cannot be reassigned or have their composition updated. Delete is the only mutation available on an existing team. Players whose team is deleted become "teamless" in the roster; they may form part of a new team implicitly if a future match submission pairs them with a new partner.
+### `delete_pair(pair_id: UUID) -> None`
+- Purpose: Remove a pair record from the league roster.
+- Inputs: pairId (must exist in this league)
+- State changes: removes the Pair record from the pair roster; the player records for those players remain in the league (players are not deleted when their pair is deleted)
+- Invariants checked: none inside the aggregate — the precondition that the pair has no associated match records is enforced at the application layer before this method is called
+- Notes: In V1, pairs cannot be reassigned or have their composition updated. Delete is the only mutation available on an existing pair. Players whose pair is deleted become "pairless" in the roster; they may form part of a new pair implicitly if a future match submission pairs them with a new partner.
 
 ### `add_players(nicknames: list[str], ratings: list[float | None] | None = None) -> list[Player]`
 - Purpose: Atomically pre-register one or more players on the roster. Used by the host (admin) to seed players before they have played any match. Full feature specification: [../20_roster_pre_registration.md](../20_roster_pre_registration.md).
@@ -113,18 +113,18 @@ flowchart TD
 ### `remove_player(player_id: str) -> None`
 - Purpose: Hard-delete a single player from the league roster.
 - Inputs: `player_id` (must exist in this league).
-- State changes: removes the player from `players` and appends the id to `pending_deleted_player_ids` so the repository can DELETE the row on next save (mirrors the existing `delete_team` pattern).
+- State changes: removes the player from `players` and appends the id to `pending_deleted_player_ids` so the repository can DELETE the row on next save (mirrors the existing `delete_pair` pattern).
 - Invariants checked:
   - The id must resolve to a player in this league; otherwise raises `PlayerNotFoundError`.
-  - The player must belong to **zero teams** in `self.teams` AND **zero matches** (per the transient `Player.match_count` surfaced by the repository); otherwise raises `PlayerHasParticipationError(player_id, teams_count, matches_count)`. The host must delete the offending team or match first.
-- Notes: this is a true hard-delete — the `Player` row, its UUID, and (when there are no team or match references, by the guard) its entire footprint vanish from the database. There is no soft-delete or tombstone. This is intentional product behavior: the v6 refactor retired the v5 allowlist's "remove never deletes Player" asymmetry in favor of a single unified roster concept.
+  - The player must belong to **zero pairs** in `self.pairs` AND **zero matches** (per the transient `Player.match_count` surfaced by the repository); otherwise raises `PlayerHasParticipationError(player_id, pairs_count, matches_count)`. The host must delete the offending pair or match first.
+- Notes: this is a true hard-delete — the `Player` row, its UUID, and (when there are no pair or match references, by the guard) its entire footprint vanish from the database. There is no soft-delete or tombstone. This is intentional product behavior: the v6 refactor retired the v5 allowlist's "remove never deletes Player" asymmetry in favor of a single unified roster concept.
 
 ### `validate_match_participants_on_roster(nicknames: Iterable[str]) -> None`
 - Purpose: Cross-check the four match-submission nicknames against the roster. Called by `SubmitMatchResultUseCase` immediately after `get_by_id_with_lock`.
 - Inputs: iterable of raw nicknames (normalized inside).
 - State changes: none (read-only).
 - Invariants checked: when `self.rules.auto_register_players_on_match` is `True` (the default), this is a no-op; when `False`, delegates the diff to `RosterMembershipPolicy` and raises `RosterMembershipRequiredError` listing every input nickname not present in the roster.
-- Notes: the rule flag is the only switch — when on (default), match submission is allowed to auto-register new players via `register_players_and_team`. The rule-flag gate lives on the aggregate (not inside the policy) so future call sites — e.g. `edit_player_nickname` — can decide independently whether to consult the same policy. See [../20_roster_pre_registration.md](../20_roster_pre_registration.md) and `harness_notes/01_when_to_extract_a_policy.md`.
+- Notes: the rule flag is the only switch — when on (default), match submission is allowed to auto-register new players via `register_players_and_pair`. The rule-flag gate lives on the aggregate (not inside the policy) so future call sites — e.g. `edit_player_nickname` — can decide independently whether to consult the same policy. See [../20_roster_pre_registration.md](../20_roster_pre_registration.md) and `harness_notes/01_when_to_extract_a_policy.md`.
 
 ---
 
@@ -133,15 +133,15 @@ flowchart TD
 ### Entity: Player
 - Identity: playerId (UUID, generated on first implicit registration)
 - Purpose: Represent a participant in the league, identified by a unique normalized nickname, with an optional host-curated numeric rating.
-- Lifecycle: created by `register_players_and_team` (implicit on first match submission) OR by `add_players` (when the host pre-registers a roster nickname); nickname may be updated by `edit_player_nickname`; rating may be set, updated, or cleared by `update_player_rating`; hard-deleted by `remove_player` only when the player has zero teams and zero matches (otherwise `PlayerHasParticipationError`).
-- Owned by root because: player nickname uniqueness and one-team-per-player membership must be checked atomically within the League consistency boundary
-- Behavior: exposes normalized nickname for comparison; carries nullable `rating` metadata owned by the host/admin; carries a transient `match_count` field that the repository populates on load so the aggregate can enforce the `remove_player` zero-participation guard without an extra round-trip. Does not hold team reference directly (membership is tracked via Team entity).
+- Lifecycle: created by `register_players_and_pair` (implicit on first match submission) OR by `add_players` (when the host pre-registers a roster nickname); nickname may be updated by `edit_player_nickname`; rating may be set, updated, or cleared by `update_player_rating`; hard-deleted by `remove_player` only when the player has zero pairs and zero matches (otherwise `PlayerHasParticipationError`).
+- Owned by root because: player nickname uniqueness and one-pair-per-player membership must be checked atomically within the League consistency boundary
+- Behavior: exposes normalized nickname for comparison; carries nullable `rating` metadata owned by the host/admin; carries a transient `match_count` field that the repository populates on load so the aggregate can enforce the `remove_player` zero-participation guard without an extra round-trip. Does not hold pair reference directly (membership is tracked via Pair entity).
 
-### Entity: Team
-- Identity: teamId (UUID, generated on implicit registration)
+### Entity: Pair
+- Identity: pairId (UUID, generated on implicit registration)
 - Purpose: Represent a doubles pair of two players in the league
-- Lifecycle: created by `register_players_and_team`; can be deleted by `delete_team`; composition is immutable in V1
-- Owned by root because: the two-distinct-players-per-team and one-team-per-player invariants are coupled — both must be enforced together during team creation
+- Lifecycle: created by `register_players_and_pair`; can be deleted by `delete_pair`; composition is immutable in V1
+- Owned by root because: the two-distinct-players-per-pair and one-pair-per-player invariants are coupled — both must be enforced together during pair creation
 - Behavior: exposes player_id_1 and player_id_2 for membership checks; no mutable behavior on the entity itself after creation
 
 ---
@@ -178,23 +178,23 @@ flowchart TD
 - Validation / normalization: lowercased on construction; must be non-empty
 - Immutability notes: immutable once constructed; a new PlayerNickname value object is created when a nickname is edited
 
-### Value Object: TeamId
+### Value Object: PairId
 - Fields: value (UUID)
 - Why not a primitive: semantically distinct from LeagueId and PlayerId; prevents accidental cross-type assignment
-- Validation / normalization: must be a valid UUID; generated on team creation
+- Validation / normalization: must be a valid UUID; generated on pair creation
 - Immutability notes: immutable after creation
 
 ### Value Object: LeagueRules
-- Fields (v7):
-  - `version: int` — schema version; current is `7`. v1–v6 inputs are accepted on read and upgraded transparently to v7 (v1 inputs additionally have the v2 ranking defaults injected before the later upgrades; v4 `require_eligible_players` and v5 `require_allowlist` are both inverted into v6 `auto_register_players_on_match`; v7 adds `once_per_day`).
-  - `match_pair_idempotency: "none" | "once_per_league" | "once_per_day"` — see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
-  - `one_team_per_player: bool` — `true` or `false`. Default `true` for new leagues. Constrained by the v3 cross-rule below. See [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
-  - `ranking_subject: "team" | "player"` — see [17_configurable_ranking.md](../17_configurable_ranking.md) for the v2 introduction and [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md) for the v3 cross-rule. Default `"team"`.
+- Fields (v8):
+  - `version: int` — schema version; current is `8`. The public create-league API accepts the v8 pair-shaped rules contract; persisted older rows are upgraded by Alembic migrations (v7 adds `once_per_day`; v8 renames the remaining persisted rule keys/values to pair terminology).
+  - `pair_matchup_idempotency: "none" | "once_per_league" | "once_per_day"` — see [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
+  - `one_pair_per_player: bool` — `true` or `false`. Default `true` for new leagues. Constrained by the v3 cross-rule below. See [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
+  - `ranking_subject: "pair" | "player"` — see [17_configurable_ranking.md](../17_configurable_ranking.md) for the v2 introduction and [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md) for the v3 cross-rule. Default `"pair"`.
   - `tie_breakers: tuple[Metric, ...]` — non-empty, no duplicates. Each entry one of `matches_won`, `match_diff`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Default `("matches_won",)`.
   - `auto_register_players_on_match: bool` (v6+, replaces v5 `require_allowlist` with the boolean inverted) — `true` by default. When `false`, `SubmitMatchResultUseCase` calls `League.validate_match_participants_on_roster` and rejects submissions whose nicknames are not on the roster. Full specification: [../20_roster_pre_registration.md](../20_roster_pre_registration.md).
 - Persisted as JSONB on the league row (see [12_persistence_strategy.md](../12_persistence_strategy.md)).
 - Why not ad-hoc dicts in the aggregate root: validation, defaults, and forward-compatible parsing live in one place.
-- Validation / normalization: reject unknown `version` (only `1`–`7` accepted on input); coerce and validate known keys; ignore unknown keys for forward compatibility. `LeagueRules` no longer stores timezone; day boundaries for `once_per_day` use parent `League.league_timezone`. v3 cross-rule: `ranking_subject = "player"` requires `one_team_per_player = false`; equivalently, `(ranking_subject = "player", one_team_per_player = true)` is rejected with `InvalidLeagueRulesError`. See [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md).
+- Validation / normalization: reject unknown `version`; coerce and validate known v8 keys; ignore unknown keys for forward compatibility. `LeagueRules` no longer stores timezone; day boundaries for `once_per_day` use parent `League.league_timezone`. v3 cross-rule: `ranking_subject = "player"` requires `one_pair_per_player = false`; equivalently, `(ranking_subject = "player", one_pair_per_player = true)` is rejected with `InvalidLeagueRulesError`. See [18_configurable_ranking_v3.md](../18_configurable_ranking_v3.md).
 - Immutability notes: immutable value object; replaced only if a future product version allows rule updates. There is no PATCH endpoint for `auto_register_players_on_match` in this iteration — the flag is fixed at league creation.
 
 ---
@@ -206,18 +206,18 @@ flowchart TD
 - Inputs: proposed nickname (raw string), current player list in the League aggregate
 - Output / decision: allowed (nickname is new or belongs to the same player being edited) or rejected (nickname already used by a different player)
 
-### Policy: OneTeamPerPlayerPolicy
-- Purpose: Determine whether a player can join a new team without violating the one-team-per-player rule
-- Inputs: player ID, current team list in the League aggregate
-- Output / decision: allowed (player has no existing team) or rejected (player is already a member of a different team)
+### Policy: OnePairPerPlayerPolicy
+- Purpose: Determine whether a player can join a new pair without violating the one-pair-per-player rule
+- Inputs: player ID, current pair list in the League aggregate
+- Output / decision: allowed (player has no existing pair) or rejected (player is already a member of a different pair)
 
 ### Policy: RosterMembershipPolicy
 - Purpose: Compute the set of candidate nicknames that are not present on this league's roster.
 - Inputs: iterable of `PlayerNickname` value objects (already normalized), current `players` list in the League aggregate.
 - Output / decision: a `list[str]` of missing normalized nicknames (de-duplicated, in input order of first appearance). An empty list means every candidate is on the roster.
 - Why the output is a diff, not a `bool`: every current and anticipated caller needs the missing list to construct a structured error payload (`RosterMembershipRequiredError(missing_nicknames=...)`); a `bool` would force a second pass to recompute the diff.
-- Where the rule-flag gate lives: NOT inside the policy — `LeagueRules.auto_register_players_on_match` is consulted by each call site (today only `validate_match_participants_on_roster`; expected next: `edit_player_nickname`). Mirrors the `OneTeamPerPlayerPolicy` ↔ `LeagueRules.one_team_per_player` separation.
-- Reuse plan: today this policy has a single call site (match submission). `edit_player_nickname` is the named next call site, and `register_players_and_team` is a likely third. The policy is the renamed v6 successor to v5's `AllowlistPolicy`; see `harness_notes/01_when_to_extract_a_policy.md` for the extraction decision rule.
+- Where the rule-flag gate lives: NOT inside the policy — `LeagueRules.auto_register_players_on_match` is consulted by each call site (today only `validate_match_participants_on_roster`; expected next: `edit_player_nickname`). Mirrors the `OnePairPerPlayerPolicy` ↔ `LeagueRules.one_pair_per_player` separation.
+- Reuse plan: today this policy has a single call site (match submission). `edit_player_nickname` is the named next call site, and `register_players_and_pair` is a likely third. The policy is the renamed v6 successor to v5's `AllowlistPolicy`; see `harness_notes/01_when_to_extract_a_policy.md` for the extraction decision rule.
 
 ---
 
@@ -234,21 +234,21 @@ They become necessary only when a consumer concern exists — for example: an au
 | Event | Emitted by | Payload |
 |---|---|---|
 | LeagueCreated | `League.create` | leagueId, title, hostEmail, rules snapshot (optional in payload) |
-| PlayersAndTeamRegistered | `League.register_players_and_team` — only when new records are created | leagueId, new player IDs, team ID |
+| PlayersAndPairRegistered | `League.register_players_and_pair` — only when new records are created | leagueId, new player IDs, pair ID |
 | PlayerNicknameEdited | `League.edit_player_nickname` | leagueId, playerId, old nickname, new nickname |
-| TeamDeleted | `League.delete_team` | leagueId, teamId |
+| PairDeleted | `League.delete_pair` | leagueId, pairId |
 | PlayersAdded | `League.add_players` | leagueId, list of (playerId, nickname) |
 | PlayerRemoved | `League.remove_player` | leagueId, playerId, nickname |
 
 ---
 
 ## External References
-- None — League does not reference any other aggregate by ID. Match references Team by teamId (an opaque reference into this aggregate).
+- None — League does not reference any other aggregate by ID. Match references Pair by pairId (an opaque reference into this aggregate).
 
 ---
 
 ## Notes / Open Questions
 - **League rules:** Full specification: [16_league_rules_and_match_policies.md](../16_league_rules_and_match_policies.md).
-- For large leagues (hundreds of teams), loading the full player and team roster into memory on every match submission may become expensive. In V1, with small recreational groups, this is acceptable.
-- Players whose team is deleted become teamless in the roster. In V1, no action is taken on those players automatically. A future version may need a cleanup or reassignment flow.
+- For large leagues (hundreds of pairs), loading the full player and pair roster into memory on every match submission may become expensive. In V1, with small recreational groups, this is acceptable.
+- Players whose pair is deleted become pairless in the roster. In V1, no action is taken on those players automatically. A future version may need a cleanup or reassignment flow.
 - hostToken is stored plaintext. No hashing or rotation mechanism is provided in V1.

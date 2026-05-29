@@ -9,20 +9,20 @@ from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.exceptions import (
-    DuplicateTeamPairMatchError,
+    DuplicatePairMatchupMatchError,
     LeagueNotFoundError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
 )
 
 
 @dataclass
 class SubmitMatchResultCommand:
     league_id: str
-    team1_nicknames: tuple[str, str]
-    team2_nicknames: tuple[str, str]
-    team1_score: str
-    team2_score: str
+    pair1_nicknames: tuple[str, str]
+    pair2_nicknames: tuple[str, str]
+    pair1_score: str
+    pair2_score: str
 
 
 @dataclass
@@ -46,26 +46,26 @@ class SubmitMatchResultUseCase:
         self._uow_factory = uow_factory
 
     async def execute(self, command: SubmitMatchResultCommand) -> SubmitMatchResultResult:
-        t1_n1 = command.team1_nicknames[0].lower().strip()
-        t1_n2 = command.team1_nicknames[1].lower().strip()
-        t2_n1 = command.team2_nicknames[0].lower().strip()
-        t2_n2 = command.team2_nicknames[1].lower().strip()
+        pair1_nickname1 = command.pair1_nicknames[0].lower().strip()
+        pair1_nickname2 = command.pair1_nicknames[1].lower().strip()
+        pair2_nickname1 = command.pair2_nicknames[0].lower().strip()
+        pair2_nickname2 = command.pair2_nicknames[1].lower().strip()
 
-        if t1_n1 == t1_n2:
-            raise SamePlayerWithinSingleTeamError(
-                "Team 1 has the same player listed twice"
+        if pair1_nickname1 == pair1_nickname2:
+            raise SamePlayerWithinSinglePairError(
+                "Pair 1 has the same player listed twice"
             )
-        if t2_n1 == t2_n2:
-            raise SamePlayerWithinSingleTeamError(
-                "Team 2 has the same player listed twice"
-            )
-
-        if {t1_n1, t1_n2} & {t2_n1, t2_n2}:
-            raise SamePlayerOnBothTeamsError(
-                "The same player appears on both teams"
+        if pair2_nickname1 == pair2_nickname2:
+            raise SamePlayerWithinSinglePairError(
+                "Pair 2 has the same player listed twice"
             )
 
-        set_score = SetScore(team1_score=command.team1_score, team2_score=command.team2_score)
+        if {pair1_nickname1, pair1_nickname2} & {pair2_nickname1, pair2_nickname2}:
+            raise SamePlayerOnBothPairsError(
+                "The same player appears on both pairs"
+            )
+
+        set_score = SetScore(pair1_score=command.pair1_score, pair2_score=command.pair2_score)
 
         async with self._uow_factory() as uow:
             league_id = LeagueId.from_str(command.league_id)
@@ -73,38 +73,44 @@ class SubmitMatchResultUseCase:
             if league is None:
                 raise LeagueNotFoundError(f"League '{command.league_id}' not found")
 
-            league.validate_match_participants_on_roster([t1_n1, t1_n2, t2_n1, t2_n2])
+            league.validate_match_participants_on_roster(
+                [pair1_nickname1, pair1_nickname2, pair2_nickname1, pair2_nickname2]
+            )
 
-            _, team1 = league.register_players_and_team(t1_n1, t1_n2)
-            _, team2 = league.register_players_and_team(t2_n1, t2_n2)
-            league.validate_teams_do_not_share_players(team1, team2)
+            _, pair1 = league.register_players_and_pair(
+                pair1_nickname1, pair1_nickname2
+            )
+            _, pair2 = league.register_players_and_pair(
+                pair2_nickname1, pair2_nickname2
+            )
+            league.validate_pairs_do_not_share_players(pair1, pair2)
 
-            if league.rules.match_pair_idempotency == "once_per_league":
-                pair_exists = await uow.match_repo.exists_match_for_team_pair(
-                    league_id, team1.team_id, team2.team_id
+            if league.rules.pair_matchup_idempotency == "once_per_league":
+                pair_exists = await uow.match_repo.exists_match_for_pair_matchup(
+                    league_id, pair1.pair_id, pair2.pair_id
                 )
                 if pair_exists:
-                    raise DuplicateTeamPairMatchError(
-                        "A match between these two teams already exists in this league"
+                    raise DuplicatePairMatchupMatchError(
+                        "A match between these two pairs already exists in this league"
                     )
-            elif league.rules.match_pair_idempotency == "once_per_day":
+            elif league.rules.pair_matchup_idempotency == "once_per_day":
                 now_utc = datetime.now(timezone.utc)
                 day_start_utc, next_day_start_utc = _league_local_day_utc_bounds(
                     now_utc, league.league_timezone.value
                 )
-                pair_exists = await uow.match_repo.exists_match_for_team_pair_between(
+                pair_exists = await uow.match_repo.exists_match_for_pair_matchup_between(
                     league_id,
-                    team1.team_id,
-                    team2.team_id,
+                    pair1.pair_id,
+                    pair2.pair_id,
                     day_start_utc,
                     next_day_start_utc,
                 )
                 if pair_exists:
-                    raise DuplicateTeamPairMatchError(
-                        "A match between these two teams already exists today"
+                    raise DuplicatePairMatchupMatchError(
+                        "A match between these two pairs already exists today"
                     )
 
-            match = Match.create(league_id, team1.team_id, team2.team_id, set_score)
+            match = Match.create(league_id, pair1.pair_id, pair2.pair_id, set_score)
 
             await uow.league_repo.save(league)
             await uow.match_repo.save(match)

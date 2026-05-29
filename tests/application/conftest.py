@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.aggregates.league.aggregate_root import League
-from app.domain.aggregates.league.entities import Player, Team
-from app.domain.aggregates.league.value_objects import LeagueId, PlayerId, PlayerNickname, TeamId
+from app.domain.aggregates.league.entities import Player, Pair
+from app.domain.aggregates.league.value_objects import LeagueId, PlayerId, PlayerNickname, PairId
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.value_objects import MatchId, SetScore
 
@@ -36,11 +36,11 @@ def mock_match_repo() -> AsyncMock:
     repo.get_by_id = AsyncMock(return_value=None)
     repo.get_all_by_league = AsyncMock(return_value=[])
     repo.get_latest_by_league = AsyncMock(return_value=None)
-    repo.get_all_by_team = AsyncMock(return_value=[])
+    repo.get_all_by_pair = AsyncMock(return_value=[])
     repo.get_all_by_player = AsyncMock(return_value=[])
-    repo.has_matches_for_team = AsyncMock(return_value=False)
-    repo.exists_match_for_team_pair = AsyncMock(return_value=False)
-    repo.exists_match_for_team_pair_between = AsyncMock(return_value=False)
+    repo.has_matches_for_pair = AsyncMock(return_value=False)
+    repo.exists_match_for_pair_matchup = AsyncMock(return_value=False)
+    repo.exists_match_for_pair_matchup_between = AsyncMock(return_value=False)
     repo.save = AsyncMock(return_value=None)
     repo.delete = AsyncMock(return_value=None)
     return repo
@@ -72,18 +72,18 @@ def make_player(nickname: str) -> Player:
     return Player(player_id=PlayerId.generate(), nickname=PlayerNickname(nickname))
 
 
-def make_team(p1: Player, p2: Player) -> Team:
+def make_pair(p1: Player, p2: Player) -> Pair:
     pid1, pid2 = p1.player_id, p2.player_id
     if str(pid1.value) > str(pid2.value):
         pid1, pid2 = pid2, pid1
-    return Team(team_id=TeamId.generate(), player_id_1=pid1, player_id_2=pid2)
+    return Pair(pair_id=PairId.generate(), player_id_1=pid1, player_id_2=pid2)
 
 
 def make_match(
     league_id: LeagueId,
-    team1_id: TeamId,
-    team2_id: TeamId,
+    pair1_id: PairId,
+    pair2_id: PairId,
     t1_score: str = "6",
     t2_score: str = "3",
 ) -> Match:
-    return Match.create(league_id, team1_id, team2_id, SetScore(t1_score, t2_score))
+    return Match.create(league_id, pair1_id, pair2_id, SetScore(t1_score, t2_score))

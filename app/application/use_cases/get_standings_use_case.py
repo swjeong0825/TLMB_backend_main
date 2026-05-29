@@ -65,7 +65,7 @@ class GetStandingsUseCase:
             )
 
         entries = self._calculator.compute(
-            matches, league.teams, league.players, league.rules
+            matches, league.pairs, league.players, league.rules
         )
         return StandingsView(entries=entries, tie_breakers=league.rules.tie_breakers)
 

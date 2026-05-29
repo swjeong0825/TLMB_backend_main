@@ -19,7 +19,7 @@ Before editing code:
 Useful read-only discovery commands:
 
 ```bash
-rg "TODO\\(v3-ranking-tightening\\)|one_team_per_player|ranking_subject|LeagueRulesV2Request" backend_main frontend chat_to_intent_server
+rg "TODO\\(v3-ranking-tightening\\)|one_pair_per_player|ranking_subject|LeagueRulesV2Request" backend_main frontend chat_to_intent_server
 ls backend_main/alembic/versions
 ```
 
@@ -75,22 +75,22 @@ backend_main/Design_Doc/TLMB_Design_doc/17_configurable_ranking.md
 
 2. `16_league_rules_and_match_policies.md`
    - Change "current is 2" to "current is 3" where appropriate.
-   - Replace "v2 locks `one_team_per_player` to `true`" with the v3 rule matrix.
-   - Move "Multiple teams per player" out of future-only language.
+   - Replace "v2 locks `one_pair_per_player` to `true`" with the v3 rule matrix.
+   - Move "Multiple pairs per player" out of future-only language.
 
 3. `13_api_contracts.md`
    - Update the create-league example rules body to `version: 3`.
    - Replace "OTPP=false is rejected in v2" with "the `(player, OTPP=true)` cross-rule is rejected in v3".
-   - Note that `GET /standings/by-player` can return multiple rows under `(team, OTPP=false)`.
+   - Note that `GET /standings/by-player` can return multiple rows under `(pair, OTPP=false)`.
 
 4. `06_domain_services.md`
-   - Rewrite the `ranking_subject == "player"` note so it describes OTPP=false aggregation across all teams a player belongs to.
+   - Rewrite the `ranking_subject == "player"` note so it describes OTPP=false aggregation across all pairs a player belongs to.
 
 5. `05_aggregate_designs/league.md`
    - Drop v2-locked wording in the League aggregate invariant and `LeagueRules` value-object sections.
 
 6. `03_business_invariants.md`
-   - Keep the invariant conditional: when OTPP is true, one team per player applies.
+   - Keep the invariant conditional: when OTPP is true, one pair per player applies.
    - Update "future" references to "v3".
 
 ### Verification gate
@@ -106,7 +106,7 @@ rg "v2 locks|OTPP=false.*rejected|current is `2`|current is 2" backend_main/Desi
 
 ## Phase 1 — Backend Domain
 
-Implement the v3 value-object validation and prove the core domain model supports multiple teams per player.
+Implement the v3 value-object validation and prove the core domain model supports multiple pairs per player.
 
 ### Files to edit
 
@@ -122,16 +122,16 @@ backend_main/tests/domain/test_standings_calculator.py
 
 1. `league_rules.py`
    - Accept versions `1`, `2`, and `3`.
-   - Remove the v2 strict check that requires `one_team_per_player is True`.
-   - Keep the type check requiring `one_team_per_player` to be a boolean.
-   - Add the v3 cross-rule: reject `ranking_subject == "player"` when `one_team_per_player is True`.
+   - Remove the v2 strict check that requires `one_pair_per_player is True`.
+   - Keep the type check requiring `one_pair_per_player` to be a boolean.
+   - Add the v3 cross-rule: reject `ranking_subject == "player"` when `one_pair_per_player is True`.
    - Always return a `LeagueRules` object with `version=3`.
    - Update `default_for_new_league()` to return `version=3`.
    - Remove or replace the `TODO(v3-ranking-tightening)` marker.
 
 2. `standings_calculator.py`
    - Keep the existing `_compute_for_players` algorithm.
-   - Replace the `TODO(v3-ranking-tightening)` comment with a v3 note explaining that player rows aggregate across every team the player belongs to.
+   - Replace the `TODO(v3-ranking-tightening)` comment with a v3 note explaining that player rows aggregate across every pair the player belongs to.
    - Keep the same-player-on-both-sides guard as defense-in-depth only.
 
 ### Tests to write or flip
@@ -139,7 +139,7 @@ backend_main/tests/domain/test_standings_calculator.py
 `tests/domain/test_league_rules.py`:
 
 - Flip `test_from_dict_v1_input_with_otpp_false_is_rejected` so v1 + OTPP=false upgrades successfully to v3.
-- Flip `test_from_dict_rejects_otpp_false_with_team_subject` so `(team, OTPP=false)` succeeds.
+- Flip `test_from_dict_rejects_otpp_false_with_pair_subject` so `(pair, OTPP=false)` succeeds.
 - Flip `test_from_dict_rejects_otpp_false_with_player_subject` so `(player, OTPP=false)` succeeds.
 - Flip `test_from_dict_accepts_player_subject_with_otpp_true` so `(player, OTPP=true)` raises `InvalidLeagueRulesError`.
 - Add `test_from_dict_v2_input_upgrades_to_v3`.
@@ -147,8 +147,8 @@ backend_main/tests/domain/test_standings_calculator.py
 
 `tests/domain/test_league_aggregate.py`:
 
-- Add a test that `register_players_and_team` allows a player to join a second team when `one_team_per_player=False`.
-- Keep or add a regression test that the same operation raises `TeamConflictError` when `one_team_per_player=True`.
+- Add a test that `register_players_and_pair` allows a player to join a second pair when `one_pair_per_player=False`.
+- Keep or add a regression test that the same operation raises `PairConflictError` when `one_pair_per_player=True`.
 
 `tests/domain/test_standings_calculator.py`:
 
@@ -167,7 +167,7 @@ pytest tests/domain/test_league_rules.py tests/domain/test_league_aggregate.py t
 
 ## Phase 2 — Backend Application
 
-Update read paths that assumed a player had one team.
+Update read paths that assumed a player had one pair.
 
 ### Files to edit
 
@@ -183,33 +183,33 @@ backend_main/tests/application/test_get_match_history_by_player_use_case.py
 
 1. `get_standings_by_player_use_case.py`
    - For `ranking_subject == "player"`, keep the existing player-row filtering behavior.
-   - For `ranking_subject == "team"`, replace the `next(...)` team lookup with all teams containing the player.
-   - Return every matching team row from the computed standings.
-   - Preserve the empty-result behavior when the player exists but has no teams.
+   - For `ranking_subject == "pair"`, replace the `next(...)` pair lookup with all pairs containing the player.
+   - Return every matching pair row from the computed standings.
+   - Preserve the empty-result behavior when the player exists but has no pairs.
    - Remove or replace the `TODO(v3-ranking-tightening)` marker.
 
 2. `get_match_history_by_player_use_case.py`
-   - Replace the single-team `next(...)` lookup with all teams containing the player.
-   - Return the union of matches across those teams, deduped by `match_id`, sorted by `created_at` descending.
-   - Prefer adding a repository method instead of calling `get_all_by_team` repeatedly.
+   - Replace the single-pair `next(...)` lookup with all pairs containing the player.
+   - Return the union of matches across those pairs, deduped by `match_id`, sorted by `created_at` descending.
+   - Prefer adding a repository method instead of calling `get_all_by_pair` repeatedly.
 
 3. `match/repository.py`
-   - Add an abstract method for the by-player/multiple-team read:
-     `get_all_by_player(league_id: LeagueId, team_ids: list[TeamId]) -> list[Match]`.
-   - The method does not need `player_id` if the use case already resolved `team_ids`.
+   - Add an abstract method for the by-player/multiple-pair read:
+     `get_all_by_player(league_id: LeagueId, pair_ids: list[PairId]) -> list[Match]`.
+   - The method does not need `player_id` if the use case already resolved `pair_ids`.
 
 ### Tests to write
 
 `tests/application/test_get_standings_by_player_use_case.py`:
 
 - Existing OTPP=true tests stay green.
-- Add `(team, OTPP=false)` where the player belongs to two teams and the response has two rows.
+- Add `(pair, OTPP=false)` where the player belongs to two pairs and the response has two rows.
 - Add `(player, OTPP=false)` where the response has one player row.
 
 `tests/application/test_get_match_history_by_player_use_case.py`:
 
-- Add OTPP=false with one player on two teams and matches for both teams.
-- Assert duplicate matches are not returned twice if both team IDs somehow match one persisted match.
+- Add OTPP=false with one player on two pairs and matches for both pairs.
+- Assert duplicate matches are not returned twice if both pair IDs somehow match one persisted match.
 
 ### Verification gate
 
@@ -236,14 +236,14 @@ backend_main/tests/integration/test_migration_004_leagues_rules_v3.py
 
 1. `match_repository.py`
    - Implement `get_all_by_player` from the repository interface.
-   - Query matches where `league_id` matches and either `team1_id` or `team2_id` is in the supplied team ID list.
-   - Return an empty list immediately when `team_ids` is empty.
+   - Query matches where `league_id` matches and either `pair1_id` or `pair2_id` is in the supplied pair ID list.
+   - Return an empty list immediately when `pair_ids` is empty.
    - Sort consistently with existing match-history behavior, preferably by `created_at` descending if the repository already owns ordering for similar methods.
 
 2. `004_leagues_rules_v3.py`
    - Set `revision = "004"` and `down_revision = "003"`.
    - Upgrade:
-     - Rewrite `(player, OTPP=true)` rows to `(team, OTPP=true)` while setting `version=3`.
+     - Rewrite `(player, OTPP=true)` rows to `(pair, OTPP=true)` while setting `version=3`.
      - Bump all remaining v1/v2 rows to `version=3`.
    - Downgrade:
      - Set `version=2` for v3 rows.
@@ -256,10 +256,10 @@ Use SQLAlchemy text or equivalent alembic execution. The core logic should match
 
 ```sql
 UPDATE leagues
-SET rules = rules || jsonb_build_object('version', 3, 'ranking_subject', 'team')
+SET rules = rules || jsonb_build_object('version', 3, 'ranking_subject', 'pair')
 WHERE (rules->>'version')::int IN (1, 2)
   AND (rules->>'ranking_subject') = 'player'
-  AND (rules->>'one_team_per_player')::bool = true;
+  AND (rules->>'one_pair_per_player')::bool = true;
 
 UPDATE leagues
 SET rules = rules || jsonb_build_object('version', 3)
@@ -270,15 +270,15 @@ WHERE (rules->>'version')::int IN (1, 2);
 
 `tests/integration/test_migration_004_leagues_rules_v3.py`:
 
-- Seed `(team, OTPP=true, version=2)`.
+- Seed `(pair, OTPP=true, version=2)`.
 - Seed `(player, OTPP=true, version=2)`.
-- Seed `(team, OTPP=true, version=2, tie_breakers=["games_won", "games_diff"])`.
+- Seed `(pair, OTPP=true, version=2, tie_breakers=["games_won", "games_diff"])`.
 - Run upgrade.
 - Assert all rows have `version=3`.
-- Assert `(player, OTPP=true)` became `(team, OTPP=true)`.
+- Assert `(player, OTPP=true)` became `(pair, OTPP=true)`.
 - Assert custom `tie_breakers` are preserved verbatim.
 - Run upgrade a second time and assert idempotency.
-- Run downgrade and assert all rows have `version=2`; assert rewritten rows remain `ranking_subject="team"`.
+- Run downgrade and assert all rows have `version=2`; assert rewritten rows remain `ranking_subject="pair"`.
 
 ### Verification gate
 
@@ -308,7 +308,7 @@ backend_main/tests/e2e/test_league_api.py
 1. `league_schemas.py`
    - Rename `LeagueRulesV2Request` to `LeagueRulesV3Request`.
    - Change `version: Literal[1, 2]` to `version: Literal[1, 2, 3]`.
-   - Keep `one_team_per_player: bool = True`.
+   - Keep `one_pair_per_player: bool = True`.
    - Update the class docstring so it describes the v3 cross-rule instead of the v2 OTPP lock.
 
 2. `league_router.py`
@@ -319,7 +319,7 @@ backend_main/tests/e2e/test_league_api.py
 
 `tests/e2e/test_league_api.py`:
 
-- Flip `test_create_league_with_otpp_false_returns_422` so OTPP=false succeeds when `ranking_subject="team"`.
+- Flip `test_create_league_with_otpp_false_returns_422` so OTPP=false succeeds when `ranking_subject="pair"`.
 - Add `test_create_league_with_player_subject_and_otpp_true_returns_422`.
 - Add `test_create_league_with_player_subject_and_otpp_false_succeeds`.
 - Add a smoke test proving v2 rules input is still accepted and upgraded to v3.
@@ -349,22 +349,22 @@ frontend/frontend_vanilla/js/user-facing-errors.js
 ### Required edits
 
 1. `create-league/index.html`
-   - Add a `one_team_per_player` select inside `details.create-league-advanced`.
-   - Place it between `match_pair_idempotency` and `ranking_subject`.
+   - Add a `one_pair_per_player` select inside `details.create-league-advanced`.
+   - Place it between `pair_matchup_idempotency` and `ranking_subject`.
    - Default to `true`.
 
 2. `js/create-league.js`
    - Send `version: 3`.
-   - Read `one_team_per_player` from the new select instead of hard-coding `true`.
+   - Read `one_pair_per_player` from the new select instead of hard-coding `true`.
    - Add a change handler that enforces:
-     - `ranking_subject="player"` forces `one_team_per_player=false`.
-     - `one_team_per_player=true` forces `ranking_subject="team"`.
+     - `ranking_subject="player"` forces `one_pair_per_player=false`.
+     - `one_pair_per_player=true` forces `ranking_subject="pair"`.
    - Keep server validation as the source of truth.
    - Remove or replace the `TODO(v3-ranking-tightening)` marker.
 
 3. `js/i18n.js`
    - Add English and Korean keys:
-     - `createLeague.labelOneTeamPerPlayer`
+     - `createLeague.labelOnePairPerPlayer`
      - `createLeague.optionOTPPTrue`
      - `createLeague.optionOTPPFalse`
      - `createLeague.crossRuleHint`
@@ -378,9 +378,9 @@ Manual browser verification is required:
 
 1. Open `/create-league/`.
 2. Open "Advanced: custom rules".
-3. Confirm OTPP defaults to true and ranking subject defaults to team.
+3. Confirm OTPP defaults to true and ranking subject defaults to pair.
 4. Select ranking subject = player; confirm OTPP changes to false and cannot submit an invalid combo.
-5. Select OTPP = true; confirm ranking subject changes back to team.
+5. Select OTPP = true; confirm ranking subject changes back to pair.
 6. Submit a default league and confirm the payload uses `version: 3`.
 7. Submit a `(player, OTPP=false)` league and confirm it succeeds.
 
@@ -406,7 +406,7 @@ chat_to_intent_server/chat_to_intent_server_fastapi/tests/e2e/test_read_intents.
 1. Create or rename `configurable_ranking_v3.md`.
    - State that v3 is shipped.
    - Confirm handlers still forward `standings` and `tie_breakers` verbatim.
-   - Note that `standings/by-player` may contain multiple rows under `(team, OTPP=false)`.
+   - Note that `standings/by-player` may contain multiple rows under `(pair, OTPP=false)`.
 
 2. `02_read_only_backend_endpoints.md`
    - Update the `GET /leagues/{league_id}/standings/by-player` section with the multiple-row possibility.
@@ -448,7 +448,7 @@ rg "TODO\\(v3-ranking-tightening\\)" backend_main frontend chat_to_intent_server
 2. Confirm no current-version docs still say OTPP=false is rejected.
 
 ```bash
-rg "OTPP=false.*rejected|one_team_per_player.*must be true|v2 locks" backend_main frontend chat_to_intent_server
+rg "OTPP=false.*rejected|one_pair_per_player.*must be true|v2 locks" backend_main frontend chat_to_intent_server
 ```
 
 Review matches manually; doc 17 may still mention v2 behavior because it remains the v2 spec.
@@ -476,9 +476,9 @@ pytest tests/e2e/test_read_intents.py
 5. Perform frontend manual QA from Phase 5.
 
 6. Draft release notes before merge:
-   - V3 allows players to belong to multiple teams when a league is created with `one_team_per_player=false`.
-   - Player rankings now require `one_team_per_player=false`.
-   - Existing v2 leagues with `(ranking_subject="player", one_team_per_player=true)` are migrated to `(ranking_subject="team", one_team_per_player=true)`.
+   - V3 allows players to belong to multiple pairs when a league is created with `one_pair_per_player=false`.
+   - Player rankings now require `one_pair_per_player=false`.
+   - Existing v2 leagues with `(ranking_subject="player", one_pair_per_player=true)` are migrated to `(ranking_subject="pair", one_pair_per_player=true)`.
    - Custom `tie_breakers` are preserved.
 
 7. Update Memory Bank files if present in the workspace. At minimum, update `activeContext.md` and `progress.md` after implementation. If no Memory Bank exists, note that in the final implementation summary.
@@ -491,11 +491,11 @@ V3 is complete only when all of the following are true:
 
 - `LeagueRules.default_for_new_league().version == 3`.
 - `LeagueRules.from_dict` accepts v1, v2, and v3 inputs and emits v3 objects.
-- `(team, OTPP=true)`, `(team, OTPP=false)`, and `(player, OTPP=false)` are legal.
+- `(pair, OTPP=true)`, `(pair, OTPP=false)`, and `(player, OTPP=false)` are legal.
 - `(player, OTPP=true)` is rejected with `InvalidLeagueRulesError`.
-- `GET /standings/by-player` returns multiple team rows when a player has multiple teams in a team-subject OTPP=false league.
-- `GET /matches/by-player` returns the union of matches across all of a player's teams.
-- Alembic 004 rewrites existing `(player, OTPP=true)` rows to `(team, OTPP=true)` and preserves `tie_breakers`.
+- `GET /standings/by-player` returns multiple pair rows when a player has multiple pairs in a pair-subject OTPP=false league.
+- `GET /matches/by-player` returns the union of matches across all of a player's pairs.
+- Alembic 004 rewrites existing `(player, OTPP=true)` rows to `(pair, OTPP=true)` and preserves `tie_breakers`.
 - Frontend create-league sends `version: 3` and cannot submit the invalid cross-rule combo through normal UI interactions.
 - Chat-to-intent handlers still pass standings through verbatim.
 - All targeted tests in Phase 7 pass.

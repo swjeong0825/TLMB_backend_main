@@ -39,7 +39,7 @@ async def _create_league(client: AsyncClient) -> dict:
             "title": "Player Edit Test League",
             "host_email": _DEFAULT_HOST_EMAIL,
             # Default rules already work; we don't need
-            # match_pair_idempotency loose here because we never re-submit.
+            # pair_matchup_idempotency loose here because we never re-submit.
         },
     )
     assert resp.status_code == 201, resp.text
@@ -50,10 +50,10 @@ async def _submit_match(client: AsyncClient, league_id: str) -> dict:
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
     assert resp.status_code == 201, resp.text
@@ -76,14 +76,14 @@ async def test_player_edit_inside_default_window_succeeds(client: AsyncClient) -
 
     resp = await client.patch(
         f"/leagues/{league_id}/matches/{match_id}",
-        json={"team1_score": "7", "team2_score": "5"},
+        json={"pair1_score": "7", "pair2_score": "5"},
     )
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["match_id"] == match_id
-    assert body["team1_score"] == "7"
-    assert body["team2_score"] == "5"
+    assert body["pair1_score"] == "7"
+    assert body["pair2_score"] == "5"
 
 
 async def test_player_edit_persists_to_history(client: AsyncClient) -> None:
@@ -95,13 +95,13 @@ async def test_player_edit_persists_to_history(client: AsyncClient) -> None:
 
     await client.patch(
         f"/leagues/{league_id}/matches/{match_id}",
-        json={"team1_score": "2", "team2_score": "6"},
+        json={"pair1_score": "2", "pair2_score": "6"},
     )
 
     history = (await client.get(f"/leagues/{league_id}/matches")).json()["matches"]
     updated = next(m for m in history if m["match_id"] == match_id)
-    assert updated["team1_score"] == "2"
-    assert updated["team2_score"] == "6"
+    assert updated["pair1_score"] == "2"
+    assert updated["pair2_score"] == "6"
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ async def test_player_edit_outside_window_returns_422(
 
     resp = await client.patch(
         f"/leagues/{league_id}/matches/{match_id}",
-        json={"team1_score": "7", "team2_score": "5"},
+        json={"pair1_score": "7", "pair2_score": "5"},
     )
 
     assert resp.status_code == 422
@@ -164,7 +164,7 @@ async def test_player_edit_invalid_score_returns_422(client: AsyncClient) -> Non
     match = await _submit_match(client, league_id)
     resp = await client.patch(
         f"/leagues/{league_id}/matches/{match['match_id']}",
-        json={"team1_score": "abc", "team2_score": "5"},
+        json={"pair1_score": "abc", "pair2_score": "5"},
     )
 
     assert resp.status_code == 422
@@ -178,7 +178,7 @@ async def test_player_edit_match_not_found_returns_404(client: AsyncClient) -> N
 
     resp = await client.patch(
         f"/leagues/{league_id}/matches/{fake_match_id}",
-        json={"team1_score": "6", "team2_score": "3"},
+        json={"pair1_score": "6", "pair2_score": "3"},
     )
 
     assert resp.status_code == 404
@@ -191,7 +191,7 @@ async def test_player_edit_league_not_found_returns_404(client: AsyncClient) -> 
 
     resp = await client.patch(
         f"/leagues/{fake_league_id}/matches/{fake_match_id}",
-        json={"team1_score": "6", "team2_score": "3"},
+        json={"pair1_score": "6", "pair2_score": "3"},
     )
 
     assert resp.status_code == 404

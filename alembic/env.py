@@ -25,8 +25,8 @@ from app.infrastructure.config.database import Base
 from app.infrastructure.persistence.models.orm_models import (  # noqa: F401  # ensure models are imported
     LeagueORM,
     MatchORM,
+    PairORM,
     PlayerORM,
-    TeamORM,
 )
 
 target_metadata = Base.metadata

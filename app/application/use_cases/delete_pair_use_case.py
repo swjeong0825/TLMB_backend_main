@@ -3,24 +3,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.domain.aggregates.league.repository import LeagueRepository
-from app.domain.aggregates.league.value_objects import LeagueId, TeamId
+from app.domain.aggregates.league.value_objects import LeagueId, PairId
 from app.domain.aggregates.match.repository import MatchRepository
 from app.domain.exceptions import (
     LeagueNotFoundError,
-    TeamHasMatchesError,
-    TeamNotFoundError,
+    PairHasMatchesError,
+    PairNotFoundError,
     UnauthorizedError,
 )
 
 
 @dataclass
-class DeleteTeamCommand:
+class DeletePairCommand:
     host_token: str
     league_id: str
-    team_id: str
+    pair_id: str
 
 
-class DeleteTeamUseCase:
+class DeletePairUseCase:
     def __init__(
         self,
         league_repo: LeagueRepository,
@@ -29,7 +29,7 @@ class DeleteTeamUseCase:
         self._league_repo = league_repo
         self._match_repo = match_repo
 
-    async def execute(self, command: DeleteTeamCommand) -> None:
+    async def execute(self, command: DeletePairCommand) -> None:
         league_id = LeagueId.from_str(command.league_id)
 
         league = await self._league_repo.get_by_id_with_lock(league_id)
@@ -39,15 +39,15 @@ class DeleteTeamUseCase:
         if league.host_token.value != command.host_token:
             raise UnauthorizedError("Invalid host token")
 
-        team_id = TeamId.from_str(command.team_id)
-        if not any(t.team_id == team_id for t in league.teams):
-            raise TeamNotFoundError(f"Team '{command.team_id}' not found in this league")
+        pair_id = PairId.from_str(command.pair_id)
+        if not any(t.pair_id == pair_id for t in league.pairs):
+            raise PairNotFoundError(f"Pair '{command.pair_id}' not found in this league")
 
-        has_matches = await self._match_repo.has_matches_for_team(team_id, league_id)
+        has_matches = await self._match_repo.has_matches_for_pair(pair_id, league_id)
         if has_matches:
-            raise TeamHasMatchesError(
-                "This team has associated match records; delete those matches first"
+            raise PairHasMatchesError(
+                "This pair has associated match records; delete those matches first"
             )
 
-        league.delete_team(command.team_id)
+        league.delete_pair(command.pair_id)
         await self._league_repo.save(league)

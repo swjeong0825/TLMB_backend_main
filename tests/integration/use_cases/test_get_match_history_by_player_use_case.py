@@ -26,7 +26,7 @@ from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import 
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
 from tests.integration.conftest import _session_factory
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 def _use_case(session: AsyncSession) -> GetMatchHistoryByPlayerUseCase:
@@ -39,20 +39,20 @@ def _use_case(session: AsyncSession) -> GetMatchHistoryByPlayerUseCase:
 async def _submit_match(
     factory: async_sessionmaker[AsyncSession],
     league_id: str,
-    team1: tuple[str, str],
-    team2: tuple[str, str],
-    team1_score: str = "6",
-    team2_score: str = "3",
+    pair1: tuple[str, str],
+    pair2: tuple[str, str],
+    pair1_score: str = "6",
+    pair2_score: str = "3",
 ) -> str:
     result = await SubmitMatchResultUseCase(
         partial(SqlAlchemySubmitMatchResultUnitOfWork, factory)
     ).execute(
         SubmitMatchResultCommand(
             league_id=league_id,
-            team1_nicknames=team1,
-            team2_nicknames=team2,
-            team1_score=team1_score,
-            team2_score=team2_score,
+            pair1_nicknames=pair1,
+            pair2_nicknames=pair2,
+            pair1_score=pair1_score,
+            pair2_score=pair2_score,
         )
     )
     return result.match_id
@@ -76,12 +76,12 @@ async def test_returns_matches_for_player(persisted_league_with_match: dict) -> 
 
     assert len(records) == 1
     assert records[0].match_id == match_id
-    assert records[0].team1_score == "6"
-    assert records[0].team2_score == "3"
-    team1_nicks = {records[0].team1_player1_nickname, records[0].team1_player2_nickname}
-    team2_nicks = {records[0].team2_player1_nickname, records[0].team2_player2_nickname}
-    assert team1_nicks == {"alice", "bob"}
-    assert team2_nicks == {"charlie", "diana"}
+    assert records[0].pair1_score == "6"
+    assert records[0].pair2_score == "3"
+    pair1_nicks = {records[0].pair1_player1_nickname, records[0].pair1_player2_nickname}
+    pair2_nicks = {records[0].pair2_player1_nickname, records[0].pair2_player2_nickname}
+    assert pair1_nicks == {"alice", "bob"}
+    assert pair2_nicks == {"charlie", "diana"}
 
 
 async def test_player_name_lookup_is_case_insensitive(
@@ -104,14 +104,14 @@ async def test_player_name_lookup_is_case_insensitive(
 async def test_returns_only_matches_involving_player(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Alice's matches should not include a match between two other teams."""
+    """Alice's matches should not include a match between two other pairs."""
     async with session_factory() as s:
         league = League.create(
             "Filter Test League",
             None,
             "tok",
             host_email="host@example.com",
-            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
@@ -143,7 +143,7 @@ async def test_returns_multiple_matches_for_player(
             None,
             "tok",
             host_email="host@example.com",
-            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()

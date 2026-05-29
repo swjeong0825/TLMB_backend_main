@@ -5,17 +5,17 @@
 ### Domain layer
 
 - **League aggregate** (`domain/aggregates/league/`) — fully designed in `05_aggregate_designs/league.md`:
-  - `aggregate_root.py`: `League.create`, `register_players_and_team`, `edit_player_nickname`, `delete_team`
-  - `entities.py`: `Player` (with `PlayerNickname`), `Team`
-  - `value_objects.py`: `LeagueId`, `HostToken`, `PlayerNickname`, `PlayerId`, `TeamId`
-  - `policies.py`: `NicknameUniquenessPolicy`, `OneTeamPerPlayerPolicy`
+  - `aggregate_root.py`: `League.create`, `register_players_and_pair`, `edit_player_nickname`, `delete_pair`
+  - `entities.py`: `Player` (with `PlayerNickname`), `Pair`
+  - `value_objects.py`: `LeagueId`, `HostToken`, `PlayerNickname`, `PlayerId`, `PairId`
+  - `policies.py`: `NicknameUniquenessPolicy`, `OnePairPerPlayerPolicy`
   - `repository.py`: `LeagueRepository` abstract interface
 - **Match aggregate** (`domain/aggregates/match/`) — fully designed in `05_aggregate_designs/match.md`:
   - `aggregate_root.py`: `Match.create`, `Match.edit_score`
   - `value_objects.py`: `MatchId`, `SetScore`
   - `repository.py`: `MatchRepository` abstract interface
 - **Domain service** (`domain/services/`): `StandingsCalculator` — fully specified in `06_domain_services.md`
-- **Domain events** (`domain/events.py`): `LeagueCreated`, `PlayersAndTeamRegistered`, `PlayerNicknameEdited`, `TeamDeleted` — define data classes only; no event bus wiring in V1 (no consumer concern identified)
+- **Domain events** (`domain/events.py`): `LeagueCreated`, `PlayersAndPairRegistered`, `PlayerNicknameEdited`, `PairDeleted` — define data classes only; no event bus wiring in V1 (no consumer concern identified)
 
 ### Application layer
 
@@ -30,7 +30,7 @@
   - `get_match_history_use_case.py`
   - `get_league_roster_use_case.py`
   - `edit_player_nickname_use_case.py`
-  - `delete_team_use_case.py`
+  - `delete_pair_use_case.py`
   - `edit_match_score_use_case.py`
   - `delete_match_use_case.py`
 - No workflows required (`10_workflows.md` — no workflow coordinator needed in V1)
@@ -39,9 +39,9 @@
 ### Infrastructure layer
 
 - **Database config** (`infrastructure/config/database.py`): SQLAlchemy async engine + `AsyncSession` factory using asyncpg driver; Alembic for migrations — toolchain confirmed in `12_persistence_strategy.md`
-- **ORM models** (`infrastructure/persistence/models/`): 4 tables — `leagues`, `players`, `teams`, `matches` — with all columns, FK constraints, and unique indexes specified in `12_persistence_strategy.md`
+- **ORM models** (`infrastructure/persistence/models/`): 4 tables — `leagues`, `players`, `pairs`, `matches` — with all columns, FK constraints, and unique indexes specified in `12_persistence_strategy.md`
 - **Mappers** (`infrastructure/persistence/mappers/`):
-  - `league_mapper.py`, `player_mapper.py`, `team_mapper.py`, `match_mapper.py`
+  - `league_mapper.py`, `player_mapper.py`, `pair_mapper.py`, `match_mapper.py`
   - Value object reconstruction rules (`PlayerNickname`, `SetScore`, typed UUID wrappers) all documented
 - **Repository implementations** (`infrastructure/persistence/repositories/`):
   - `league_repository.py`: implements all `LeagueRepository` methods including `get_by_id_with_lock` (`SELECT ... FOR UPDATE`) and `search_by_title_prefix` (lightweight projection, no aggregate load)
@@ -74,7 +74,7 @@
 - None. All open questions from the aggregate design documents have been resolved:
   - Draw handling in V1: draws contribute zero wins/losses (resolved in `06_domain_services.md`)
   - Single set per match in V1: one `SetScore` pair per match (resolved in `05_aggregate_designs/match.md`)
-  - Canonical player ID ordering on `teams` table: lower UUID stored as `player_id_1` (resolved in `12_persistence_strategy.md`)
+  - Canonical player ID ordering on `pairs` table: lower UUID stored as `player_id_1` (resolved in `12_persistence_strategy.md`)
   - `created_at` as match ordering field: infrastructure-managed DB column used in V1 instead of a domain `recorded_at` (resolved in `11_read_models_and_queries.md`)
   - `hostToken` stored plaintext: accepted in V1; no hashing or rotation (resolved in `05_aggregate_designs/league.md`)
   - Domain events: define data classes only, no event bus wiring (resolved in `05_aggregate_designs/league.md`)

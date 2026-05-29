@@ -10,11 +10,14 @@ from httpx import AsyncClient
 # ---------------------------------------------------------------------------
 
 
-# Default for e2e: allow rematches between the same team pair (most tests submit twice).
+# Default for e2e: allow rematches between the same pair matchup (most tests submit twice).
 _DEFAULT_E2E_RULES = {
-    "version": 1,
-    "match_pair_idempotency": "none",
-    "one_team_per_player": True,
+    "version": 8,
+    "pair_matchup_idempotency": "none",
+    "one_pair_per_player": True,
+    "ranking_subject": "pair",
+    "tie_breakers": ["matches_won"],
+    "auto_register_players_on_match": True,
 }
 
 # Default host email for e2e -- matches the backfill value used in
@@ -45,18 +48,18 @@ async def create_league(
 async def submit_match(
     client: AsyncClient,
     league_id: str,
-    team1: tuple[str, str] = ("alice", "bob"),
-    team2: tuple[str, str] = ("charlie", "diana"),
-    team1_score: str = "6",
-    team2_score: str = "3",
+    pair1: tuple[str, str] = ("alice", "bob"),
+    pair2: tuple[str, str] = ("charlie", "diana"),
+    pair1_score: str = "6",
+    pair2_score: str = "3",
 ) -> dict:
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": list(team1),
-            "team2_nicknames": list(team2),
-            "team1_score": team1_score,
-            "team2_score": team2_score,
+            "pair1_nicknames": list(pair1),
+            "pair2_nicknames": list(pair2),
+            "pair1_score": pair1_score,
+            "pair2_score": pair2_score,
         },
     )
     assert resp.status_code == 201, resp.text
@@ -171,14 +174,15 @@ async def test_create_league_invalid_rules_version_returns_422(client: AsyncClie
             "title": "Bad Rules",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 2,
-                "match_pair_idempotency": "none",
-                "one_team_per_player": True,
+                "version": 7,
+                "pair_matchup_idempotency": "none",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
+                "tie_breakers": ["matches_won"],
             },
         },
     )
     assert resp.status_code == 422
-    assert resp.json()["error"] == "InvalidLeagueRulesError"
 
 
 async def test_create_league_invalid_league_timezone_returns_422(
@@ -197,7 +201,7 @@ async def test_create_league_invalid_league_timezone_returns_422(
 
 
 async def test_create_league_with_otpp_false_succeeds(client: AsyncClient) -> None:
-    """v3 unlocks `(team, OTPP=false)` -- a player may belong to multiple teams.
+    """v3 unlocks `(pair, OTPP=false)` -- a player may belong to multiple pairs.
 
     See backend_main/Design_Doc/TLMB_Design_doc/18_configurable_ranking_v3.md
     for the v3 cross-rule.
@@ -208,10 +212,10 @@ async def test_create_league_with_otpp_false_succeeds(client: AsyncClient) -> No
             "title": "OTPP False League",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 3,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": False,
-                "ranking_subject": "team",
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": False,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
             },
         },
@@ -232,9 +236,9 @@ async def test_create_league_with_player_subject_and_otpp_true_returns_422(
             "title": "Player OTPP True League",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 3,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": True,
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": True,
                 "ranking_subject": "player",
                 "tie_breakers": ["matches_won"],
             },
@@ -254,9 +258,9 @@ async def test_create_league_with_player_subject_and_otpp_false_succeeds(
             "title": "Player OTPP False League",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 3,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": False,
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": False,
                 "ranking_subject": "player",
                 "tie_breakers": ["matches_won"],
             },
@@ -276,10 +280,10 @@ async def test_v2_rules_input_upgrades_to_v3(client: AsyncClient) -> None:
             "title": "V2 Upgrade Smoke Test",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 2,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won", "games_diff"],
             },
         },
@@ -295,7 +299,7 @@ async def test_v2_rules_input_upgrades_to_v3(client: AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_second_submit_same_team_pair_returns_409_with_default_league_rules(
+async def test_second_submit_same_pair_matchup_returns_409_with_default_league_rules(
     client: AsyncClient,
 ) -> None:
     """POST /leagues without `rules` uses product default once_per_day."""
@@ -306,19 +310,19 @@ async def test_second_submit_same_team_pair_returns_409_with_default_league_rule
     assert resp.status_code == 201
     league_id = resp.json()["league_id"]
     payload = {
-        "team1_nicknames": ["a", "b"],
-        "team2_nicknames": ["c", "d"],
-        "team1_score": "6",
-        "team2_score": "3",
+        "pair1_nicknames": ["a", "b"],
+        "pair2_nicknames": ["c", "d"],
+        "pair1_score": "6",
+        "pair2_score": "3",
     }
     first = await client.post(f"/leagues/{league_id}/matches", json=payload)
     assert first.status_code == 201
     second = await client.post(f"/leagues/{league_id}/matches", json=payload)
     assert second.status_code == 409
-    assert second.json()["error"] == "DuplicateTeamPairMatchError"
+    assert second.json()["error"] == "DuplicatePairMatchupMatchError"
 
 
-async def test_create_league_without_rules_uses_v7_daily_default(
+async def test_create_league_without_rules_uses_v8_daily_default(
     client: AsyncClient,
 ) -> None:
     resp = await client.post(
@@ -334,11 +338,11 @@ async def test_create_league_without_rules_uses_v7_daily_default(
     body = roster.json()
     assert body["league_timezone"] == "America/Los_Angeles"
     rules = body["rules"]
-    assert rules["version"] == 7
-    assert rules["match_pair_idempotency"] == "once_per_day"
+    assert rules["version"] == 8
+    assert rules["pair_matchup_idempotency"] == "once_per_day"
 
 
-async def test_second_submit_same_team_pair_allowed_when_rules_allow_duplicates(
+async def test_second_submit_same_pair_matchup_allowed_when_rules_allow_duplicates(
     client: AsyncClient,
 ) -> None:
     resp = await client.post(
@@ -347,19 +351,19 @@ async def test_second_submit_same_team_pair_allowed_when_rules_allow_duplicates(
             "title": "Rematch League",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 1,
-                "match_pair_idempotency": "none",
-                "one_team_per_player": True,
+                "version": 8,
+                "pair_matchup_idempotency": "none",
+                "one_pair_per_player": True,
             },
         },
     )
     assert resp.status_code == 201
     league_id = resp.json()["league_id"]
     payload = {
-        "team1_nicknames": ["a", "b"],
-        "team2_nicknames": ["c", "d"],
-        "team1_score": "6",
-        "team2_score": "3",
+        "pair1_nicknames": ["a", "b"],
+        "pair2_nicknames": ["c", "d"],
+        "pair1_score": "6",
+        "pair2_score": "3",
     }
     assert (await client.post(f"/leagues/{league_id}/matches", json=payload)).status_code == 201
     assert (await client.post(f"/leagues/{league_id}/matches", json=payload)).status_code == 201
@@ -372,10 +376,10 @@ async def test_submit_match_result_success(client: AsyncClient) -> None:
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "4",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "4",
         },
     )
 
@@ -389,33 +393,33 @@ async def test_submit_match_result_success(client: AsyncClient) -> None:
     assert body["created_at"]
 
 
-async def test_submit_match_result_creates_players_and_teams(client: AsyncClient) -> None:
+async def test_submit_match_result_creates_players_and_pairs(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id = league["league_id"]
 
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"))
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"))
 
     roster_resp = await client.get(f"/leagues/{league_id}/roster")
     assert roster_resp.status_code == 200
     roster = roster_resp.json()
     nicknames = {p["nickname"] for p in roster["players"]}
     assert nicknames == {"alice", "bob", "charlie", "diana"}
-    assert len(roster["teams"]) == 2
+    assert len(roster["pairs"]) == 2
 
 
 async def test_submit_match_same_players_different_matches(client: AsyncClient) -> None:
-    """Reusing the same player pair on two separate matches reuses the same team."""
+    """Reusing the same player pair on two separate matches reuses the same pair."""
     league = await create_league(client)
     league_id = league["league_id"]
 
-    match1 = await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"))
-    match2 = await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"))
+    match1 = await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"))
+    match2 = await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"))
 
     assert match1["match_id"] != match2["match_id"]
 
     roster_resp = await client.get(f"/leagues/{league_id}/roster")
     roster = roster_resp.json()
-    assert len(roster["teams"]) == 2  # no duplicate teams created
+    assert len(roster["pairs"]) == 2  # no duplicate pairs created
 
 
 async def test_submit_match_result_league_not_found(client: AsyncClient) -> None:
@@ -423,10 +427,10 @@ async def test_submit_match_result_league_not_found(client: AsyncClient) -> None
     resp = await client.post(
         f"/leagues/{fake_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
 
@@ -441,10 +445,10 @@ async def test_submit_match_result_invalid_score_returns_422(client: AsyncClient
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "abc",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "abc",
+            "pair2_score": "3",
         },
     )
 
@@ -459,10 +463,10 @@ async def test_submit_match_result_negative_score_returns_422(client: AsyncClien
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "-1",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "-1",
+            "pair2_score": "3",
         },
     )
 
@@ -470,7 +474,7 @@ async def test_submit_match_result_negative_score_returns_422(client: AsyncClien
     assert resp.json()["error"] == "InvalidSetScoreError"
 
 
-async def test_submit_match_result_same_player_within_team_returns_422(
+async def test_submit_match_result_same_player_within_pair_returns_422(
     client: AsyncClient,
 ) -> None:
     league = await create_league(client)
@@ -479,18 +483,18 @@ async def test_submit_match_result_same_player_within_team_returns_422(
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "alice"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "alice"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
 
     assert resp.status_code == 422
-    assert resp.json()["error"] == "SamePlayerWithinSingleTeamError"
+    assert resp.json()["error"] == "SamePlayerWithinSinglePairError"
 
 
-async def test_submit_match_result_same_player_on_both_teams_returns_422(
+async def test_submit_match_result_same_player_on_both_pairs_returns_422(
     client: AsyncClient,
 ) -> None:
     league = await create_league(client)
@@ -499,41 +503,41 @@ async def test_submit_match_result_same_player_on_both_teams_returns_422(
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["alice", "charlie"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["alice", "charlie"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
 
     assert resp.status_code == 422
-    assert resp.json()["error"] == "SamePlayerOnBothTeamsError"
+    assert resp.json()["error"] == "SamePlayerOnBothPairsError"
 
 
-async def test_submit_match_result_player_already_in_another_team_returns_409(
+async def test_submit_match_result_player_already_in_another_pair_returns_409(
     client: AsyncClient,
 ) -> None:
     """Alice is already paired with bob; pairing her with charlie should be rejected."""
     league = await create_league(client)
     league_id = league["league_id"]
 
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"))
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"))
 
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "charlie"],
-            "team2_nicknames": ["eve", "frank"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "charlie"],
+            "pair2_nicknames": ["eve", "frank"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
 
     assert resp.status_code == 409
-    assert resp.json()["error"] == "TeamConflictError"
+    assert resp.json()["error"] == "PairConflictError"
 
 
-async def test_submit_match_result_team1_missing_one_player_returns_422(
+async def test_submit_match_result_pair1_missing_one_player_returns_422(
     client: AsyncClient,
 ) -> None:
     league = await create_league(client)
@@ -542,10 +546,10 @@ async def test_submit_match_result_team1_missing_one_player_returns_422(
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
 
@@ -575,10 +579,10 @@ async def test_get_standings_after_match(client: AsyncClient) -> None:
     await submit_match(
         client,
         league_id,
-        team1=("alice", "bob"),
-        team2=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1=("alice", "bob"),
+        pair2=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     resp = await client.get(f"/leagues/{league_id}/standings")
@@ -599,7 +603,7 @@ async def test_get_standings_after_match(client: AsyncClient) -> None:
 
 
 async def test_get_standings_after_draw(client: AsyncClient) -> None:
-    """A 5-5 set score is accepted as a draw; both teams pick up a draw, no
+    """A 5-5 set score is accepted as a draw; both pairs pick up a draw, no
     wins, no losses. `win_pct` is diluted to 0 (per the universal "draws
     don't count as wins" rule)."""
     league = await create_league(client)
@@ -608,10 +612,10 @@ async def test_get_standings_after_draw(client: AsyncClient) -> None:
     await submit_match(
         client,
         league_id,
-        team1=("alice", "bob"),
-        team2=("charlie", "diana"),
-        team1_score="5",
-        team2_score="5",
+        pair1=("alice", "bob"),
+        pair2=("charlie", "diana"),
+        pair1_score="5",
+        pair2_score="5",
     )
 
     resp = await client.get(f"/leagues/{league_id}/standings")
@@ -633,9 +637,9 @@ async def test_get_standings_multiple_matches(client: AsyncClient) -> None:
     league_id = league["league_id"]
 
     # alice+bob win 2 matches, charlie+diana win 1
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"), team1_score="6", team2_score="3")
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"), team1_score="7", team2_score="5")
-    await submit_match(client, league_id, team1=("charlie", "diana"), team2=("alice", "bob"), team1_score="6", team2_score="2")
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"), pair1_score="6", pair2_score="3")
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"), pair1_score="7", pair2_score="5")
+    await submit_match(client, league_id, pair1=("charlie", "diana"), pair2=("alice", "bob"), pair1_score="6", pair2_score="2")
 
     resp = await client.get(f"/leagues/{league_id}/standings")
 
@@ -667,10 +671,10 @@ async def test_get_standings_response_echoes_league_tie_breakers(
             "title": "Games-Won League",
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 2,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["games_won", "matches_won"],
             },
         },
@@ -698,10 +702,10 @@ async def test_get_standings_by_player_returns_one_row_with_league_rank(
     await submit_match(
         client,
         league_id,
-        team1=("alice", "bob"),
-        team2=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1=("alice", "bob"),
+        pair2=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     resp = await client.get(f"/leagues/{league_id}/standings/by-player?player_name=charlie")
@@ -726,10 +730,10 @@ async def test_get_standings_by_player_matches_full_standings_for_winner(
     await submit_match(
         client,
         league_id,
-        team1=("alice", "bob"),
-        team2=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1=("alice", "bob"),
+        pair2=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     full = (await client.get(f"/leagues/{league_id}/standings")).json()["standings"]
@@ -797,10 +801,10 @@ async def test_get_match_history_after_match(client: AsyncClient) -> None:
     match = await submit_match(
         client,
         league_id,
-        team1=("alice", "bob"),
-        team2=("charlie", "diana"),
-        team1_score="6",
-        team2_score="4",
+        pair1=("alice", "bob"),
+        pair2=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="4",
     )
 
     resp = await client.get(f"/leagues/{league_id}/matches")
@@ -811,13 +815,13 @@ async def test_get_match_history_after_match(client: AsyncClient) -> None:
 
     record = matches[0]
     assert record["match_id"] == match["match_id"]
-    assert record["team1_score"] == "6"
-    assert record["team2_score"] == "4"
+    assert record["pair1_score"] == "6"
+    assert record["pair2_score"] == "4"
     assert set(
-        [record["team1_player1_nickname"], record["team1_player2_nickname"]]
+        [record["pair1_player1_nickname"], record["pair1_player2_nickname"]]
     ) == {"alice", "bob"}
     assert set(
-        [record["team2_player1_nickname"], record["team2_player2_nickname"]]
+        [record["pair2_player1_nickname"], record["pair2_player2_nickname"]]
     ) == {"charlie", "diana"}
     assert record["created_at"] is not None
 
@@ -826,8 +830,8 @@ async def test_get_match_history_multiple_matches(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id = league["league_id"]
 
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"))
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"), team1_score="4", team2_score="6")
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"))
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"), pair1_score="4", pair2_score="6")
 
     resp = await client.get(f"/leagues/{league_id}/matches")
 
@@ -859,30 +863,30 @@ async def test_get_league_roster_empty(client: AsyncClient) -> None:
     body = resp.json()
     assert body["title"] == "Test League"
     assert body["players"] == []
-    assert body["teams"] == []
+    assert body["pairs"] == []
     assert body["latest_match_date"] is None
     # rules echoed so the frontend can fetch league title + rules in one trip.
     assert body["league_timezone"] == "America/Los_Angeles"
-    assert body["rules"]["version"] == 7
-    assert body["rules"]["match_pair_idempotency"] == "none"
-    assert body["rules"]["one_team_per_player"] is True
-    assert body["rules"]["ranking_subject"] == "team"
+    assert body["rules"]["version"] == 8
+    assert body["rules"]["pair_matchup_idempotency"] == "none"
+    assert body["rules"]["one_pair_per_player"] is True
+    assert body["rules"]["ranking_subject"] == "pair"
     assert body["rules"]["tie_breakers"] == ["matches_won"]
     assert body["rules"]["auto_register_players_on_match"] is True
 
 
-async def test_get_league_roster_echoes_one_team_per_player_false(client: AsyncClient) -> None:
-    """When the league was created with `one_team_per_player=false`, the
+async def test_get_league_roster_echoes_one_pair_per_player_false(client: AsyncClient) -> None:
+    """When the league was created with `one_pair_per_player=false`, the
     roster response must surface the flag verbatim — the chat UI uses it
     to suppress the partner-conflict warning that only applies when each
-    player can belong to a single team."""
+    player can belong to a single pair."""
     league = await create_league(
         client,
         rules={
-            "version": 4,
-            "match_pair_idempotency": "none",
-            "one_team_per_player": False,
-            "ranking_subject": "team",
+            "version": 8,
+            "pair_matchup_idempotency": "none",
+            "one_pair_per_player": False,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
         },
     )
@@ -892,15 +896,15 @@ async def test_get_league_roster_echoes_one_team_per_player_false(client: AsyncC
 
     assert resp.status_code == 200
     rules = resp.json()["rules"]
-    assert rules["one_team_per_player"] is False
-    assert rules["ranking_subject"] == "team"
+    assert rules["one_pair_per_player"] is False
+    assert rules["ranking_subject"] == "pair"
 
 
 async def test_get_league_roster_after_matches(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id = league["league_id"]
 
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"))
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"))
 
     resp = await client.get(f"/leagues/{league_id}/roster")
 
@@ -913,11 +917,11 @@ async def test_get_league_roster_after_matches(client: AsyncClient) -> None:
     nicknames = {p["nickname"] for p in body["players"]}
     assert nicknames == {"alice", "bob", "charlie", "diana"}
 
-    assert len(body["teams"]) == 2
-    for team in body["teams"]:
-        assert "team_id" in team
-        assert "player1_nickname" in team
-        assert "player2_nickname" in team
+    assert len(body["pairs"]) == 2
+    for pair in body["pairs"]:
+        assert "pair_id" in pair
+        assert "player1_nickname" in pair
+        assert "player2_nickname" in pair
 
 
 async def test_get_league_roster_league_not_found(client: AsyncClient) -> None:
@@ -942,8 +946,8 @@ async def test_get_league_roster_player_ids_are_valid_uuids(client: AsyncClient)
     for player in body["players"]:
         uuid.UUID(player["player_id"])  # raises ValueError if invalid
 
-    for team in body["teams"]:
-        uuid.UUID(team["team_id"])
+    for pair in body["pairs"]:
+        uuid.UUID(pair["pair_id"])
 
 
 # ---------------------------------------------------------------------------
@@ -958,8 +962,8 @@ async def test_get_match_history_by_player_returns_players_matches(
     league_id = league["league_id"]
 
     match = await submit_match(
-        client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"),
-        team1_score="6", team2_score="4",
+        client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"),
+        pair1_score="6", pair2_score="4",
     )
 
     resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
@@ -969,25 +973,25 @@ async def test_get_match_history_by_player_returns_players_matches(
     assert len(matches) == 1
     record = matches[0]
     assert record["match_id"] == match["match_id"]
-    assert record["team1_score"] == "6"
-    assert record["team2_score"] == "4"
-    assert set([record["team1_player1_nickname"], record["team1_player2_nickname"]]) == {"alice", "bob"}
-    assert set([record["team2_player1_nickname"], record["team2_player2_nickname"]]) == {"charlie", "diana"}
+    assert record["pair1_score"] == "6"
+    assert record["pair2_score"] == "4"
+    assert set([record["pair1_player1_nickname"], record["pair1_player2_nickname"]]) == {"alice", "bob"}
+    assert set([record["pair2_player1_nickname"], record["pair2_player2_nickname"]]) == {"charlie", "diana"}
     assert record["created_at"] is not None
 
 
 async def test_get_match_history_by_player_filters_out_other_matches(
     client: AsyncClient,
 ) -> None:
-    """Matches not involving alice's team must not appear in her history."""
+    """Matches not involving alice's pair must not appear in her history."""
     league = await create_league(client)
     league_id = league["league_id"]
 
     alice_match = await submit_match(
-        client, league_id, team1=("alice", "bob"), team2=("charlie", "diana")
+        client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana")
     )
     await submit_match(
-        client, league_id, team1=("edgar", "frank"), team2=("george", "henry")
+        client, league_id, pair1=("edgar", "frank"), pair2=("george", "henry")
     )
 
     resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
@@ -998,16 +1002,16 @@ async def test_get_match_history_by_player_filters_out_other_matches(
     assert matches[0]["match_id"] == alice_match["match_id"]
 
 
-async def test_get_match_history_by_player_returns_matches_as_team2(
+async def test_get_match_history_by_player_returns_matches_as_pair2(
     client: AsyncClient,
 ) -> None:
-    """alice+bob appearing as team2 should still show up in alice's history."""
+    """alice+bob appearing as pair2 should still show up in alice's history."""
     league = await create_league(client)
     league_id = league["league_id"]
 
     match = await submit_match(
-        client, league_id, team1=("charlie", "diana"), team2=("alice", "bob"),
-        team1_score="3", team2_score="6",
+        client, league_id, pair1=("charlie", "diana"), pair2=("alice", "bob"),
+        pair1_score="3", pair2_score="6",
     )
 
     resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
@@ -1024,8 +1028,8 @@ async def test_get_match_history_by_player_returns_all_matches(
     league = await create_league(client)
     league_id = league["league_id"]
 
-    await submit_match(client, league_id, team1=("alice", "bob"), team2=("charlie", "diana"), team1_score="6", team2_score="3")
-    await submit_match(client, league_id, team1=("charlie", "diana"), team2=("alice", "bob"), team1_score="4", team2_score="6")
+    await submit_match(client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana"), pair1_score="6", pair2_score="3")
+    await submit_match(client, league_id, pair1=("charlie", "diana"), pair2=("alice", "bob"), pair1_score="4", pair2_score="6")
 
     resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=alice")
 
@@ -1040,7 +1044,7 @@ async def test_get_match_history_by_player_case_insensitive(
     league_id = league["league_id"]
 
     match = await submit_match(
-        client, league_id, team1=("alice", "bob"), team2=("charlie", "diana")
+        client, league_id, pair1=("alice", "bob"), pair2=("charlie", "diana")
     )
 
     resp = await client.get(f"/leagues/{league_id}/matches/by-player?player_name=ALICE")

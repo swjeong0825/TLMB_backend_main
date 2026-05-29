@@ -18,7 +18,7 @@ from app.domain.exceptions import (
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 async def _setup_league_with_players(session: AsyncSession) -> tuple[League, str, str]:
@@ -28,9 +28,9 @@ async def _setup_league_with_players(session: AsyncSession) -> tuple[League, str
         None,
         "host-token-edit",
         host_email="host@example.com",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
-    new_players, _ = league.register_players_and_team("alice", "bob")
+    new_players, _ = league.register_players_and_pair("alice", "bob")
     alice_id = str(new_players[0].player_id.value)
     bob_id = str(new_players[1].player_id.value)
     await SqlAlchemyLeagueRepository(session).save(league)

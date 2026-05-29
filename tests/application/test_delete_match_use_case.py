@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.application.use_cases.delete_match_use_case import DeleteMatchCommand, DeleteMatchUseCase
-from app.domain.aggregates.league.value_objects import LeagueId, TeamId
+from app.domain.aggregates.league.value_objects import LeagueId, PairId
 from app.domain.aggregates.match.value_objects import MatchId, SetScore
 from app.domain.exceptions import (
     LeagueNotFoundError,
@@ -28,9 +28,9 @@ class TestDeleteMatchUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        team1_id = TeamId.generate()
-        team2_id = TeamId.generate()
-        match = make_match(league.league_id, team1_id, team2_id)
+        pair1_id = PairId.generate()
+        pair2_id = PairId.generate()
+        match = make_match(league.league_id, pair1_id, pair2_id)
 
         mock_league_repo.get_by_id_with_lock.return_value = league
         mock_match_repo.get_by_id.return_value = match
@@ -51,10 +51,10 @@ class TestDeleteMatchUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        team1_id = TeamId.generate()
-        team2_id = TeamId.generate()
-        deleted_match = make_match(league.league_id, team1_id, team2_id)
-        remaining_match = make_match(league.league_id, team1_id, team2_id)
+        pair1_id = PairId.generate()
+        pair2_id = PairId.generate()
+        deleted_match = make_match(league.league_id, pair1_id, pair2_id)
+        remaining_match = make_match(league.league_id, pair1_id, pair2_id)
         remaining_match.created_at = datetime(2026, 5, 24, 18, 0, tzinfo=timezone.utc)
 
         mock_league_repo.get_by_id_with_lock.return_value = league
@@ -181,9 +181,9 @@ class TestDeleteMatchUseCasePlayerWindow:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="any-token")
-        team1_id = TeamId.generate()
-        team2_id = TeamId.generate()
-        match = make_match(league.league_id, team1_id, team2_id)
+        pair1_id = PairId.generate()
+        pair2_id = PairId.generate()
+        match = make_match(league.league_id, pair1_id, pair2_id)
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=30)
 
         mock_league_repo.get_by_id_with_lock.return_value = league
@@ -204,7 +204,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=1200)
 
         mock_league_repo.get_by_id_with_lock.return_value = league
@@ -229,7 +229,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(days=30)
 
         mock_league_repo.get_by_id_with_lock.return_value = league
@@ -254,7 +254,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         # rather than allowed (fail-closed: defense against unexpected
         # state).
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = None
 
         mock_league_repo.get_by_id_with_lock.return_value = league
@@ -310,7 +310,7 @@ class TestDeleteMatchUseCasePlayerWindow:
         # Constructed without an explicit window_seconds, the default
         # is 10 minutes. A match older than that fails for a player.
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=700)
 
         mock_league_repo.get_by_id_with_lock.return_value = league

@@ -18,12 +18,12 @@ flowchart LR
     end
     subgraph ADMIN_ACTIONS ["Admin Actions  (hostToken required)"]
         EPN["Edit Player Nickname"]
-        DT["Delete Team"]
+        DT["Delete Pair"]
         EMS["Edit Match Score"]
         DM["Delete Match"]
     end
     subgraph IMPLICIT ["Implicit (sub-step of Submit Match Result)"]
-        REG["Register New Players & Team"]
+        REG["Register New Players & Pair"]
     end
 
     HOST --> CL
@@ -67,33 +67,33 @@ flowchart LR
 
 - Triggered by: Client calls the backend with a confirmed structured match command after the player reviews and confirms a form pre-filled by the external AI chatbot
 - Actor: Player (identity verified by leagueId)
-- Goal: Persist the confirmed match result, implicitly registering any new players/teams in the same atomic operation
-- Input: leagueId, team1 player nicknames (two), team2 player nicknames (two), set scores (confirmed structured command)
-- Output: match record persisted; any new players/teams registered in the same operation
-- Happy path: All four player nicknames are known to the league → the use case loads the League aggregate through its repository, validates the submission against League domain rules, creates the Match aggregate, and persists both in one transaction. If any nicknames are new → the use case invokes League domain behavior to register the missing players/teams first, then creates and persists the Match in the same transaction.
+- Goal: Persist the confirmed match result, implicitly registering any new players/pairs in the same atomic operation
+- Input: leagueId, pair1 player nicknames (two), pair2 player nicknames (two), set scores (confirmed structured command)
+- Output: match record persisted; any new players/pairs registered in the same operation
+- Happy path: All four player nicknames are known to the league → the use case loads the League aggregate through its repository, validates the submission against League domain rules, creates the Match aggregate, and persists both in one transaction. If any nicknames are new → the use case invokes League domain behavior to register the missing players/pairs first, then creates and persists the Match in the same transaction.
 - Failure cases:
   - leagueId does not exist
-  - A player nickname appears on both teams (invalid match structure)
-  - A player is already a member of a different team in the same league (when league rules require one team per player)
+  - A player nickname appears on both pairs (invalid match structure)
+  - A player is already a member of a different pair in the same league (when league rules require one pair per player)
   - Set scores are structurally invalid
-  - League rules require at most one match per team pair and this pairing already has a match
+  - League rules require at most one match per pair matchup and this pairing already has a match
 - Notes: The backend treats this submission as final. It does not re-prompt or perform conversational repair. Structured error codes are returned; rendering them into natural language is the responsibility of the external adapter.
 - Related context: Match Recording, League Management (implicit registration performed by the SubmitMatchResult use case via League aggregate domain behavior)
 
 ---
 
-## Action: Register New Players and Team Implicitly
+## Action: Register New Players and Pair Implicitly
 
 - Triggered by: Match submission containing one or more player nicknames not yet known to the league
 - Actor: System (sub-step within the SubmitMatchResult application use case, not a standalone player action)
-- Goal: Auto-register any new players and the new team formed by a new player pair, atomically alongside the match
-- Input: leagueId, new player nicknames, the team pair they form
-- Output: new Player records created, new Team record created if the pair is new
-- Happy path: The SubmitMatchResult use case loads the League aggregate through LeagueRepository, invokes League aggregate methods to register new players and teams (enforcing all roster invariants in memory), then saves the updated League aggregate and the new Match aggregate through their respective repositories within a single transaction
+- Goal: Auto-register any new players and the new pair formed by a new player pair, atomically alongside the match
+- Input: leagueId, new player nicknames, the pair they form
+- Output: new Player records created, new Pair record created if the pair is new
+- Happy path: The SubmitMatchResult use case loads the League aggregate through LeagueRepository, invokes League aggregate methods to register new players and pairs (enforcing all roster invariants in memory), then saves the updated League aggregate and the new Match aggregate through their respective repositories within a single transaction
 - Failure cases:
-  - A new player nickname conflicts with an existing player already in a different team in the same league (team conflict invariant still applies after registration)
+  - A new player nickname conflicts with an existing player already in a different pair in the same league (pair conflict invariant still applies after registration)
 - Related context: League Management
-- Notes: This is **one of two** Player-creation paths. The other is roster pre-registration (see [20_roster_pre_registration.md](20_roster_pre_registration.md)): when the host calls `POST /leagues` with an `initial_players` field or `POST /admin/leagues/{league_id}/players`, every input nickname is written as a fresh `Player` row in the same transaction (no Team is created on the pre-registration path). When match submission later observes a nickname that was already pre-registered, `register_players_and_team` reuses the existing Player and only creates the Team.
+- Notes: This is **one of two** Player-creation paths. The other is roster pre-registration (see [20_roster_pre_registration.md](20_roster_pre_registration.md)): when the host calls `POST /leagues` with an `initial_players` field or `POST /admin/leagues/{league_id}/players`, every input nickname is written as a fresh `Player` row in the same transaction (no Pair is created on the pre-registration path). When match submission later observes a nickname that was already pre-registered, `register_players_and_pair` reuses the existing Player and only creates the Pair.
 
 ---
 
@@ -101,10 +101,10 @@ flowchart LR
 
 - Triggered by: Player or host requesting the current standings for a league
 - Actor: Player (identity verified by leagueId) or League Host (hostToken)
-- Goal: See the current win/loss ranking of all teams in the league
+- Goal: See the current win/loss ranking of all pairs in the league
 - Input: leagueId
-- Output: ordered list of teams with win count, loss count, and rank (tied teams share rank)
-- Happy path: The GetStandings use case loads match records through MatchRepository and league/team data through LeagueRepository, passes the prepared data to StandingsCalculator (a pure domain service), and returns the computed ranked standings
+- Output: ordered list of pairs with win count, loss count, and rank (tied pairs share rank)
+- Happy path: The GetStandings use case loads match records through MatchRepository and league/pair data through LeagueRepository, passes the prepared data to StandingsCalculator (a pure domain service), and returns the computed ranked standings
 - Failure cases:
   - leagueId does not exist
 - Related context: Standings & History (Query Side)
@@ -117,7 +117,7 @@ flowchart LR
 - Actor: Player (identity verified by leagueId) or League Host (hostToken)
 - Goal: See all recorded match results in the league
 - Input: leagueId
-- Output: chronological list of matches with team names and set scores
+- Output: chronological list of matches with pair names and set scores
 - Happy path: All match records for the league returned
 - Failure cases:
   - leagueId does not exist
@@ -127,12 +127,12 @@ flowchart LR
 
 ## Action: View League Roster
 
-- Triggered by: Player or host requesting the list of registered players and teams
+- Triggered by: Player or host requesting the list of registered players and pairs
 - Actor: Player (identity verified by leagueId) or League Host (hostToken)
-- Goal: See all auto-registered players and teams in a league
+- Goal: See all auto-registered players and pairs in a league
 - Input: leagueId
-- Output: list of players (with nicknames) and list of teams (with player nickname pairs)
-- Happy path: All players and teams for the league returned
+- Output: list of players (with nicknames) and list of pairs (with player nickname pairs)
+- Happy path: All players and pairs for the league returned
 - Failure cases:
   - leagueId does not exist
 - Related context: Standings & History (Query Side), League Management
@@ -155,19 +155,19 @@ flowchart LR
 
 ---
 
-## Action: Delete Team (Admin)
+## Action: Delete Pair (Admin)
 
-- Triggered by: Host removing a team entirely
+- Triggered by: Host removing a pair entirely
 - Actor: League Host (hostToken)
-- Goal: Permanently delete a team once all its associated matches have been removed
-- Input: hostToken, leagueId, teamId
-- Output: team deleted; standings recomputed from remaining records
-- Happy path: Team has no associated matches → team is removed; league roster no longer includes the deleted team
+- Goal: Permanently delete a pair once all its associated matches have been removed
+- Input: hostToken, leagueId, pairId
+- Output: pair deleted; standings recomputed from remaining records
+- Happy path: Pair has no associated matches → pair is removed; league roster no longer includes the deleted pair
 - Failure cases:
   - hostToken invalid or does not match the league
-  - teamId does not exist in the league
-  - Team still has one or more associated match records — host must delete those matches first
-- Notes: Team deletion is a hard precondition check, not a cascading auto-delete. The backend rejects a delete request if any match records reference the team. The host must explicitly remove all associated matches before deleting the team. Team composition cannot be updated in V1; teams are created implicitly via match submission and can only be deleted.
+  - pairId does not exist in the league
+  - Pair still has one or more associated match records — host must delete those matches first
+- Notes: Pair deletion is a hard precondition check, not a cascading auto-delete. The backend rejects a delete request if any match records reference the pair. The host must explicitly remove all associated matches before deleting the pair. Pair composition cannot be updated in V1; pairs are created implicitly via match submission and can only be deleted.
 - Related context: Admin Operations → League Management, Match Recording
 
 ---

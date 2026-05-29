@@ -12,7 +12,7 @@ from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.aggregates.league.aggregate_root import League
-from app.domain.aggregates.league.value_objects import TeamId
+from app.domain.aggregates.league.value_objects import PairId
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.value_objects import SetScore
 from app.infrastructure.persistence.models.orm_models import MatchORM
@@ -22,7 +22,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 _BACKFILL_SQL = """
@@ -59,24 +59,24 @@ async def test_backfill_sets_latest_match_date_from_league_local_date(
         "fixture-host-token",
         host_email="host@example.com",
         league_timezone="Asia/Seoul",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
-    _, team1 = league.register_players_and_team("alice", "bob")
-    _, team2 = league.register_players_and_team("charlie", "diana")
+    _, pair1 = league.register_players_and_pair("alice", "bob")
+    _, pair2 = league.register_players_and_pair("charlie", "diana")
     await SqlAlchemyLeagueRepository(session).save(league)
     await session.commit()
 
     match_repo = SqlAlchemyMatchRepository(session)
     older = Match.create(
         league.league_id,
-        TeamId(team1.team_id.value),
-        TeamId(team2.team_id.value),
+        PairId(pair1.pair_id.value),
+        PairId(pair2.pair_id.value),
         SetScore("6", "3"),
     )
     newer = Match.create(
         league.league_id,
-        TeamId(team1.team_id.value),
-        TeamId(team2.team_id.value),
+        PairId(pair1.pair_id.value),
+        PairId(pair2.pair_id.value),
         SetScore("7", "5"),
     )
     await match_repo.save(older)
@@ -118,7 +118,7 @@ async def test_backfill_leaves_empty_league_latest_match_date_null(
         None,
         "fixture-host-token",
         host_email="host@example.com",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
     await SqlAlchemyLeagueRepository(session).save(league)
     await session.commit()

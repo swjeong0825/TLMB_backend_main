@@ -3,7 +3,7 @@
 The integration database is already at HEAD when tests run, so this test
 inserts v6-shaped JSONB rows directly and executes the same JSONB update
 statement that alembic 009 runs. The invariant is small but load-bearing:
-existing leagues keep their stored `match_pair_idempotency`, rules do not
+existing leagues keep their stored `pair_matchup_idempotency`, rules do not
 store timezone, and the new column has the Pacific Time default.
 """
 from __future__ import annotations
@@ -25,14 +25,14 @@ _UPGRADE_SQL = (
 _DOWNGRADE_SQL = (
     "UPDATE leagues "
     "SET rules = "
-    "    (rules - 'version' - 'match_pair_idempotency') "
+    "    (rules - 'version' - 'pair_matchup_idempotency') "
     "    || jsonb_build_object("
     "        'version', 6, "
-    "        'match_pair_idempotency', "
+    "        'pair_matchup_idempotency', "
     "        CASE "
-    "            WHEN rules->>'match_pair_idempotency' = 'once_per_day' "
+    "            WHEN rules->>'pair_matchup_idempotency' = 'once_per_day' "
     "            THEN 'once_per_league' "
-    "            ELSE rules->>'match_pair_idempotency' "
+    "            ELSE rules->>'pair_matchup_idempotency' "
     "        END"
     "    ) "
     "WHERE COALESCE((rules->>'version')::int, 7) = 7"
@@ -60,7 +60,6 @@ async def _insert_league_with_raw_rules(
             "rules": json.dumps(rules),
         },
     )
-    await session.commit()
     return league_id
 
 
@@ -76,12 +75,10 @@ async def _read_row(session: AsyncSession, league_id: uuid.UUID) -> tuple[dict, 
 
 async def _run_upgrade(session: AsyncSession) -> None:
     await session.execute(text(_UPGRADE_SQL))
-    await session.commit()
 
 
 async def _run_downgrade(session: AsyncSession) -> None:
     await session.execute(text(_DOWNGRADE_SQL))
-    await session.commit()
 
 
 class TestMigration009:
@@ -97,9 +94,9 @@ class TestMigration009:
             session,
             {
                 "version": 6,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
                 "auto_register_players_on_match": True,
             },
@@ -110,7 +107,7 @@ class TestMigration009:
 
         rules, league_timezone = await _read_row(session, league_id)
         assert rules["version"] == 7
-        assert rules["match_pair_idempotency"] == "once_per_league"
+        assert rules["pair_matchup_idempotency"] == "once_per_league"
         assert "league_timezone" not in rules
         assert league_timezone == "America/Los_Angeles"
 
@@ -121,9 +118,9 @@ class TestMigration009:
             session,
             {
                 "version": 6,
-                "match_pair_idempotency": "none",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "pair_matchup_idempotency": "none",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
                 "auto_register_players_on_match": True,
             },
@@ -134,7 +131,7 @@ class TestMigration009:
 
         rules, _ = await _read_row(session, league_id)
         assert rules["version"] == 7
-        assert rules["match_pair_idempotency"] == "none"
+        assert rules["pair_matchup_idempotency"] == "none"
 
     async def test_downgrade_maps_daily_rule_to_global_strict_v6(
         self, session: AsyncSession
@@ -143,9 +140,9 @@ class TestMigration009:
             session,
             {
                 "version": 7,
-                "match_pair_idempotency": "once_per_day",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "pair_matchup_idempotency": "once_per_day",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
                 "auto_register_players_on_match": True,
             },
@@ -156,5 +153,5 @@ class TestMigration009:
 
         rules, _ = await _read_row(session, league_id)
         assert rules["version"] == 6
-        assert rules["match_pair_idempotency"] == "once_per_league"
+        assert rules["pair_matchup_idempotency"] == "once_per_league"
         assert "league_timezone" not in rules

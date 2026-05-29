@@ -34,7 +34,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import (
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 # ---------------------------------------------------------------------------
 # Engine setup – NullPool prevents event-loop binding issues with pytest-asyncio
@@ -90,14 +90,14 @@ async def clean_db() -> None:
 
 @pytest_asyncio.fixture
 async def persisted_league(session_factory: async_sessionmaker[AsyncSession]) -> League:
-    """Create and commit a bare League (no players/teams yet)."""
+    """Create and commit a bare League (no players/pairs yet)."""
     async with session_factory() as s:
         league = League.create(
             "Fixture League",
             "Integration test league",
             "fixture-host-token",
             host_email="host@example.com",
-            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
         )
         repo = SqlAlchemyLeagueRepository(s)
         await repo.save(league)
@@ -112,7 +112,7 @@ async def persisted_league_with_match(
     """Create a League, submit one match, and return metadata for use in tests.
 
     Returns a dict with keys:
-        league      – the re-queried League domain object (has players/teams populated)
+        league      – the re-queried League domain object (has players/pairs populated)
         match_id    – str UUID of the created match
     """
     # Create league
@@ -122,26 +122,26 @@ async def persisted_league_with_match(
             None,
             "fixture-host-token",
             host_email="host@example.com",
-            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
 
-    # Submit one match (creates players + teams automatically)
+    # Submit one match (creates players + pairs automatically)
     use_case = SubmitMatchResultUseCase(
         partial(SqlAlchemySubmitMatchResultUnitOfWork, session_factory)
     )
     match_result = await use_case.execute(
         SubmitMatchResultCommand(
             league_id=str(league.league_id),
-            team1_nicknames=("alice", "bob"),
-            team2_nicknames=("charlie", "diana"),
-            team1_score="6",
-            team2_score="3",
+            pair1_nicknames=("alice", "bob"),
+            pair2_nicknames=("charlie", "diana"),
+            pair1_score="6",
+            pair2_score="3",
         )
     )
 
-    # Re-query the league so players/teams are populated
+    # Re-query the league so players/pairs are populated
     async with session_factory() as s:
         fresh_league = await SqlAlchemyLeagueRepository(s).get_by_id(league.league_id)
 

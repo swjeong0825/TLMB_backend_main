@@ -10,7 +10,7 @@ from app.application.use_cases.add_players_use_case import AddPlayersUseCase
 from app.application.use_cases.add_alias_to_player_use_case import AddAliasToPlayerUseCase
 from app.application.use_cases.create_league_use_case import CreateLeagueUseCase
 from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
-from app.application.use_cases.delete_team_use_case import DeleteTeamUseCase
+from app.application.use_cases.delete_pair_use_case import DeletePairUseCase
 from app.application.use_cases.edit_match_score_use_case import EditMatchScoreUseCase
 from app.application.use_cases.edit_player_nickname_use_case import EditPlayerNicknameUseCase
 from app.application.use_cases.get_league_admin_info_use_case import GetLeagueAdminInfoUseCase
@@ -119,11 +119,11 @@ def get_edit_player_nickname_use_case(
     return EditPlayerNicknameUseCase(league_repo)
 
 
-def get_delete_team_use_case(
+def get_delete_pair_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
-) -> DeleteTeamUseCase:
-    return DeleteTeamUseCase(league_repo, match_repo)
+) -> DeletePairUseCase:
+    return DeletePairUseCase(league_repo, match_repo)
 
 
 def get_edit_match_score_use_case(

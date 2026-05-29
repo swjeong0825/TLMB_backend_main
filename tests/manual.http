@@ -1,5 +1,5 @@
 ### Tennis League API — Manual Test Requests
-### Usage: fill in @baseUrl, @leagueId, @hostToken, @playerId, @teamId, @matchId
+### Usage: fill in @baseUrl, @leagueId, @hostToken, @playerId, @pairId, @matchId
 ###        before sending requests that depend on them.
 
 @baseUrl = http://localhost:8000
@@ -10,7 +10,7 @@
 @leagueId  = <paste league_id here>
 @hostToken = <paste host_token here>
 @playerId  = <paste player_id here>
-@teamId    = <paste team_id here>
+@pairId    = <paste pair_id here>
 @matchId   = <paste match_id here>
 
 
@@ -51,10 +51,10 @@ POST {{baseUrl}}/leagues/{{leagueId}}/matches
 Content-Type: application/json
 
 {
-  "team1_nicknames": ["alice", "bob"],
-  "team2_nicknames": ["charlie", "diana"],
-  "team1_score": "6",
-  "team2_score": "3"
+  "pair1_nicknames": ["alice", "bob"],
+  "pair2_nicknames": ["charlie", "diana"],
+  "pair1_score": "6",
+  "pair2_score": "3"
 }
 
 ###
@@ -134,8 +134,8 @@ Content-Type: application/json
 X-Host-Token: {{hostToken}}
 
 {
-  "team1_score": "7",
-  "team2_score": "5"
+  "pair1_score": "7",
+  "pair2_score": "5"
 }
 
 ###
@@ -146,6 +146,6 @@ X-Host-Token: {{hostToken}}
 
 ###
 
-### Delete Team  (delete its matches first)
-DELETE {{baseUrl}}/admin/leagues/{{leagueId}}/teams/{{teamId}}
+### Delete Pair  (delete its matches first)
+DELETE {{baseUrl}}/admin/leagues/{{leagueId}}/pairs/{{pairId}}
 X-Host-Token: {{hostToken}}

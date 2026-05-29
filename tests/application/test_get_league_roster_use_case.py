@@ -32,15 +32,15 @@ class TestGetLeagueRosterUseCase:
         assert result.title == "Test League"
         assert result.league_timezone == "America/Los_Angeles"
         assert result.players == []
-        assert result.teams == []
+        assert result.pairs == []
         assert result.rules == league.rules.to_dict()
 
     async def test_players_sorted_alphabetically(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("charlie", "alice")
-        league.register_players_and_team("diana", "bob")
+        league.register_players_and_pair("charlie", "alice")
+        league.register_players_and_pair("diana", "bob")
 
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo)
@@ -50,19 +50,19 @@ class TestGetLeagueRosterUseCase:
         nicknames = [p.nickname for p in result.players]
         assert nicknames == sorted(nicknames)
 
-    async def test_teams_sorted_by_player1_nickname(
+    async def test_pairs_sorted_by_player1_nickname(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("charlie", "diana")
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        league.register_players_and_pair("alice", "bob")
 
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo)
 
         result = await use_case.execute(GetLeagueRosterQuery(league_id=str(league.league_id)))
 
-        player1_nicks = [t.player1_nickname for t in result.teams]
+        player1_nicks = [t.player1_nickname for t in result.pairs]
         assert player1_nicks == sorted(player1_nicks)
 
     async def test_league_not_found_raises(self, mock_league_repo: AsyncMock) -> None:
@@ -78,7 +78,7 @@ class TestGetLeagueRosterUseCase:
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         alice = next(p for p in league.players if p.nickname.value == "alice")
         alice.rating = 3.5
 
@@ -92,30 +92,30 @@ class TestGetLeagueRosterUseCase:
         assert entry.nickname == "alice"
         assert entry.rating == 3.5
 
-    async def test_team_entry_contains_player_nicknames(
+    async def test_pair_entry_contains_player_nicknames(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
-        team = league.teams[0]
+        league.register_players_and_pair("alice", "bob")
+        pair = league.pairs[0]
 
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo)
 
         result = await use_case.execute(GetLeagueRosterQuery(league_id=str(league.league_id)))
 
-        assert len(result.teams) == 1
-        team_entry = result.teams[0]
-        assert team_entry.team_id == str(team.team_id.value)
-        nicks = {team_entry.player1_nickname, team_entry.player2_nickname}
+        assert len(result.pairs) == 1
+        pair_entry = result.pairs[0]
+        assert pair_entry.pair_id == str(pair.pair_id.value)
+        nicks = {pair_entry.player1_nickname, pair_entry.player2_nickname}
         assert nicks == {"alice", "bob"}
 
     async def test_roster_reflects_all_registered_players(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("charlie", "diana")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
 
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo)
@@ -123,13 +123,13 @@ class TestGetLeagueRosterUseCase:
         result = await use_case.execute(GetLeagueRosterQuery(league_id=str(league.league_id)))
 
         assert len(result.players) == 4
-        assert len(result.teams) == 2
+        assert len(result.pairs) == 2
 
     async def test_rules_returned_match_league_rules_to_dict(
         self, mock_league_repo: AsyncMock
     ) -> None:
         """Frontend gates UI hints (e.g. partner-conflict warnings) on the
-        league's `one_team_per_player` flag, so the roster view must echo
+        league's `one_pair_per_player` flag, so the roster view must echo
         the full rules dict — not a subset."""
         league = make_league()
 
@@ -141,8 +141,8 @@ class TestGetLeagueRosterUseCase:
         assert result.rules == league.rules.to_dict()
         assert set(result.rules.keys()) == {
             "version",
-            "match_pair_idempotency",
-            "one_team_per_player",
+            "pair_matchup_idempotency",
+            "one_pair_per_player",
             "ranking_subject",
             "tie_breakers",
             "auto_register_players_on_match",

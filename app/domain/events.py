@@ -10,10 +10,10 @@ class LeagueCreated:
 
 
 @dataclass(frozen=True)
-class PlayersAndTeamRegistered:
+class PlayersAndPairRegistered:
     league_id: str
     new_player_ids: tuple[str, ...]
-    team_id: str
+    pair_id: str
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,6 @@ class PlayerNicknameEdited:
 
 
 @dataclass(frozen=True)
-class TeamDeleted:
+class PairDeleted:
     league_id: str
-    team_id: str
+    pair_id: str

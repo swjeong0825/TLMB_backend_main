@@ -35,14 +35,14 @@ class EditPlayerNicknameResponse(BaseModel):
 
 
 class EditMatchScoreRequest(BaseModel):
-    team1_score: str
-    team2_score: str
+    pair1_score: str
+    pair2_score: str
 
 
 class EditMatchScoreResponse(BaseModel):
     match_id: str
-    team1_score: str
-    team2_score: str
+    pair1_score: str
+    pair2_score: str
 
 
 class AddPlayerInput(BaseModel):

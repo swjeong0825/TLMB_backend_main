@@ -26,7 +26,7 @@ flowchart LR
     subgraph admin ["Admin — league_id + X-Host-Token header"]
         A0["GET /admin/leagues/{league_id}"]
         A1["PATCH /admin/leagues/{league_id}/players/{player_id}"]
-        A2["DELETE /admin/leagues/{league_id}/teams/{team_id}"]
+        A2["DELETE /admin/leagues/{league_id}/pairs/{pair_id}"]
         A3["PATCH /admin/leagues/{league_id}/matches/{match_id}"]
         A4["DELETE /admin/leagues/{league_id}/matches/{match_id}"]
         A5["POST /admin/leagues/{league_id}/players"]
@@ -40,21 +40,21 @@ flowchart LR
 |---|---|
 | LeagueNotFoundError | 404 |
 | PlayerNotFoundError | 404 |
-| TeamNotFoundError | 404 |
+| PairNotFoundError | 404 |
 | MatchNotFoundError | 404 |
 | UnauthorizedError (hostToken mismatch or missing) | 401 |
 | LeagueTitleAlreadyExistsError | 409 |
-| TeamConflictError | 409 |
+| PairConflictError | 409 |
 | NicknameAlreadyInUseError | 409 |
-| TeamHasMatchesError | 409 |
-| SameTeamOnBothSidesError | 409 |
-| DuplicateTeamPairMatchError (match pair idempotency) | 409 |
-| SamePlayerWithinSingleTeamError | 422 |
-| SamePlayerOnBothTeamsError | 422 |
+| PairHasMatchesError | 409 |
+| SamePairOnBothSidesError | 409 |
+| DuplicatePairMatchupMatchError (pair matchup idempotency) | 409 |
+| SamePlayerWithinSinglePairError | 422 |
+| SamePlayerOnBothPairsError | 422 |
 | InvalidSetScoreError | 422 |
 | InvalidPlayerRatingError (admin supplied a negative or non-finite player rating) | 422 |
-| InvalidLeagueRulesError (invalid v1/v2/v3/v4/v5/v6/v7 rules body, invalid `league_timezone`, or v3 ranking config violations such as the `(ranking_subject="player", one_team_per_player=true)` cross-rule rejection) | 422 |
-| PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a team or appears on a match; body carries `teams_count`, `matches_count`) | 409 |
+| InvalidLeagueRulesError (invalid v8 rules body, invalid `league_timezone`, or v3 ranking config violations such as the `(ranking_subject="player", one_pair_per_player=true)` cross-rule rejection) | 422 |
+| PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a pair or appears on a match; body carries `pairs_count`, `matches_count`) | 409 |
 | RosterMembershipRequiredError (match submission contains nicknames not on the roster; only when `LeagueRules.auto_register_players_on_match = false`; body carries `missing_nicknames`) | 422 |
 | MatchEditWindowExpiredError (non-admin player tried to PATCH a match older than `PLAYER_SCORE_EDIT_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds`) | 422 |
 | MatchDeleteWindowExpiredError (non-admin player tried to DELETE a match older than `PLAYER_MATCH_DELETE_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds`) | 422 |
@@ -68,17 +68,17 @@ flowchart LR
 - Purpose: Create a new league and receive access credentials. Optionally pre-register a starting roster of players in the same transaction.
 - Request shape: `{ "title": "str", "host_email": "str (RFC-compliant email)", "description": "str | null", "league_timezone": "str", "rules": { ... } | null, "initial_players": ["str", ...] }`
   - **`host_email` required.** Mandatory contact email for the league host, validated at the API edge by Pydantic `EmailStr` (RFC-compliant). Stored on the `League` aggregate as the `HostEmail` value object (stripped + lowercased). **Immutable after creation in this API version** — no admin endpoint updates it. The value is **not returned on player-facing read endpoints**; it is exposed only via `GET /admin/leagues/{league_id}` when the caller presents a valid `X-Host-Token`. Reserved for future notification features (sending the player/admin page links, new-match notifications); no notifications are sent today.
-  - **`league_timezone` optional**, default `"America/Los_Angeles"`. Must be a valid IANA timezone string; it is stored on `leagues.league_timezone` and used to compute the league-local calendar day for `match_pair_idempotency = "once_per_day"`.
-  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, must be a valid v1, v2, v3, v4, v5, v6, or v7 rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). v1–v6 inputs are upgraded to v7 transparently: v4's `require_eligible_players` and v5's `require_allowlist` are both inverted into `auto_register_players_on_match`. Rules are **not** mutable after creation in this API version.
+  - **`league_timezone` optional**, default `"America/Los_Angeles"`. Must be a valid IANA timezone string; it is stored on `leagues.league_timezone` and used to compute the league-local calendar day for `pair_matchup_idempotency = "once_per_day"`.
+  - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, it must use the v8 pair-shaped rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). Rules are **not** mutable after creation in this API version.
   - **`initial_players` optional**, default `[]`. When non-empty, each entry must be a non-blank string; one `Player` row per entry is inserted in the same DB transaction that creates the league row (see [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.auto_register_players_on_match` — strict-roster leagues will typically supply it; open leagues may also supply it as a seeding convenience. In-batch duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row or player rows are persisted.
-- Example `rules` (v7): `{ "version": 7, "match_pair_idempotency": "once_per_day", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
+- Example `rules` (v8): `{ "version": 8, "pair_matchup_idempotency": "once_per_day", "one_pair_per_player": true, "ranking_subject": "pair", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
 - Example request with inline seeding:
   ```json
   {
     "title": "Summer Doubles 2026",
     "host_email": "host@example.com",
     "league_timezone": "America/Los_Angeles",
-    "rules": { "version": 7, "match_pair_idempotency": "once_per_day", "one_team_per_player": true, "ranking_subject": "team", "tie_breakers": ["matches_won"], "auto_register_players_on_match": false },
+    "rules": { "version": 8, "pair_matchup_idempotency": "once_per_day", "one_pair_per_player": true, "ranking_subject": "pair", "tie_breakers": ["matches_won"], "auto_register_players_on_match": false },
     "initial_players": ["Alex", "Daniel", "Jason"]
   }
   ```
@@ -87,7 +87,7 @@ flowchart LR
 - Error responses:
   - 409 LeagueTitleAlreadyExistsError
   - 409 NicknameAlreadyInUseError (in-batch duplicate inside `initial_players`; entire request rejected, league row not persisted)
-  - 422 validation (blank title, missing or malformed `host_email`, blank `initial_players` entry, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_team_per_player=true)`)
+  - 422 validation (blank title, missing or malformed `host_email`, blank `initial_players` entry, invalid rules, invalid ranking config, or the v3 cross-rule violation `(ranking_subject="player", one_pair_per_player=true)`)
 - Auth notes: Public — no credentials required
 
 ---
@@ -120,27 +120,27 @@ flowchart LR
 
 - Method: POST
 - Path: `/leagues/{league_id}/matches`
-- Purpose: Record a confirmed doubles match result; implicitly registers any new players and teams
+- Purpose: Record a confirmed doubles match result; implicitly registers any new players and pairs
 - Request shape:
   ```json
   {
-    "team1_nicknames": ["str", "str"],
-    "team2_nicknames": ["str", "str"],
-    "team1_score": "str",
-    "team2_score": "str"
+    "pair1_nicknames": ["str", "str"],
+    "pair2_nicknames": ["str", "str"],
+    "pair1_score": "str",
+    "pair2_score": "str"
   }
   ```
 - Response shape: `{ "match_id": "uuid" }`
 - Use case called: SubmitMatchResultUseCase
 - Error responses:
   - 404 LeagueNotFoundError
-  - 422 SamePlayerWithinSingleTeamError (same player listed twice on one team)
-  - 422 SamePlayerOnBothTeamsError (same player appears on both teams)
+  - 422 SamePlayerWithinSinglePairError (same player listed twice on one pair)
+  - 422 SamePlayerOnBothPairsError (same player appears on both pairs)
   - 422 InvalidSetScoreError (non-integer or negative score)
   - 422 RosterMembershipRequiredError (only when `LeagueRules.auto_register_players_on_match = false`; body includes `missing_nicknames` array — see [20_roster_pre_registration.md](20_roster_pre_registration.md))
-  - 409 TeamConflictError (a player is already on a different team in this league)
-  - 409 SameTeamOnBothSidesError (both teams resolve to the same existing team)
-  - 409 DuplicateTeamPairMatchError (league rules reject another match for this unordered team pair: either globally under `once_per_league`, or within today in the league timezone under `once_per_day`)
+  - 409 PairConflictError (a player is already on a different pair in this league)
+  - 409 SamePairOnBothSidesError (both pairs resolve to the same existing pair)
+  - 409 DuplicatePairMatchupMatchError (league rules reject another match for this unordered pair matchup: either globally under `once_per_league`, or within today in the league timezone under `once_per_day`)
 - Auth notes: `league_id` in URL path — possession is sufficient
 
 ---
@@ -151,14 +151,14 @@ flowchart LR
 - Path: `/leagues/{league_id}/standings`
 - Purpose: Get the current standings for the league, ranked according to the league's configured `ranking_subject` and ordered `tie_breakers` list (see [17_configurable_ranking.md](17_configurable_ranking.md))
 - Request shape: —
-- Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Team variants additionally carry `team_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`. The top-level `tie_breakers` field echoes the league's ordered ranking metrics (a copy of `LeagueRules.tie_breakers`) so clients can label the displayed metric column to match the league's primary tie-breaker — e.g. a league configured with `tie_breakers=["games_won", ...]` shows a "Games won" column rather than a generic "Games ±".
+- Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Pair variants additionally carry `pair_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`. The top-level `tie_breakers` field echoes the league's ordered ranking metrics (a copy of `LeagueRules.tie_breakers`) so clients can label the displayed metric column to match the league's primary tie-breaker — e.g. a league configured with `tie_breakers=["games_won", ...]` shows a "Games won" column rather than a generic "Games ±".
   ```json
   {
     "standings": [
       {
-        "subject_kind": "team",
+        "subject_kind": "pair",
         "rank": 1,
-        "team_id": "uuid",
+        "pair_id": "uuid",
         "player1_nickname": "str",
         "player2_nickname": "str",
         "matches_played": 4,
@@ -189,7 +189,7 @@ flowchart LR
 - Use case called: GetStandingsUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: For a single response, every row's `subject_kind` is identical (a league has one ranking subject). The discriminator is included on every row so individual rows are still self-describing for downstream consumers (chat handlers, render loops). Old clients reading only `team_id` / `player1_nickname` / `player2_nickname` / `wins` / `losses` will silently break for player-subject leagues — coordinate frontend + backend rollouts.
+- Notes: For a single response, every row's `subject_kind` is identical (a league has one ranking subject). The discriminator is included on every row so individual rows are still self-describing for downstream consumers (chat handlers, render loops). Old clients reading only `pair_id` / `player1_nickname` / `player2_nickname` / `wins` / `losses` will silently break for player-subject leagues — coordinate frontend + backend rollouts.
 
 ---
 
@@ -197,9 +197,9 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/standings/by-player`
-- Purpose: Get the standings entry for the team or player identified by a nickname. Under `ranking_subject == "team"`, returns the row for the player's team. Under `ranking_subject == "player"`, returns that player's own row.
+- Purpose: Get the standings entry for the pair or player identified by a nickname. Under `ranking_subject == "pair"`, returns the row for the player's pair. Under `ranking_subject == "player"`, returns that player's own row.
 - Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
-- Response shape: identical polymorphic shape to `GET /leagues/{league_id}/standings`. Under `(team, OTPP=true)` and `(player, OTPP=false)`, the `standings` array has at most one element. Under `(team, OTPP=false)`, the array contains one element per team the resolved player belongs to. An empty array is returned if the player exists but has no team (e.g. all of their teams have been deleted).
+- Response shape: identical polymorphic shape to `GET /leagues/{league_id}/standings`. Under `(pair, OTPP=true)` and `(player, OTPP=false)`, the `standings` array has at most one element. Under `(pair, OTPP=false)`, the array contains one element per pair the resolved player belongs to. An empty array is returned if the player exists but has no pair (e.g. all of their pairs have been deleted).
 - Use case called: GetStandingsByPlayerUseCase
 - Error responses:
   - 404 LeagueNotFoundError
@@ -220,12 +220,12 @@ flowchart LR
     "matches": [
       {
         "match_id": "uuid",
-        "team1_player1_nickname": "str",
-        "team1_player2_nickname": "str",
-        "team2_player1_nickname": "str",
-        "team2_player2_nickname": "str",
-        "team1_score": "str",
-        "team2_score": "str",
+        "pair1_player1_nickname": "str",
+        "pair1_player2_nickname": "str",
+        "pair2_player1_nickname": "str",
+        "pair2_player2_nickname": "str",
+        "pair1_score": "str",
+        "pair2_score": "str",
         "created_at": "ISO 8601 datetime (UTC)"
       }
     ]
@@ -242,7 +242,7 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/roster`
-- Purpose: Get the league title, the active `LeagueRules` configuration, and the list of all registered players and teams. Returning the rules alongside the roster lets the frontend gate UI on the league config (e.g. suppress the partner-conflict warning under `one_team_per_player = false`) without an extra round-trip on page load.
+- Purpose: Get the league title, the active `LeagueRules` configuration, and the list of all registered players and pairs. Returning the rules alongside the roster lets the frontend gate UI on the league config (e.g. suppress the partner-conflict warning under `one_pair_per_player = false`) without an extra round-trip on page load.
 - Request shape: —
 - Response shape:
   ```json
@@ -250,18 +250,18 @@ flowchart LR
     "title": "str",
     "league_timezone": "America/Los_Angeles",
     "rules": {
-      "version": 7,
-      "match_pair_idempotency": "none | once_per_league | once_per_day",
-      "one_team_per_player": true,
-      "ranking_subject": "team | player",
+      "version": 8,
+      "pair_matchup_idempotency": "none | once_per_league | once_per_day",
+      "one_pair_per_player": true,
+      "ranking_subject": "pair | player",
       "tie_breakers": ["matches_won"],
       "auto_register_players_on_match": true
     },
     "players": [
       { "player_id": "uuid", "nickname": "str", "rating": 3.5 }
     ],
-    "teams": [
-      { "team_id": "uuid", "player1_nickname": "str", "player2_nickname": "str" }
+    "pairs": [
+      { "pair_id": "uuid", "player1_nickname": "str", "player2_nickname": "str" }
     ],
     "player_score_edit_window_seconds": 3600,
     "player_match_delete_window_seconds": 600
@@ -270,7 +270,7 @@ flowchart LR
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: `rules` mirrors `LeagueRules.to_dict()`; v1/v2/v3/v4/v5/v6 inputs are upgraded to v7 on read so the response `version` is always `7`. `league_timezone` is top-level league metadata, not a `rules` key. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
+- Notes: `rules` mirrors `LeagueRules.to_dict()`; responses use the current v8 pair-shaped rules contract. `league_timezone` is top-level league metadata, not a `rules` key. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
   `rating` is nullable; unrated players return `"rating": null`.
 
 ---
@@ -279,7 +279,7 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/matches/by-player`
-- Purpose: Get the match history for a specific player, identified by nickname. Under `one_team_per_player = true` resolves the player's single team and returns its matches. Under `one_team_per_player = false` returns the union of matches across every team the player belongs to (deduped by `match_id`).
+- Purpose: Get the match history for a specific player, identified by nickname. Under `one_pair_per_player = true` resolves the player's single pair and returns its matches. Under `one_pair_per_player = false` returns the union of matches across every pair the player belongs to (deduped by `match_id`).
 - Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
 - Response shape: same as Get Match History
   ```json
@@ -287,12 +287,12 @@ flowchart LR
     "matches": [
       {
         "match_id": "uuid",
-        "team1_player1_nickname": "str",
-        "team1_player2_nickname": "str",
-        "team2_player1_nickname": "str",
-        "team2_player2_nickname": "str",
-        "team1_score": "str",
-        "team2_score": "str",
+        "pair1_player1_nickname": "str",
+        "pair1_player2_nickname": "str",
+        "pair2_player1_nickname": "str",
+        "pair2_player2_nickname": "str",
+        "pair1_score": "str",
+        "pair2_score": "str",
         "created_at": "ISO 8601 datetime (UTC)"
       }
     ]
@@ -303,7 +303,7 @@ flowchart LR
   - 404 LeagueNotFoundError
   - 404 PlayerNotFoundError (no player with that nickname in this league)
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: Sorted by `created_at` descending. Returns an empty list if the player has no team (e.g. all of their teams have been deleted). Under `one_team_per_player = false` matches from every team the player belongs to are unioned and deduped by `match_id`. Nickname resolution at read time — admin nickname edits retroactively affect display.
+- Notes: Sorted by `created_at` descending. Returns an empty list if the player has no pair (e.g. all of their pairs have been deleted). Under `one_pair_per_player = false` matches from every pair the player belongs to are unioned and deduped by `match_id`. Nickname resolution at read time — admin nickname edits retroactively affect display.
 
 ---
 
@@ -357,7 +357,7 @@ Likely candidates (not implemented; listed for orientation):
 
 **Anti-patterns — keep these on existing endpoints instead:**
 
-- Roster, teams, players → `GET /leagues/{id}/roster`
+- Roster, pairs, players → `GET /leagues/{id}/roster`
 - Standings → `GET /leagues/{id}/standings` (and by-player variant)
 - Match history → `GET /leagues/{id}/matches`
 - Mutations → existing `PATCH` / `POST` / `DELETE` under `/admin/leagues/{id}/…`
@@ -390,19 +390,19 @@ Likely candidates (not implemented; listed for orientation):
 
 ---
 
-## Endpoint: Delete Team (Admin)
+## Endpoint: Delete Pair (Admin)
 
 - Method: DELETE
-- Path: `/admin/leagues/{league_id}/teams/{team_id}`
-- Purpose: Permanently remove a team from the league roster; only allowed when the team has no associated match records
+- Path: `/admin/leagues/{league_id}/pairs/{pair_id}`
+- Purpose: Permanently remove a pair from the league roster; only allowed when the pair has no associated match records
 - Request shape: —
 - Response shape: 204 No Content
-- Use case called: DeleteTeamUseCase
+- Use case called: DeletePairUseCase
 - Error responses:
   - 404 LeagueNotFoundError
-  - 404 TeamNotFoundError
+  - 404 PairNotFoundError
   - 401 UnauthorizedError
-  - 409 TeamHasMatchesError (associated match records must be deleted first)
+  - 409 PairHasMatchesError (associated match records must be deleted first)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header
 
 ---
@@ -412,8 +412,8 @@ Likely candidates (not implemented; listed for orientation):
 - Method: PATCH
 - Path: `/admin/leagues/{league_id}/matches/{match_id}`
 - Purpose: Correct the set score of a previously recorded match
-- Request shape: `{ "team1_score": "str", "team2_score": "str" }`
-- Response shape: `{ "match_id": "uuid", "team1_score": "str", "team2_score": "str" }`
+- Request shape: `{ "pair1_score": "str", "pair2_score": "str" }`
+- Response shape: `{ "match_id": "uuid", "pair1_score": "str", "pair2_score": "str" }`
 - Use case called: EditMatchScoreUseCase
 - Error responses:
   - 404 LeagueNotFoundError
@@ -484,7 +484,7 @@ Likely candidates (not implemented; listed for orientation):
 
 - Method: DELETE
 - Path: `/admin/leagues/{league_id}/players/{player_id}`
-- Purpose: Hard-delete a single player from the league. Allowed only when the player has zero teams and zero matches. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
+- Purpose: Hard-delete a single player from the league. Allowed only when the player has zero pairs and zero matches. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
 - Request shape: —
 - Response shape: 204 No Content
 - Use case called: RemovePlayerFromRosterUseCase
@@ -492,5 +492,5 @@ Likely candidates (not implemented; listed for orientation):
   - 404 LeagueNotFoundError
   - 404 PlayerNotFoundError
   - 401 UnauthorizedError
-  - 409 PlayerHasParticipationError (player belongs to a team or appears in a match; body carries `teams_count`, `matches_count`)
+  - 409 PlayerHasParticipationError (player belongs to a pair or appears in a match; body carries `pairs_count`, `matches_count`)
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header

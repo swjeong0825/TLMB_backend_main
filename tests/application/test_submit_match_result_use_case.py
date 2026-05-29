@@ -15,12 +15,12 @@ from app.application.use_cases.submit_match_result_use_case import (
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
-    DuplicateTeamPairMatchError,
+    DuplicatePairMatchupMatchError,
     LeagueNotFoundError,
     RosterMembershipRequiredError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
-    TeamConflictError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
+    PairConflictError,
 )
 from tests.application.conftest import make_league
 
@@ -30,10 +30,10 @@ def _league_require_roster() -> League:
     only pre-registered roster members can submit matches."""
     rules = LeagueRules.from_dict(
         {
-            "version": 6,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "version": 8,
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": False,
         }
@@ -47,13 +47,13 @@ def _league_require_roster() -> League:
     )
 
 
-def _league_with_match_pair_idempotency(value: str) -> League:
+def _league_with_pair_matchup_idempotency(value: str) -> League:
     rules = LeagueRules.from_dict(
         {
-            "version": 7,
-            "match_pair_idempotency": value,
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "version": 8,
+            "pair_matchup_idempotency": value,
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": True,
         }
@@ -70,10 +70,10 @@ def _league_with_match_pair_idempotency(value: str) -> League:
 def _league_otpp_false() -> League:
     rules = LeagueRules.from_dict(
         {
-            "version": 7,
-            "match_pair_idempotency": "none",
-            "one_team_per_player": False,
-            "ranking_subject": "team",
+            "version": 8,
+            "pair_matchup_idempotency": "none",
+            "one_pair_per_player": False,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": True,
         }
@@ -99,8 +99,8 @@ def _make_uow_factory(league=None):
     uow.league_repo.get_by_id_with_lock = AsyncMock(return_value=league)
     uow.league_repo.save = AsyncMock(return_value=None)
     uow.match_repo = AsyncMock()
-    uow.match_repo.exists_match_for_team_pair = AsyncMock(return_value=False)
-    uow.match_repo.exists_match_for_team_pair_between = AsyncMock(return_value=False)
+    uow.match_repo.exists_match_for_pair_matchup = AsyncMock(return_value=False)
+    uow.match_repo.exists_match_for_pair_matchup_between = AsyncMock(return_value=False)
     uow.match_repo.get_latest_by_league = AsyncMock(return_value=None)
     uow.match_repo.save = AsyncMock(return_value=None)
     uow.commit = AsyncMock(return_value=None)
@@ -126,10 +126,10 @@ class TestSubmitMatchResultUseCase:
         result = await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
@@ -144,76 +144,76 @@ class TestSubmitMatchResultUseCase:
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id="00000000-0000-0000-0000-000000000000",
-                    team1_nicknames=("alice", "bob"),
-                    team2_nicknames=("charlie", "diana"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "bob"),
+                    pair2_nicknames=("charlie", "diana"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
-    async def test_same_player_in_team1_twice_raises(self) -> None:
+    async def test_same_player_in_pair1_twice_raises(self) -> None:
         league = make_league()
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(SamePlayerWithinSingleTeamError):
+        with pytest.raises(SamePlayerWithinSinglePairError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("alice", "alice"),
-                    team2_nicknames=("charlie", "diana"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "alice"),
+                    pair2_nicknames=("charlie", "diana"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
-    async def test_same_player_in_team2_twice_raises(self) -> None:
+    async def test_same_player_in_pair2_twice_raises(self) -> None:
         league = make_league()
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(SamePlayerWithinSingleTeamError):
+        with pytest.raises(SamePlayerWithinSinglePairError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("alice", "bob"),
-                    team2_nicknames=("charlie", "charlie"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "bob"),
+                    pair2_nicknames=("charlie", "charlie"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
-    async def test_same_player_on_both_teams_raises(self) -> None:
+    async def test_same_player_on_both_pairs_raises(self) -> None:
         league = make_league()
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(SamePlayerOnBothTeamsError):
+        with pytest.raises(SamePlayerOnBothPairsError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("alice", "bob"),
-                    team2_nicknames=("alice", "charlie"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "bob"),
+                    pair2_nicknames=("alice", "charlie"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
-    async def test_same_player_on_both_teams_via_alias_raises(self) -> None:
+    async def test_same_player_on_both_pairs_via_alias_raises(self) -> None:
         league = _league_otpp_false()
         alice = league.add_players(["alice", "bob", "charlie"])[0]
         league.add_alias_to_player(str(alice.player_id.value), "ali")
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(SamePlayerOnBothTeamsError):
+        with pytest.raises(SamePlayerOnBothPairsError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("ali", "bob"),
-                    team2_nicknames=("alice", "charlie"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("ali", "bob"),
+                    pair2_nicknames=("alice", "charlie"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -222,14 +222,14 @@ class TestSubmitMatchResultUseCase:
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(SamePlayerWithinSingleTeamError):
+        with pytest.raises(SamePlayerWithinSinglePairError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("Alice", "ALICE"),
-                    team2_nicknames=("charlie", "diana"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("Alice", "ALICE"),
+                    pair2_nicknames=("charlie", "diana"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -241,10 +241,10 @@ class TestSubmitMatchResultUseCase:
         await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
@@ -263,10 +263,10 @@ class TestSubmitMatchResultUseCase:
         await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("ali", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("ali", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
@@ -279,67 +279,67 @@ class TestSubmitMatchResultUseCase:
             "diana",
         }
 
-    async def test_player_on_different_team_raises_team_conflict(self) -> None:
+    async def test_player_on_different_pair_raises_pair_conflict(self) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         factory, _ = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(TeamConflictError):
+        with pytest.raises(PairConflictError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("alice", "charlie"),
-                    team2_nicknames=("diana", "eve"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "charlie"),
+                    pair2_nicknames=("diana", "eve"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
 
 # ---------------------------------------------------------------------------
-# v7: match-pair idempotency
+# v8: pair matchup idempotency
 # ---------------------------------------------------------------------------
 
 
-class TestSubmitMatchResultMatchPairIdempotency:
-    async def test_once_per_day_checks_team_pair_with_calendar_day_bounds(self) -> None:
-        league = _league_with_match_pair_idempotency("once_per_day")
+class TestSubmitMatchResultPairMatchupIdempotency:
+    async def test_once_per_day_checks_pair_matchup_with_calendar_day_bounds(self) -> None:
+        league = _league_with_pair_matchup_idempotency("once_per_day")
         factory, uow = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
         await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
-        uow.match_repo.exists_match_for_team_pair.assert_not_awaited()
-        uow.match_repo.exists_match_for_team_pair_between.assert_awaited_once()
-        args = uow.match_repo.exists_match_for_team_pair_between.await_args.args
+        uow.match_repo.exists_match_for_pair_matchup.assert_not_awaited()
+        uow.match_repo.exists_match_for_pair_matchup_between.assert_awaited_once()
+        args = uow.match_repo.exists_match_for_pair_matchup_between.await_args.args
         assert args[0] == league.league_id
         assert args[3].tzinfo == timezone.utc
         assert args[4].tzinfo == timezone.utc
         assert args[3] < args[4]
 
     async def test_once_per_day_duplicate_raises(self) -> None:
-        league = _league_with_match_pair_idempotency("once_per_day")
+        league = _league_with_pair_matchup_idempotency("once_per_day")
         factory, uow = _make_uow_factory(league)
-        uow.match_repo.exists_match_for_team_pair_between.return_value = True
+        uow.match_repo.exists_match_for_pair_matchup_between.return_value = True
         use_case = SubmitMatchResultUseCase(factory)
 
-        with pytest.raises(DuplicateTeamPairMatchError):
+        with pytest.raises(DuplicatePairMatchupMatchError):
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("alice", "bob"),
-                    team2_nicknames=("charlie", "diana"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "bob"),
+                    pair2_nicknames=("charlie", "diana"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -347,22 +347,22 @@ class TestSubmitMatchResultMatchPairIdempotency:
         uow.match_repo.save.assert_not_awaited()
 
     async def test_once_per_league_still_uses_global_pair_check(self) -> None:
-        league = _league_with_match_pair_idempotency("once_per_league")
+        league = _league_with_pair_matchup_idempotency("once_per_league")
         factory, uow = _make_uow_factory(league)
         use_case = SubmitMatchResultUseCase(factory)
 
         await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
-        uow.match_repo.exists_match_for_team_pair.assert_awaited_once()
-        uow.match_repo.exists_match_for_team_pair_between.assert_not_awaited()
+        uow.match_repo.exists_match_for_pair_matchup.assert_awaited_once()
+        uow.match_repo.exists_match_for_pair_matchup_between.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -381,10 +381,10 @@ class TestSubmitMatchResultRosterGate:
         result = await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
         assert result.match_id is not None
@@ -398,10 +398,10 @@ class TestSubmitMatchResultRosterGate:
         result = await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
         assert result.match_id is not None
@@ -416,10 +416,10 @@ class TestSubmitMatchResultRosterGate:
             await use_case.execute(
                 SubmitMatchResultCommand(
                     league_id=str(league.league_id),
-                    team1_nicknames=("alice", "bob"),
-                    team2_nicknames=("michael", "ryan"),
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_nicknames=("alice", "bob"),
+                    pair2_nicknames=("michael", "ryan"),
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -436,10 +436,10 @@ class TestSubmitMatchResultRosterGate:
         result = await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("ALICE", "Bob"),
-                team2_nicknames=("Charlie", "DIANA"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("ALICE", "Bob"),
+                pair2_nicknames=("Charlie", "DIANA"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
         assert result.match_id is not None

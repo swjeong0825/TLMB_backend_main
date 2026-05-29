@@ -12,19 +12,19 @@ from httpx import AsyncClient
 
 from app.application.use_cases.create_league_use_case import CreateLeagueResult
 from app.application.use_cases.search_leagues_by_title_prefix_use_case import LeagueListItem
-from app.application.use_cases.get_league_roster_use_case import PlayerEntry, RosterView, TeamEntry
+from app.application.use_cases.get_league_roster_use_case import PlayerEntry, RosterView, PairEntry
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase, StandingsView
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultResult
 from app.domain.exceptions import (
-    DuplicateTeamPairMatchError,
+    DuplicatePairMatchupMatchError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
-    TeamConflictError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
+    PairConflictError,
 )
 from app.domain.services.standings_calculator import StandingsEntry
 
@@ -226,10 +226,10 @@ class TestSearchLeaguesByTitlePrefix:
 
 class TestSubmitMatchResult:
     _VALID_PAYLOAD = {
-        "team1_nicknames": ["alice", "bob"],
-        "team2_nicknames": ["charlie", "diana"],
-        "team1_score": "6",
-        "team2_score": "3",
+        "pair1_nicknames": ["alice", "bob"],
+        "pair2_nicknames": ["charlie", "diana"],
+        "pair1_score": "6",
+        "pair2_score": "3",
     }
 
     _FAKE_CREATED_AT = datetime(2026, 5, 24, 12, 0, 0, tzinfo=timezone.utc)
@@ -261,34 +261,34 @@ class TestSubmitMatchResult:
         response = await client.post("/leagues/bad-id/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 404
 
-    async def test_same_player_both_teams_returns_422(
+    async def test_same_player_both_pairs_returns_422(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        mock_submit_match_uc.execute.side_effect = SamePlayerOnBothTeamsError("overlap")
+        mock_submit_match_uc.execute.side_effect = SamePlayerOnBothPairsError("overlap")
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 422
 
-    async def test_same_player_within_team_returns_422(
+    async def test_same_player_within_pair_returns_422(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        mock_submit_match_uc.execute.side_effect = SamePlayerWithinSingleTeamError("dup")
+        mock_submit_match_uc.execute.side_effect = SamePlayerWithinSinglePairError("dup")
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 422
 
-    async def test_team_conflict_returns_409(
+    async def test_pair_conflict_returns_409(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        mock_submit_match_uc.execute.side_effect = TeamConflictError("conflict")
+        mock_submit_match_uc.execute.side_effect = PairConflictError("conflict")
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 409
 
-    async def test_duplicate_team_pair_returns_409(
+    async def test_duplicate_pair_matchup_returns_409(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
     ) -> None:
-        mock_submit_match_uc.execute.side_effect = DuplicateTeamPairMatchError("dup")
+        mock_submit_match_uc.execute.side_effect = DuplicatePairMatchupMatchError("dup")
         response = await client.post("/leagues/lid/matches", json=self._VALID_PAYLOAD)
         assert response.status_code == 409
-        assert response.json()["error"] == "DuplicateTeamPairMatchError"
+        assert response.json()["error"] == "DuplicatePairMatchupMatchError"
 
     async def test_roster_membership_required_returns_422_with_missing_nicknames_payload(
         self, client: AsyncClient, mock_submit_match_uc: AsyncMock
@@ -308,17 +308,17 @@ class TestSubmitMatchResult:
         assert body["missing_nicknames"] == ["michael", "ryan"]
         assert "michael" in body["detail"]
 
-    async def test_team1_with_one_nickname_returns_422(
+    async def test_pair1_with_one_nickname_returns_422(
         self, client: AsyncClient
     ) -> None:
-        payload = {**self._VALID_PAYLOAD, "team1_nicknames": ["alice"]}
+        payload = {**self._VALID_PAYLOAD, "pair1_nicknames": ["alice"]}
         response = await client.post("/leagues/lid/matches", json=payload)
         assert response.status_code == 422
 
-    async def test_team2_with_three_nicknames_returns_422(
+    async def test_pair2_with_three_nicknames_returns_422(
         self, client: AsyncClient
     ) -> None:
-        payload = {**self._VALID_PAYLOAD, "team2_nicknames": ["a", "b", "c"]}
+        payload = {**self._VALID_PAYLOAD, "pair2_nicknames": ["a", "b", "c"]}
         response = await client.post("/leagues/lid/matches", json=payload)
         assert response.status_code == 422
 
@@ -335,7 +335,7 @@ class TestGetStandings:
         mock_get_standings_uc.execute.return_value = StandingsView(
             entries=[
                 StandingsEntry(
-                    subject_kind="team",
+                    subject_kind="pair",
                     rank=1,
                     matches_played=3,
                     wins=2,
@@ -345,7 +345,7 @@ class TestGetStandings:
                     games_diff=4,
                     win_pct=2 / 3,
                     draws=1,
-                    team_id="t1",
+                    pair_id="t1",
                     player1_nickname="alice",
                     player2_nickname="bob",
                 )
@@ -356,7 +356,7 @@ class TestGetStandings:
         assert response.status_code == 200
         data = response.json()
         assert len(data["standings"]) == 1
-        assert data["standings"][0]["subject_kind"] == "team"
+        assert data["standings"][0]["subject_kind"] == "pair"
         assert data["standings"][0]["rank"] == 1
         assert data["standings"][0]["wins"] == 2
         assert data["standings"][0]["games_diff"] == 4
@@ -450,7 +450,7 @@ class TestGetStandingsByPlayer:
         mock_get_standings_by_player_uc.execute.return_value = StandingsView(
             entries=[
                 StandingsEntry(
-                    subject_kind="team",
+                    subject_kind="pair",
                     rank=1,
                     matches_played=3,
                     wins=2,
@@ -459,7 +459,7 @@ class TestGetStandingsByPlayer:
                     games_lost=8,
                     games_diff=4,
                     win_pct=2 / 3,
-                    team_id="t1",
+                    pair_id="t1",
                     player1_nickname="alice",
                     player2_nickname="bob",
                 )
@@ -501,7 +501,7 @@ class TestGetStandingsByPlayer:
         assert data["standings"][0]["subject_kind"] == "player"
         assert data["standings"][0]["nickname"] == "alice"
         assert data["standings"][0]["player_id"] == "p1"
-        assert data["standings"][0]["team_id"] is None
+        assert data["standings"][0]["pair_id"] is None
         assert data["standings"][0]["draws"] == 0
         assert data["tie_breakers"] == ["games_won"]
 
@@ -590,12 +590,12 @@ class TestGetMatchHistory:
         mock_get_match_history_uc.execute.return_value = [
             MatchHistoryRecord(
                 match_id="m1",
-                team1_player1_nickname="alice",
-                team1_player2_nickname="bob",
-                team2_player1_nickname="charlie",
-                team2_player2_nickname="diana",
-                team1_score="6",
-                team2_score="3",
+                pair1_player1_nickname="alice",
+                pair1_player2_nickname="bob",
+                pair2_player1_nickname="charlie",
+                pair2_player2_nickname="diana",
+                pair1_score="6",
+                pair2_score="3",
                 created_at=datetime(2025, 1, 1),
             )
         ]
@@ -634,12 +634,12 @@ class TestGetMatchHistory:
 class TestGetMatchHistoryByPlayer:
     _MATCH_RECORD = MatchHistoryRecord(
         match_id="m1",
-        team1_player1_nickname="alice",
-        team1_player2_nickname="bob",
-        team2_player1_nickname="charlie",
-        team2_player2_nickname="diana",
-        team1_score="6",
-        team2_score="3",
+        pair1_player1_nickname="alice",
+        pair1_player2_nickname="bob",
+        pair2_player1_nickname="charlie",
+        pair2_player2_nickname="diana",
+        pair1_score="6",
+        pair2_score="3",
         created_at=datetime(2025, 1, 1),
     )
 
@@ -696,17 +696,17 @@ class TestGetMatchHistoryByPlayer:
 
 
 _DEFAULT_ROSTER_RULES: dict = {
-    "version": 7,
-    "match_pair_idempotency": "once_per_day",
-    "one_team_per_player": True,
-    "ranking_subject": "team",
+    "version": 8,
+    "pair_matchup_idempotency": "once_per_day",
+    "one_pair_per_player": True,
+    "ranking_subject": "pair",
     "tie_breakers": ["matches_won"],
     "auto_register_players_on_match": True,
 }
 
 
 class TestGetLeagueRoster:
-    async def test_returns_200_with_players_and_teams(
+    async def test_returns_200_with_players_and_pairs(
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
     ) -> None:
         mock_get_roster_uc.execute.return_value = RosterView(
@@ -722,7 +722,7 @@ class TestGetLeagueRoster:
                     rating=3.5,
                 )
             ],
-            teams=[TeamEntry(team_id="t1", player1_nickname="alice", player2_nickname="bob")],
+            pairs=[PairEntry(pair_id="t1", player1_nickname="alice", player2_nickname="bob")],
         )
         response = await client.get("/leagues/lid/roster")
         assert response.status_code == 200
@@ -734,7 +734,7 @@ class TestGetLeagueRoster:
         assert data["players"][0]["nickname"] == "alice"
         assert data["players"][0]["aliases"] == ["ali"]
         assert data["players"][0]["rating"] == 3.5
-        assert len(data["teams"]) == 1
+        assert len(data["pairs"]) == 1
         assert data["rules"] == _DEFAULT_ROSTER_RULES
 
     async def test_league_not_found_returns_404(
@@ -752,34 +752,34 @@ class TestGetLeagueRoster:
             league_timezone="America/Los_Angeles",
             rules=dict(_DEFAULT_ROSTER_RULES),
             players=[],
-            teams=[],
+            pairs=[],
         )
         response = await client.get("/leagues/lid/roster")
         assert response.status_code == 200
         data = response.json()
         assert data["title"] == "Empty League"
         assert data["players"] == []
-        assert data["teams"] == []
+        assert data["pairs"] == []
         assert data["rules"] == _DEFAULT_ROSTER_RULES
 
-    async def test_response_echoes_one_team_per_player_false(
+    async def test_response_echoes_one_pair_per_player_false(
         self, client: AsyncClient, mock_get_roster_uc: AsyncMock
     ) -> None:
-        """v3+: leagues created with `one_team_per_player=false` must surface
+        """v3+: leagues created with `one_pair_per_player=false` must surface
         that flag verbatim so the chat UI can suppress the partner-conflict
         warning emitted by `renderMatchSubmitRosterNotes`."""
         rules = dict(_DEFAULT_ROSTER_RULES)
-        rules["one_team_per_player"] = False
+        rules["one_pair_per_player"] = False
         rules["ranking_subject"] = "player"
         mock_get_roster_uc.execute.return_value = RosterView(
             title="Open Roster",
             league_timezone="America/Los_Angeles",
             rules=rules,
             players=[],
-            teams=[],
+            pairs=[],
         )
         response = await client.get("/leagues/lid/roster")
         assert response.status_code == 200
         data = response.json()
-        assert data["rules"]["one_team_per_player"] is False
+        assert data["rules"]["one_pair_per_player"] is False
         assert data["rules"]["ranking_subject"] == "player"

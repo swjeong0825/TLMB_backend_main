@@ -22,7 +22,7 @@ from app.dependencies import (
     get_add_players_use_case,
     get_create_league_use_case,
     get_delete_match_use_case,
-    get_delete_team_use_case,
+    get_delete_pair_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
     get_get_league_admin_info_use_case,
@@ -77,7 +77,7 @@ def mock_edit_player_nickname_uc() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_delete_team_uc() -> AsyncMock:
+def mock_delete_pair_uc() -> AsyncMock:
     return AsyncMock()
 
 
@@ -135,7 +135,7 @@ async def client(
     mock_get_match_history_uc: AsyncMock,
     mock_get_roster_uc: AsyncMock,
     mock_edit_player_nickname_uc: AsyncMock,
-    mock_delete_team_uc: AsyncMock,
+    mock_delete_pair_uc: AsyncMock,
     mock_edit_match_score_uc: AsyncMock,
     mock_delete_match_uc: AsyncMock,
     mock_get_match_history_by_player_uc: AsyncMock,
@@ -157,7 +157,7 @@ async def client(
     app.dependency_overrides[get_edit_player_nickname_use_case] = (
         lambda: mock_edit_player_nickname_uc
     )
-    app.dependency_overrides[get_delete_team_use_case] = lambda: mock_delete_team_uc
+    app.dependency_overrides[get_delete_pair_use_case] = lambda: mock_delete_pair_uc
     app.dependency_overrides[get_edit_match_score_use_case] = lambda: mock_edit_match_score_uc
     app.dependency_overrides[get_delete_match_use_case] = lambda: mock_delete_match_uc
     app.dependency_overrides[get_get_match_history_by_player_use_case] = (

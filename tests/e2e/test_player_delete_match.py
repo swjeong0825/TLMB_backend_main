@@ -48,10 +48,10 @@ async def _submit_match(client: AsyncClient, league_id: str) -> dict:
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
     assert resp.status_code == 201, resp.text

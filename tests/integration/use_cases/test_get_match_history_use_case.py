@@ -16,7 +16,7 @@ from app.infrastructure.persistence.repositories.league_repository import (
 from app.infrastructure.persistence.repositories.match_repository import (
     SqlAlchemyMatchRepository,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 async def test_returns_empty_history_for_new_league(session: AsyncSession) -> None:
@@ -26,7 +26,7 @@ async def test_returns_empty_history_for_new_league(session: AsyncSession) -> No
         None,
         "tok",
         host_email="host@example.com",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
     await repo.save(league)
 
@@ -50,14 +50,14 @@ async def test_returns_match_record_with_player_nicknames(persisted_league_with_
     assert len(records) == 1
     record = records[0]
     assert record.match_id == match_id
-    assert record.team1_score == "6"
-    assert record.team2_score == "3"
+    assert record.pair1_score == "6"
+    assert record.pair2_score == "3"
     assert record.created_at is not None
 
-    team1_players = {record.team1_player1_nickname, record.team1_player2_nickname}
-    team2_players = {record.team2_player1_nickname, record.team2_player2_nickname}
-    assert team1_players == {"alice", "bob"}
-    assert team2_players == {"charlie", "diana"}
+    pair1_players = {record.pair1_player1_nickname, record.pair1_player2_nickname}
+    pair2_players = {record.pair2_player1_nickname, record.pair2_player2_nickname}
+    assert pair1_players == {"alice", "bob"}
+    assert pair2_players == {"charlie", "diana"}
 
 
 async def test_raises_for_unknown_league(session: AsyncSession) -> None:

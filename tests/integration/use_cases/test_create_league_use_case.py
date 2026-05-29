@@ -76,9 +76,11 @@ async def test_persists_explicit_league_timezone(session: AsyncSession) -> None:
 async def test_persists_explicit_rules(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     custom = {
-        "version": 1,
-        "match_pair_idempotency": "none",
-        "one_team_per_player": True,
+        "version": 8,
+        "pair_matchup_idempotency": "none",
+        "one_pair_per_player": True,
+        "ranking_subject": "pair",
+        "tie_breakers": ["matches_won"],
     }
     await CreateLeagueUseCase(repo).execute(
         CreateLeagueCommand(
@@ -103,8 +105,8 @@ async def test_invalid_rules_version_raises(session: AsyncSession) -> None:
                 description=None,
                 rules={
                     "version": 99,
-                    "match_pair_idempotency": "none",
-                    "one_team_per_player": True,
+                    "pair_matchup_idempotency": "none",
+                    "one_pair_per_player": True,
                 },
             )
         )
@@ -166,10 +168,10 @@ async def test_persists_league_and_seeded_initial_players_atomically(
             host_email=_HOST_EMAIL,
             description=None,
             rules={
-                "version": 6,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
                 "auto_register_players_on_match": False,
             },
@@ -189,7 +191,7 @@ async def test_persists_league_and_seeded_initial_players_atomically(
         "daniel",
         "jason",
     ]
-    assert found.teams == []
+    assert found.pairs == []
 
 
 async def test_duplicate_seeded_player_rejects_whole_creation(

@@ -59,7 +59,7 @@ async def clean_db() -> None:
 Every child table FKs into `leagues.league_id` with `ON DELETE CASCADE`:
 
 - `players.league_id`
-- `teams.league_id`
+- `pairs.league_id`
 - `matches.league_id`
 
 (`allowlist_entries.league_id` existed in alembic 005–006 but was dropped
@@ -315,7 +315,7 @@ tests:
    ```bash
    rg "LeagueRules\(\s*\n\s*version=" backend_main
    ```
-2. `Player(...)`, `Team(...)` (entity dataclasses) —
+2. `Player(...)`, `Pair(...)` (entity dataclasses) —
    currently only used inside aggregate methods, not in tests directly.
    (The v5-era `AllowlistEntry` entity was retired with the allowlist
    concept in alembic 007 / `LeagueRules` v6.)

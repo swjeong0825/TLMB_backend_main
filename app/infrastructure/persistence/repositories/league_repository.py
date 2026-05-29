@@ -12,13 +12,13 @@ from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.infrastructure.persistence.mappers.league_mapper import league_to_domain
 from app.infrastructure.persistence.mappers.player_mapper import player_to_orm
-from app.infrastructure.persistence.mappers.team_mapper import team_to_orm
+from app.infrastructure.persistence.mappers.pair_mapper import pair_to_orm
 from app.infrastructure.persistence.models.orm_models import (
     LeagueORM,
     MatchORM,
     PlayerAliasORM,
     PlayerORM,
-    TeamORM,
+    PairORM,
 )
 
 
@@ -37,7 +37,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
 
     _LEAGUE_LOAD_OPTIONS = (
         selectinload(LeagueORM.players).selectinload(PlayerORM.aliases),
-        selectinload(LeagueORM.teams),
+        selectinload(LeagueORM.pairs),
     )
 
     async def get_by_id(self, league_id: LeagueId) -> League | None:
@@ -128,16 +128,16 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             if player_orm is not None:
                 await self._session.delete(player_orm)
 
-        for team in league.teams:
-            team_orm = await self._session.get(TeamORM, team.team_id.value)
-            if team_orm is None:
-                team_orm = team_to_orm(team, league.league_id)
-                self._session.add(team_orm)
+        for pair in league.pairs:
+            pair_orm = await self._session.get(PairORM, pair.pair_id.value)
+            if pair_orm is None:
+                pair_orm = pair_to_orm(pair, league.league_id)
+                self._session.add(pair_orm)
 
-        for team_id in league.pending_deleted_team_ids:
-            team_orm = await self._session.get(TeamORM, team_id.value)
-            if team_orm is not None:
-                await self._session.delete(team_orm)
+        for pair_id in league.pending_deleted_pair_ids:
+            pair_orm = await self._session.get(PairORM, pair_id.value)
+            if pair_orm is not None:
+                await self._session.delete(pair_orm)
 
     async def _get_player_with_aliases(self, player_id: uuid.UUID) -> PlayerORM | None:
         result = await self._session.execute(
@@ -199,37 +199,37 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
 
         Issues a single small query for all matches in the league (matches
         are typically small in this domain) and aggregates counts per player
-        in Python by walking the loaded `teams`. Returns `{player_id: count}`;
+        in Python by walking the loaded `pairs`. Returns `{player_id: count}`;
         players with zero matches are simply absent from the dict so
         callers should `.get(pid, 0)`.
 
-        Note: a match always references two distinct teams whose player
-        rosters are disjoint (enforced by `SamePlayerOnBothTeamsError`), so
-        summing per-team match counts across a player's teams is correct —
+        Note: a match always references two distinct pairs whose player
+        rosters are disjoint (enforced by `SamePlayerOnBothPairsError`), so
+        summing per-pair match counts across a player's pairs is correct —
         no double-counting is possible.
         """
-        if not league_orm.teams:
+        if not league_orm.pairs:
             return {}
 
         result = await self._session.execute(
-            select(MatchORM.team1_id, MatchORM.team2_id)
+            select(MatchORM.pair1_id, MatchORM.pair2_id)
             .where(MatchORM.league_id == league_id.value)
         )
-        match_count_by_team: dict[uuid.UUID, int] = {}
+        match_count_by_pair: dict[uuid.UUID, int] = {}
         for row in result:
-            t1 = row.team1_id
-            t2 = row.team2_id
-            match_count_by_team[t1] = match_count_by_team.get(t1, 0) + 1
-            match_count_by_team[t2] = match_count_by_team.get(t2, 0) + 1
+            pair1_id = row.pair1_id
+            pair2_id = row.pair2_id
+            match_count_by_pair[pair1_id] = match_count_by_pair.get(pair1_id, 0) + 1
+            match_count_by_pair[pair2_id] = match_count_by_pair.get(pair2_id, 0) + 1
 
         counts_by_player: dict[uuid.UUID, int] = {}
-        for team in league_orm.teams:
-            cnt = match_count_by_team.get(team.team_id, 0)
+        for pair in league_orm.pairs:
+            cnt = match_count_by_pair.get(pair.pair_id, 0)
             if cnt:
-                counts_by_player[team.player_id_1] = (
-                    counts_by_player.get(team.player_id_1, 0) + cnt
+                counts_by_player[pair.player_id_1] = (
+                    counts_by_player.get(pair.player_id_1, 0) + cnt
                 )
-                counts_by_player[team.player_id_2] = (
-                    counts_by_player.get(team.player_id_2, 0) + cnt
+                counts_by_player[pair.player_id_2] = (
+                    counts_by_player.get(pair.player_id_2, 0) + cnt
                 )
         return counts_by_player

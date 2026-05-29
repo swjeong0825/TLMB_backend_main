@@ -24,7 +24,7 @@ class TestEditPlayerNicknameUseCase:
 
     def _league_with_players(self, host_token: str = "valid-token"):
         league = make_league(host_token=host_token)
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         return league
 
     async def test_happy_path_returns_updated_player(

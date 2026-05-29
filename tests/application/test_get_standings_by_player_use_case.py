@@ -41,7 +41,7 @@ class TestGetStandingsByPlayerUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo, mock_match_repo)
 
@@ -57,7 +57,7 @@ class TestGetStandingsByPlayerUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -75,7 +75,7 @@ class TestGetStandingsByPlayerUseCase:
         league = make_league()
         alice = league.add_players(["alice"])[0]
         league.add_alias_to_player(str(alice.player_id.value), "ali")
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -90,12 +90,12 @@ class TestGetStandingsByPlayerUseCase:
         assert len(result.entries) == 1
         assert result.entries[0].player1_nickname == "alice"
 
-    async def test_returns_empty_when_player_has_no_team(
+    async def test_returns_empty_when_player_has_no_pair(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        _, team = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team.team_id.value))
+        _, pair = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair.pair_id.value))
 
         mock_league_repo.get_by_id.return_value = league
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -110,11 +110,11 @@ class TestGetStandingsByPlayerUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("charlie", "diana")
-        team1 = league.teams[0]
-        team2 = league.teams[1]
-        match = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        pair1 = league.pairs[0]
+        pair2 = league.pairs[1]
+        match = make_match(league.league_id, pair1.pair_id, pair2.pair_id, "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = [match]
@@ -125,7 +125,7 @@ class TestGetStandingsByPlayerUseCase:
         )
 
         assert len(result.entries) == 1
-        assert result.entries[0].team_id == str(team2.team_id.value)
+        assert result.entries[0].pair_id == str(pair2.pair_id.value)
         assert result.entries[0].wins == 0
         assert result.entries[0].losses == 1
         assert result.entries[0].rank == 2
@@ -134,7 +134,7 @@ class TestGetStandingsByPlayerUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -149,7 +149,7 @@ class TestGetStandingsByPlayerUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -173,7 +173,7 @@ class TestGetStandingsByPlayerUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -199,8 +199,8 @@ class TestGetStandingsByPlayerUseCase:
         rules = LeagueRules.from_dict(
             {
                 "version": 3,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": False,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": False,
                 "ranking_subject": "player",
                 "tie_breakers": ["matches_won"],
             }
@@ -212,11 +212,11 @@ class TestGetStandingsByPlayerUseCase:
             host_email="host@example.com",
             rules=rules,
         )
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("charlie", "diana")
-        team1 = league.teams[0]
-        team2 = league.teams[1]
-        match = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        pair1 = league.pairs[0]
+        pair2 = league.pairs[1]
+        match = make_match(league.league_id, pair1.pair_id, pair2.pair_id, "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = [match]
@@ -229,42 +229,42 @@ class TestGetStandingsByPlayerUseCase:
         assert len(result.entries) == 1
         assert result.entries[0].subject_kind == "player"
         assert result.entries[0].nickname == "charlie"
-        assert result.entries[0].team_id is None
+        assert result.entries[0].pair_id is None
         assert result.entries[0].wins == 0
         assert result.entries[0].losses == 1
         assert result.tie_breakers == ("matches_won",)
 
-    async def test_team_subject_otpp_false_returns_all_player_team_rows(
+    async def test_pair_subject_otpp_false_returns_all_player_pair_rows(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
-        """v3: under (team, OTPP=false), a player on multiple teams gets multiple rows."""
+        """v3: under (pair, OTPP=false), a player on multiple pairs gets multiple rows."""
         rules = LeagueRules.from_dict(
             {
                 "version": 3,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": False,
-                "ranking_subject": "team",
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": False,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
             }
         )
         league = League.create(
-            title="OTPP-False Team-Ranked",
+            title="OTPP-False Pair-Ranked",
             description=None,
             host_token="host",
             host_email="host@example.com",
             rules=rules,
         )
-        # Alice is on two teams (Alice+Bob and Alice+Charlie).
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("alice", "charlie")
-        league.register_players_and_team("diana", "edgar")
-        team_ab = league.teams[0]
-        team_ac = league.teams[1]
-        team_de = league.teams[2]
+        # Alice is on two pairs (Alice+Bob and Alice+Charlie).
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("alice", "charlie")
+        league.register_players_and_pair("diana", "edgar")
+        pair_ab = league.pairs[0]
+        pair_ac = league.pairs[1]
+        pair_de = league.pairs[2]
 
-        # One match per Alice team so each row has distinct stats.
-        match_ab_de = make_match(league.league_id, team_ab.team_id, team_de.team_id, "6", "4")
-        match_ac_de = make_match(league.league_id, team_ac.team_id, team_de.team_id, "3", "6")
+        # One match per Alice pair so each row has distinct stats.
+        match_ab_de = make_match(league.league_id, pair_ab.pair_id, pair_de.pair_id, "6", "4")
+        match_ac_de = make_match(league.league_id, pair_ac.pair_id, pair_de.pair_id, "3", "6")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = [match_ab_de, match_ac_de]
@@ -275,20 +275,20 @@ class TestGetStandingsByPlayerUseCase:
         )
 
         assert len(result.entries) == 2
-        team_ids = {e.team_id for e in result.entries}
-        assert team_ids == {str(team_ab.team_id.value), str(team_ac.team_id.value)}
+        pair_ids = {e.pair_id for e in result.entries}
+        assert pair_ids == {str(pair_ab.pair_id.value), str(pair_ac.pair_id.value)}
         for e in result.entries:
-            assert e.subject_kind == "team"
+            assert e.subject_kind == "pair"
 
     async def test_player_subject_otpp_false_returns_one_player_row(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
-        """v3: under (player, OTPP=false), the array is a single player row even if the player is on multiple teams."""
+        """v3: under (player, OTPP=false), the array is a single player row even if the player is on multiple pairs."""
         rules = LeagueRules.from_dict(
             {
                 "version": 3,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": False,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": False,
                 "ranking_subject": "player",
                 "tie_breakers": ["matches_won"],
             }
@@ -300,13 +300,13 @@ class TestGetStandingsByPlayerUseCase:
             host_email="host@example.com",
             rules=rules,
         )
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("alice", "charlie")
-        league.register_players_and_team("diana", "edgar")
-        team_ab = league.teams[0]
-        team_de = league.teams[2]
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("alice", "charlie")
+        league.register_players_and_pair("diana", "edgar")
+        pair_ab = league.pairs[0]
+        pair_de = league.pairs[2]
 
-        match = make_match(league.league_id, team_ab.team_id, team_de.team_id, "6", "4")
+        match = make_match(league.league_id, pair_ab.pair_id, pair_de.pair_id, "6", "4")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = [match]

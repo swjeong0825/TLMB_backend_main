@@ -4,7 +4,7 @@
 - Tennis League Manager (TLM)
 
 ## One-sentence Product Summary
-- A lightweight backend service that lets a host run a recreational tennis doubles league — players are auto-registered when the host adds an allowed nickname OR on first match submission, teams are auto-registered on first match submission, scores are recorded, and standings are always visible.
+- A lightweight backend service that lets a host run a recreational tennis doubles league — players are auto-registered when the host adds an allowed nickname OR on first match submission, pairs are auto-registered on first match submission, scores are recorded, and standings are always visible.
 
 ## System Context Overview
 
@@ -36,19 +36,19 @@ flowchart TD
 ## In Scope
 - League creation with a unique title (case-insensitive) and optional description (host receives a hostToken and a leagueId on creation)
 - Match result submission: the client calls the backend with a confirmed structured command after the player reviews and confirms a match form pre-filled by the external AI chatbot
-- Implicit player and team creation on first match submission: if any player nickname in the submitted match is new to the league, the system registers all new players and their team(s) atomically alongside the match record
-- Explicit roster pre-registration: when the host calls `POST /leagues` with `initial_players` or `POST /admin/leagues/{league_id}/players`, the system creates one `Player` row per input nickname in the same transaction. No team is created at pre-registration time. Pre-registered players that have not yet played a match can be hard-deleted via `DELETE /admin/leagues/{league_id}/players/{player_id}`. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
-- Rejection of a match submission if a player is already recorded as a member of a different team in the same league (a player can belong to at most one team per league)
+- Implicit player and pair creation on first match submission: if any player nickname in the submitted match is new to the league, the system registers all new players and their pair(s) atomically alongside the match record
+- Explicit roster pre-registration: when the host calls `POST /leagues` with `initial_players` or `POST /admin/leagues/{league_id}/players`, the system creates one `Player` row per input nickname in the same transaction. No pair is created at pre-registration time. Pre-registered players that have not yet played a match can be hard-deleted via `DELETE /admin/leagues/{league_id}/players/{player_id}`. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
+- Rejection of a match submission if a player is already recorded as a member of a different pair in the same league (a player can belong to at most one pair per league)
 - Case-insensitive player nickname matching within a league (enforced by the backend)
-- Standings view (win/loss based, derived from match records; tied teams share the same rank with no tiebreaker in V1)
+- Standings view (win/loss based, derived from match records; tied pairs share the same rank with no tiebreaker in V1)
 - Match history view (list of all recorded results in a league)
-- League roster view (list of all auto-registered players and teams in a league)
+- League roster view (list of all auto-registered players and pairs in a league)
 - Separate admin router/interface for host operations (requires hostToken), separate from player-facing routes
-- Host has full admin rights over league data: can edit player nicknames, reassign teams, edit match scores, and delete matches. Teams may be deleted only if they have no associated matches; existing matches must be removed first.
+- Host has full admin rights over league data: can edit player nicknames, reassign pairs, edit match scores, and delete matches. Pairs may be deleted only if they have no associated matches; existing matches must be removed first.
 
 ## Out of Scope
 - Explicit player self-registration (players are created implicitly on first match submission OR explicitly by host roster pre-registration — see In Scope above; there is no per-player signup form or login)
-- Explicit team registration (teams are created implicitly when a new player pair submits their first match; the roster pre-registration path does NOT create teams)
+- Explicit pair registration (pairs are created implicitly when a new player pair submits their first match; the roster pre-registration path does NOT create pairs)
 - User authentication or password-based login
 - Match scheduling or calendar management
 - Notifications (email, SMS, push)
@@ -68,10 +68,10 @@ flowchart TD
 - A hostToken grants full admin rights over the league; it is a secret known only to the organizer
 - The admin interface is a separate set of API routes (e.g. /admin/...) gated by hostToken; it is kept distinct from the player-facing routes
 - One league = one ongoing season; no concept of resetting or archiving seasons within the same league in V1
-- Teams are identified by the two player nicknames (no separate team name); a player can be in at most one team per league
+- Pairs are identified by the two player nicknames (no separate pair name); a player can be in at most one pair per league
 - Player identity is enforced by the backend using case-insensitive nickname matching within a league
 - The backend receives only confirmed structured match submissions; it does not perform conversational repair, re-prompting, or free-text parsing
 - The backend returns structured error codes; rendering those codes into natural language for the player is the responsibility of the external AI chatbot
-- When a match is submitted and some or all players are new, all new players and their team(s) are auto-registered atomically alongside the match record
+- When a match is submitted and some or all players are new, all new players and their pair(s) are auto-registered atomically alongside the match record
 - Standings are always computed on the fly from match records (not cached or materialized in V1)
-- Tied teams in standings share the same rank; no tiebreaker is applied in V1
+- Tied pairs in standings share the same rank; no tiebreaker is applied in V1

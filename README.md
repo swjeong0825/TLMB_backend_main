@@ -37,10 +37,10 @@ Base URL: `http://localhost:8000`
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/leagues` | Create a new league → returns `league_id` + `host_token`. Requires `title` and `host_email` (RFC-compliant email; immutable; never echoed on read endpoints). |
-| `POST` | `/leagues/{league_id}/matches` | Submit a confirmed match result (auto-registers new players/teams) |
+| `POST` | `/leagues/{league_id}/matches` | Submit a confirmed match result (auto-registers new players/pairs) |
 | `GET` | `/leagues/{league_id}/standings` | Ranked win/loss standings |
 | `GET` | `/leagues/{league_id}/matches` | Match history (most recent first) |
-| `GET` | `/leagues/{league_id}/roster` | All registered players and teams |
+| `GET` | `/leagues/{league_id}/roster` | All registered players and pairs |
 
 ### Admin endpoints (require `X-Host-Token` header)
 
@@ -48,7 +48,7 @@ Base URL: `http://localhost:8000`
 |---|---|---|
 | `GET` | `/admin/leagues/{league_id}` | Host-only league metadata for the admin UI (V1: `host_email` only). See `Design_Doc/TLMB_Design_doc/13_api_contracts.md` → "Growth direction" before extending the response. |
 | `PATCH` | `/admin/leagues/{league_id}/players/{player_id}` | Edit a player's nickname |
-| `DELETE` | `/admin/leagues/{league_id}/teams/{team_id}` | Delete a team (no associated matches allowed) |
+| `DELETE` | `/admin/leagues/{league_id}/pairs/{pair_id}` | Delete a pair (no associated matches allowed) |
 | `PATCH` | `/admin/leagues/{league_id}/matches/{match_id}` | Correct a match score |
 | `DELETE` | `/admin/leagues/{league_id}/matches/{match_id}` | Delete a match record |
 
@@ -56,9 +56,9 @@ Base URL: `http://localhost:8000`
 
 | Error | Status |
 |---|---|
-| Not found (League / Player / Team / Match) | 404 |
+| Not found (League / Player / Pair / Match) | 404 |
 | Unauthorized (`host_token` mismatch or missing) | 401 |
-| Duplicate (title, nickname, team conflict) | 409 |
+| Duplicate (title, nickname, pair conflict) | 409 |
 | Structural validation (same player, invalid score) | 422 |
 
 ## Setup

@@ -16,7 +16,7 @@ flowchart TD
     subgraph ADMIN ["Admin  (X-Host-Token required)"]
         GLAI["GetLeagueAdminInfo\n→ League aggregate  (read-only, host-private)"]
         EPN["EditPlayerNickname\n→ League aggregate"]
-        DT["DeleteTeam\n→ League aggregate"]
+        DT["DeletePair\n→ League aggregate"]
         EMS["EditMatchScore\n→ Match aggregate"]
         DM["DeleteMatch\n→ MatchRepository.delete"]
     end
@@ -33,7 +33,7 @@ flowchart TD
 - Inputs: CreateLeagueCommand(title: str, host_email: str, description: str | None, league_timezone: str = "America/Los_Angeles", rules: LeagueRules | None, initial_players: list[str] = []) — `host_email` is **mandatory** and pre-validated as an RFC-compliant email by Pydantic `EmailStr` at the API edge; the use case forwards the raw string to `League.create`, where the `HostEmail` value object strips + lowercases it and enforces non-blankness. `league_timezone` is validated by the `LeagueTimezone` value object and is stored on the league row, not in `rules`. When `rules` is omitted, the use case supplies **product defaults** for new leagues (documented in code; see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)). `initial_players` defaults to an empty list; when non-empty, the entries are pre-registered on the new league's roster before the single `save` call so the league row and every player row reach the database in one transaction. See [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`" for the rationale and error semantics.
 - Output: CreateLeagueResult(league_id: str, host_token: str)
 - State-changing or calculation-only?: State-changing
-- Unit of Work needed?: No — single repository save (the repository's `save` writes the league row, players, and teams through the same `AsyncSession`, so atomicity is provided by the request-scoped session commit)
+- Unit of Work needed?: No — single repository save (the repository's `save` writes the league row, players, and pairs through the same `AsyncSession`, so atomicity is provided by the request-scoped session commit)
 - Aggregate(s) loaded: none (new aggregate created)
 - Aggregate(s) loaded through which repository?: N/A
 - Domain service used?: No
@@ -77,8 +77,8 @@ flowchart TD
 
 ## Use Case: SubmitMatchResultUseCase
 
-- Business action: Submit Match Result (includes implicit player/team registration for any new nicknames)
-- Inputs: SubmitMatchResultCommand(league_id: str, team1_nicknames: tuple[str, str], team2_nicknames: tuple[str, str], team1_score: str, team2_score: str)
+- Business action: Submit Match Result (includes implicit player/pair registration for any new nicknames)
+- Inputs: SubmitMatchResultCommand(league_id: str, pair1_nicknames: tuple[str, str], pair2_nicknames: tuple[str, str], pair1_score: str, pair2_score: str)
 - Output: SubmitMatchResultResult(match_id: str)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: Yes — SubmitMatchResultUnitOfWork (LeagueRepository + MatchRepository must be atomic)
@@ -91,28 +91,28 @@ flowchart TD
 - Transaction notes: LeagueRepository.save and MatchRepository.save must commit together; rollback on any domain error or DB failure
 - Steps:
   1. Normalize all four nicknames to lowercase
-  2. Verify team1_nicknames[0] ≠ team1_nicknames[1] (normalized) — raise SamePlayerWithinSingleTeamError if equal (a player cannot be paired with themselves on team1)
-  3. Verify team2_nicknames[0] ≠ team2_nicknames[1] (normalized) — raise SamePlayerWithinSingleTeamError if equal (a player cannot be paired with themselves on team2)
-  4. Verify no nickname appears in both team1_nicknames and team2_nicknames — raise SamePlayerOnBothTeamsError if any overlap detected
-  5. Construct SetScore(team1_score, team2_score) value object — raise InvalidSetScoreError if either score fails non-negative integer validation
+  2. Verify pair1_nicknames[0] ≠ pair1_nicknames[1] (normalized) — raise SamePlayerWithinSinglePairError if equal (a player cannot be paired with themselves on pair1)
+  3. Verify pair2_nicknames[0] ≠ pair2_nicknames[1] (normalized) — raise SamePlayerWithinSinglePairError if equal (a player cannot be paired with themselves on pair2)
+  4. Verify no nickname appears in both pair1_nicknames and pair2_nicknames — raise SamePlayerOnBothPairsError if any overlap detected
+  5. Construct SetScore(pair1_score, pair2_score) value object — raise InvalidSetScoreError if either score fails non-negative integer validation
   6. Enter SubmitMatchResultUnitOfWork
   7. Load League via LeagueRepository.get_by_id_with_lock(league_id) — raise LeagueNotFoundError if missing
-  8. Call league.register_players_and_team(team1_nicknames[0], team1_nicknames[1]) → team1 — raises TeamConflictError if either player already belongs to a different team (when league rules require one team per player)
-  9. Call league.register_players_and_team(team2_nicknames[0], team2_nicknames[1]) → team2 — same as step 8
-  10. If league.rules.match_pair_idempotency is `once_per_league`, call MatchRepository.exists_match_for_team_pair(league_id, team1.team_id, team2.team_id) — raise DuplicateTeamPairMatchError (or equivalent) if true
-  11. If league.rules.match_pair_idempotency is `once_per_day`, compute the current calendar day in `league.league_timezone`, convert local midnight bounds to UTC `[start, end)`, then call MatchRepository.exists_match_for_team_pair_between(league_id, team1.team_id, team2.team_id, start, end) — raise DuplicateTeamPairMatchError if true
-  12. Call Match.create(league_id, team1.team_id, team2.team_id, set_score) — raises SameTeamOnBothSidesError if team1_id == team2_id
-  13. LeagueRepository.save(league) — persists any newly registered players and teams
+  8. Call league.register_players_and_pair(pair1_nicknames[0], pair1_nicknames[1]) → pair1 — raises PairConflictError if either player already belongs to a different pair (when league rules require one pair per player)
+  9. Call league.register_players_and_pair(pair2_nicknames[0], pair2_nicknames[1]) → pair2 — same as step 8
+  10. If league.rules.pair_matchup_idempotency is `once_per_league`, call MatchRepository.exists_match_for_pair_matchup(league_id, pair1.pair_id, pair2.pair_id) — raise DuplicatePairMatchupMatchError (or equivalent) if true
+  11. If league.rules.pair_matchup_idempotency is `once_per_day`, compute the current calendar day in `league.league_timezone`, convert local midnight bounds to UTC `[start, end)`, then call MatchRepository.exists_match_for_pair_matchup_between(league_id, pair1.pair_id, pair2.pair_id, start, end) — raise DuplicatePairMatchupMatchError if true
+  12. Call Match.create(league_id, pair1.pair_id, pair2.pair_id, set_score) — raises SamePairOnBothSidesError if pair1_id == pair2_id
+  13. LeagueRepository.save(league) — persists any newly registered players and pairs
   14. MatchRepository.save(match) — persists the new match record
   15. Commit UoW
   16. Return match_id
 - Domain rules enforced where:
-  - Application layer: within-team distinct-player check (steps 2–3), cross-team distinct-player check (step 4) — all structural validations before any aggregate is loaded
+  - Application layer: within-pair distinct-player check (steps 2–3), cross-pair distinct-player check (step 4) — all structural validations before any aggregate is loaded
   - SetScore constructor: non-negative integer validation (step 5)
-  - League.register_players_and_team: nickname uniqueness within league, one-team-per-player when enabled by league rules
-  - Match.create: team1_id ≠ team2_id
-  - Application layer: match pair idempotency when `once_per_league` or `once_per_day`
-- Errors: LeagueNotFoundError, SamePlayerWithinSingleTeamError, SamePlayerOnBothTeamsError, InvalidSetScoreError, TeamConflictError, SameTeamOnBothSidesError, DuplicateTeamPairMatchError (409 when idempotency violated)
+  - League.register_players_and_pair: nickname uniqueness within league, one-pair-per-player when enabled by league rules
+  - Match.create: pair1_id ≠ pair2_id
+  - Application layer: pair matchup idempotency when `once_per_league` or `once_per_day`
+- Errors: LeagueNotFoundError, SamePlayerWithinSinglePairError, SamePlayerOnBothPairsError, InvalidSetScoreError, PairConflictError, SamePairOnBothSidesError, DuplicatePairMatchupMatchError (409 when idempotency violated)
 
 ---
 
@@ -120,10 +120,10 @@ flowchart TD
 
 - Business action: View Standings
 - Inputs: GetStandingsQuery(league_id: str)
-- Output: list[StandingsEntry(team_id, player1_nickname, player2_nickname, wins, losses, rank)]
+- Output: list[StandingsEntry(pair_id, player1_nickname, player2_nickname, wins, losses, rank)]
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
-- Aggregate(s) loaded: League (for teams and players), all Match records for the league
+- Aggregate(s) loaded: League (for pairs and players), all Match records for the league
 - Aggregate(s) loaded through which repository?: LeagueRepository, MatchRepository
 - Domain service used?: Yes — StandingsCalculator
 - Repository calls: LeagueRepository.get_by_id, MatchRepository.get_all_by_league
@@ -133,7 +133,7 @@ flowchart TD
 - Steps:
   1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
   2. Load all matches via MatchRepository.get_all_by_league(league_id)
-  3. Call StandingsCalculator.compute(matches, league.teams, league.players) → list[StandingsEntry]
+  3. Call StandingsCalculator.compute(matches, league.pairs, league.players) → list[StandingsEntry]
   4. Return standings list
 - Domain rules enforced where: StandingsCalculator (ranking and draw-handling logic)
 - Errors: LeagueNotFoundError
@@ -144,10 +144,10 @@ flowchart TD
 
 - Business action: View Match History
 - Inputs: GetMatchHistoryQuery(league_id: str)
-- Output: list[MatchHistoryRecord(match_id, team1_player_nicknames, team2_player_nicknames, team1_score, team2_score, created_at)] sorted by created_at descending
+- Output: list[MatchHistoryRecord(match_id, pair1_player_nicknames, pair2_player_nicknames, pair1_score, pair2_score, created_at)] sorted by created_at descending
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
-- Aggregate(s) loaded: League (for team-to-player nickname resolution), all Match records for the league
+- Aggregate(s) loaded: League (for pair-to-player nickname resolution), all Match records for the league
 - Aggregate(s) loaded through which repository?: LeagueRepository, MatchRepository
 - Domain service used?: No
 - Repository calls: LeagueRepository.get_by_id, MatchRepository.get_all_by_league
@@ -157,11 +157,11 @@ flowchart TD
 - Steps:
   1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
   2. Load all matches via MatchRepository.get_all_by_league(league_id)
-  3. For each match, resolve team1_id and team2_id to player nicknames using league.teams and league.players
+  3. For each match, resolve pair1_id and pair2_id to player nicknames using league.pairs and league.players
   4. Return MatchHistoryRecord list sorted by created_at descending
 - Domain rules enforced where: none — pure projection
 - Errors: LeagueNotFoundError
-- Notes: Match stores only team_id references; player nicknames are resolved at read time from the current League state. Admin nickname edits retroactively affect historical display — this is an accepted trade-off in V1.
+- Notes: Match stores only pair_id references; player nicknames are resolved at read time from the current League state. Admin nickname edits retroactively affect historical display — this is an accepted trade-off in V1.
 
 ---
 
@@ -169,7 +169,7 @@ flowchart TD
 
 - Business action: View League Roster
 - Inputs: GetLeagueRosterQuery(league_id: str)
-- Output: RosterView(title: str, league_timezone: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname, rating, teams_count, matches_count)], teams: list[TeamEntry(team_id, player1_nickname, player2_nickname)])
+- Output: RosterView(title: str, league_timezone: str, rules: dict (LeagueRules.to_dict()), players: list[PlayerEntry(player_id, nickname, rating, pairs_count, matches_count)], pairs: list[PairEntry(pair_id, player1_nickname, player2_nickname)])
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
 - Aggregate(s) loaded: League
@@ -181,7 +181,7 @@ flowchart TD
 - Transaction notes: read-only
 - Steps:
   1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
-  2. Return player list and team list from loaded aggregate
+  2. Return player list and pair list from loaded aggregate
 - Domain rules enforced where: none — pure projection
 - Errors: LeagueNotFoundError
 
@@ -191,10 +191,10 @@ flowchart TD
 
 - Business action: Get Match History By Player Name
 - Inputs: GetMatchHistoryByPlayerQuery(league_id: str, player_name: str)
-- Output: list[MatchHistoryRecord(match_id, team1_player_nicknames, team2_player_nicknames, team1_score, team2_score, created_at)] sorted by created_at descending
+- Output: list[MatchHistoryRecord(match_id, pair1_player_nicknames, pair2_player_nicknames, pair1_score, pair2_score, created_at)] sorted by created_at descending
 - State-changing or calculation-only?: Calculation-only
 - Unit of Work needed?: No
-- Aggregate(s) loaded: League (for player lookup, team resolution, and nickname mapping), all Match records for the league
+- Aggregate(s) loaded: League (for player lookup, pair resolution, and nickname mapping), all Match records for the league
 - Aggregate(s) loaded through which repository?: LeagueRepository, MatchRepository
 - Domain service used?: No
 - Repository calls: LeagueRepository.get_by_id, MatchRepository.get_all_by_league
@@ -205,13 +205,13 @@ flowchart TD
   1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
   2. Normalize player_name via PlayerNickname(player_name) — applies lowercase + strip
   3. Find player by normalized nickname in league.players — raise PlayerNotFoundError if not found
-  4. Find the player's team in league.teams by matching player_id_1 or player_id_2 — return empty list if no team found (player's team was deleted)
-  5. Load all matches via MatchRepository.get_all_by_league(league_id) — filter to those where team1_id or team2_id equals the player's team_id
-  6. For each filtered match, resolve team player nicknames using league.teams and league.players
+  4. Find the player's pair in league.pairs by matching player_id_1 or player_id_2 — return empty list if no pair found (player's pair was deleted)
+  5. Load all matches via MatchRepository.get_all_by_league(league_id) — filter to those where pair1_id or pair2_id equals the player's pair_id
+  6. For each filtered match, resolve pair player nicknames using league.pairs and league.players
   7. Return MatchHistoryRecord list sorted by created_at descending
 - Domain rules enforced where: none — pure projection; player existence enforced at application layer
 - Errors: LeagueNotFoundError, PlayerNotFoundError
-- Notes: Reuses the MatchHistoryRecord output type from GetMatchHistoryUseCase. An empty result (no matches) is a valid response when the player's team exists but has not yet played any matches.
+- Notes: Reuses the MatchHistoryRecord output type from GetMatchHistoryUseCase. An empty result (no matches) is a valid response when the player's pair exists but has not yet played any matches.
 
 ---
 
@@ -260,37 +260,37 @@ flowchart TD
 
 ---
 
-## Use Case: DeleteTeamUseCase (Admin)
+## Use Case: DeletePairUseCase (Admin)
 
-- Business action: Delete Team
-- Inputs: DeleteTeamCommand(host_token: str, league_id: str, team_id: str)
-- Output: confirmation (team deleted)
+- Business action: Delete Pair
+- Inputs: DeletePairCommand(host_token: str, league_id: str, pair_id: str)
+- Output: confirmation (pair deleted)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — only LeagueRepository is written to; MatchRepository is read-only (precondition check)
 - Aggregate(s) loaded: League
 - Aggregate(s) loaded through which repository?: LeagueRepository
 - Domain service used?: No
-- Repository calls: LeagueRepository.get_by_id, MatchRepository.has_matches_for_team, LeagueRepository.save
+- Repository calls: LeagueRepository.get_by_id, MatchRepository.has_matches_for_pair, LeagueRepository.save
 - Port calls: none
 - Persistence required?: Yes
 - Transaction notes: single save to LeagueRepository; DB foreign key constraint on the matches table acts as a final safety net for any concurrent match insert
 - Steps:
   1. Load League via LeagueRepository.get_by_id_with_lock(league_id) — raise LeagueNotFoundError if missing
   2. Verify host_token matches league.host_token.value — raise UnauthorizedError if not
-  3. Verify team_id exists in league.teams — raise TeamNotFoundError if missing
-  4. Call MatchRepository.has_matches_for_team(team_id, league_id) — raise TeamHasMatchesError if True (host must delete associated matches first)
-  5. Call league.delete_team(team_id) — removes team from roster and records pending deletion
-  6. LeagueRepository.save(league) — persists the team deletion
-- Domain rules enforced where: Application layer (precondition check in step 4); League.delete_team (team identity check)
-- Errors: LeagueNotFoundError, UnauthorizedError, TeamNotFoundError, TeamHasMatchesError
+  3. Verify pair_id exists in league.pairs — raise PairNotFoundError if missing
+  4. Call MatchRepository.has_matches_for_pair(pair_id, league_id) — raise PairHasMatchesError if True (host must delete associated matches first)
+  5. Call league.delete_pair(pair_id) — removes pair from roster and records pending deletion
+  6. LeagueRepository.save(league) — persists the pair deletion
+- Domain rules enforced where: Application layer (precondition check in step 4); League.delete_pair (pair identity check)
+- Errors: LeagueNotFoundError, UnauthorizedError, PairNotFoundError, PairHasMatchesError
 
 ---
 
 ## Use Case: EditMatchScoreUseCase (Admin)
 
 - Business action: Edit Match Score
-- Inputs: EditMatchScoreCommand(host_token: str, league_id: str, match_id: str, team1_score: str, team2_score: str)
-- Output: UpdatedMatchResult(match_id, team1_score, team2_score)
+- Inputs: EditMatchScoreCommand(host_token: str, league_id: str, match_id: str, pair1_score: str, pair2_score: str)
+- Output: UpdatedMatchResult(match_id, pair1_score, pair2_score)
 - State-changing or calculation-only?: State-changing
 - Unit of Work needed?: No — single repository save
 - Aggregate(s) loaded: League (for hostToken verification), Match
@@ -303,7 +303,7 @@ flowchart TD
 - Steps:
   1. Load League via LeagueRepository.get_by_id(league_id) — raise LeagueNotFoundError if missing
   2. Verify host_token matches league.host_token.value — raise UnauthorizedError if not
-  3. Construct SetScore(team1_score, team2_score) value object — raise InvalidSetScoreError if invalid
+  3. Construct SetScore(pair1_score, pair2_score) value object — raise InvalidSetScoreError if invalid
   4. Load Match via MatchRepository.get_by_id(match_id, league_id) — raise MatchNotFoundError if missing
   5. Call match.edit_score(new_set_score)
   6. MatchRepository.save(match)

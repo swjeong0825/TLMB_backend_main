@@ -20,13 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 _V1_RULES = {
     "version": 1,
-    "match_pair_idempotency": "none",
-    "one_team_per_player": True,
+    "pair_matchup_idempotency": "none",
+    "one_pair_per_player": True,
 }
 
 _V2_PATCH = {
     "version": 2,
-    "ranking_subject": "team",
+    "ranking_subject": "pair",
     "tie_breakers": ["matches_won"],
 }
 
@@ -58,7 +58,6 @@ async def _insert_league_with_raw_rules(
             "rules": json.dumps(rules),
         },
     )
-    await session.commit()
     return league_id
 
 
@@ -87,23 +86,22 @@ class TestMigration003:
         )
 
         await session.execute(text(_UPGRADE_SQL), {"patch": json.dumps(_V2_PATCH)})
-        await session.commit()
 
         rules = await _read_rules(session, league_id)
         assert rules["version"] == 2
-        assert rules["ranking_subject"] == "team"
+        assert rules["ranking_subject"] == "pair"
         assert rules["tie_breakers"] == ["matches_won"]
         # Untouched fields preserved.
-        assert rules["match_pair_idempotency"] == "none"
-        assert rules["one_team_per_player"] is True
+        assert rules["pair_matchup_idempotency"] == "none"
+        assert rules["one_pair_per_player"] is True
 
     async def test_migration_is_idempotent_for_v2_rows(
         self, session: AsyncSession
     ) -> None:
         existing_v2_rules = {
             "version": 2,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
             "ranking_subject": "player",
             "tie_breakers": ["matches_won", "games_diff"],
         }
@@ -112,7 +110,6 @@ class TestMigration003:
         )
 
         await session.execute(text(_UPGRADE_SQL), {"patch": json.dumps(_V2_PATCH)})
-        await session.commit()
 
         rules = await _read_rules(session, league_id)
         # The upgrade SQL filters on version=1 so v2 rows must be untouched.

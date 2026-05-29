@@ -13,7 +13,7 @@ from app.domain.exceptions import LeagueNotFoundError
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> None:
@@ -23,7 +23,7 @@ async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> Non
         None,
         "tok",
         host_email="host@example.com",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
     await repo.save(league)
 
@@ -33,12 +33,12 @@ async def test_returns_empty_roster_for_new_league(session: AsyncSession) -> Non
 
     assert roster.title == "Empty"
     assert roster.players == []
-    assert roster.teams == []
+    assert roster.pairs == []
     assert roster.rules == league.rules.to_dict()
     assert roster.latest_match_date is None
 
 
-async def test_returns_players_and_teams_after_match(persisted_league_with_match: dict) -> None:
+async def test_returns_players_and_pairs_after_match(persisted_league_with_match: dict) -> None:
     league = persisted_league_with_match["league"]
     from tests.integration.conftest import _session_factory
 
@@ -51,12 +51,12 @@ async def test_returns_players_and_teams_after_match(persisted_league_with_match
     assert roster.latest_match_date == league.latest_match_date
     nicknames = {p.nickname for p in roster.players}
     assert nicknames == {"alice", "bob", "charlie", "diana"}
-    assert len(roster.teams) == 2
+    assert len(roster.pairs) == 2
 
-    # Verify team player names are populated
-    for team in roster.teams:
-        assert team.player1_nickname
-        assert team.player2_nickname
+    # Verify pair player names are populated
+    for pair in roster.pairs:
+        assert pair.player1_nickname
+        assert pair.player2_nickname
 
 
 async def test_players_sorted_alphabetically(persisted_league_with_match: dict) -> None:
@@ -79,7 +79,7 @@ async def test_player_rating_is_returned(session: AsyncSession) -> None:
         None,
         "tok-rated",
         host_email="host@example.com",
-        rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+        rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
     )
     league.add_players(["alex"], ratings=[3.5])
     await repo.save(league)

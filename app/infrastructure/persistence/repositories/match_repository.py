@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.aggregates.league.value_objects import LeagueId, TeamId
+from app.domain.aggregates.league.value_objects import LeagueId, PairId
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.repository import MatchRepository
 from app.domain.aggregates.match.value_objects import MatchId
@@ -59,68 +59,74 @@ class SqlAlchemyMatchRepository(MatchRepository):
         orm = result.scalar_one_or_none()
         return match_to_domain(orm) if orm is not None else None
 
-    async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]:
+    async def get_all_by_pair(self, pair_id: PairId, league_id: LeagueId) -> list[Match]:
         result = await self._session.execute(
             select(MatchORM)
             .where(
                 MatchORM.league_id == league_id.value,
-                (MatchORM.team1_id == team_id.value) | (MatchORM.team2_id == team_id.value),
+                (MatchORM.pair1_id == pair_id.value) | (MatchORM.pair2_id == pair_id.value),
             )
             .order_by(MatchORM.created_at.desc())
         )
         return [match_to_domain(row) for row in result.scalars().all()]
 
     async def get_all_by_player(
-        self, league_id: LeagueId, team_ids: list[TeamId]
+        self, league_id: LeagueId, pair_ids: list[PairId]
     ) -> list[Match]:
-        if not team_ids:
+        if not pair_ids:
             return []
-        tids = [t.value for t in team_ids]
+        tids = [t.value for t in pair_ids]
         result = await self._session.execute(
             select(MatchORM)
             .where(
                 MatchORM.league_id == league_id.value,
-                or_(MatchORM.team1_id.in_(tids), MatchORM.team2_id.in_(tids)),
+                or_(MatchORM.pair1_id.in_(tids), MatchORM.pair2_id.in_(tids)),
             )
             .order_by(MatchORM.created_at.desc())
         )
         return [match_to_domain(row) for row in result.scalars().all()]
 
-    async def has_matches_for_team(self, team_id: TeamId, league_id: LeagueId) -> bool:
+    async def has_matches_for_pair(self, pair_id: PairId, league_id: LeagueId) -> bool:
         result = await self._session.execute(
             select(MatchORM).where(
                 MatchORM.league_id == league_id.value,
-                (MatchORM.team1_id == team_id.value) | (MatchORM.team2_id == team_id.value),
+                (MatchORM.pair1_id == pair_id.value) | (MatchORM.pair2_id == pair_id.value),
             ).limit(1)
         )
         return result.scalar_one_or_none() is not None
 
-    async def exists_match_for_team_pair(
-        self, league_id: LeagueId, team1_id: TeamId, team2_id: TeamId
+    async def exists_match_for_pair_matchup(
+        self, league_id: LeagueId, pair1_id: PairId, pair2_id: PairId
     ) -> bool:
-        t1, t2 = team1_id.value, team2_id.value
+        pair1_uuid, pair2_uuid = pair1_id.value, pair2_id.value
         result = await self._session.execute(
             select(MatchORM.match_id)
             .where(
                 MatchORM.league_id == league_id.value,
                 or_(
-                    and_(MatchORM.team1_id == t1, MatchORM.team2_id == t2),
-                    and_(MatchORM.team1_id == t2, MatchORM.team2_id == t1),
+                    and_(
+                        MatchORM.pair1_id == pair1_uuid,
+                        MatchORM.pair2_id == pair2_uuid,
+                    ),
+                    and_(
+                        MatchORM.pair1_id == pair2_uuid,
+                        MatchORM.pair2_id == pair1_uuid,
+                    ),
                 ),
             )
             .limit(1)
         )
         return result.scalar_one_or_none() is not None
 
-    async def exists_match_for_team_pair_between(
+    async def exists_match_for_pair_matchup_between(
         self,
         league_id: LeagueId,
-        team1_id: TeamId,
-        team2_id: TeamId,
+        pair1_id: PairId,
+        pair2_id: PairId,
         start_at: datetime,
         end_at: datetime,
     ) -> bool:
-        t1, t2 = team1_id.value, team2_id.value
+        pair1_uuid, pair2_uuid = pair1_id.value, pair2_id.value
         result = await self._session.execute(
             select(MatchORM.match_id)
             .where(
@@ -128,8 +134,14 @@ class SqlAlchemyMatchRepository(MatchRepository):
                 MatchORM.created_at >= start_at,
                 MatchORM.created_at < end_at,
                 or_(
-                    and_(MatchORM.team1_id == t1, MatchORM.team2_id == t2),
-                    and_(MatchORM.team1_id == t2, MatchORM.team2_id == t1),
+                    and_(
+                        MatchORM.pair1_id == pair1_uuid,
+                        MatchORM.pair2_id == pair2_uuid,
+                    ),
+                    and_(
+                        MatchORM.pair1_id == pair2_uuid,
+                        MatchORM.pair2_id == pair1_uuid,
+                    ),
                 ),
             )
             .limit(1)
@@ -148,8 +160,8 @@ class SqlAlchemyMatchRepository(MatchRepository):
             await self._session.flush()
             match.created_at = match_orm.created_at
         else:
-            match_orm.team1_score = match.set_score.team1_score
-            match_orm.team2_score = match.set_score.team2_score
+            match_orm.pair1_score = match.set_score.pair1_score
+            match_orm.pair2_score = match.set_score.pair2_score
             match_orm.updated_at = _utcnow()
 
     async def delete(self, match_id: MatchId, league_id: LeagueId) -> None:

@@ -10,7 +10,7 @@ class PlayerNotFoundError(DomainError):
     pass
 
 
-class TeamNotFoundError(DomainError):
+class PairNotFoundError(DomainError):
     pass
 
 
@@ -26,7 +26,7 @@ class LeagueTitleAlreadyExistsError(DomainError):
     pass
 
 
-class TeamConflictError(DomainError):
+class PairConflictError(DomainError):
     pass
 
 
@@ -52,19 +52,19 @@ class CannotRemoveCanonicalNicknameError(DomainError):
         self.canonical_nickname = canonical_nickname
 
 
-class TeamHasMatchesError(DomainError):
+class PairHasMatchesError(DomainError):
     pass
 
 
-class SameTeamOnBothSidesError(DomainError):
+class SamePairOnBothSidesError(DomainError):
     pass
 
 
-class SamePlayerWithinSingleTeamError(DomainError):
+class SamePlayerWithinSinglePairError(DomainError):
     pass
 
 
-class SamePlayerOnBothTeamsError(DomainError):
+class SamePlayerOnBothPairsError(DomainError):
     pass
 
 
@@ -80,7 +80,7 @@ class InvalidPlayerRatingError(DomainError):
     pass
 
 
-class DuplicateTeamPairMatchError(DomainError):
+class DuplicatePairMatchupMatchError(DomainError):
     pass
 
 
@@ -169,10 +169,10 @@ class MatchDeleteWindowExpiredError(DomainError):
 
 class PlayerHasParticipationError(DomainError):
     """Raised by `League.remove_player` when the player is on at least one
-    team or referenced by at least one match.
+    pair or referenced by at least one match.
 
     Carries the participation counts so the API layer can surface a clear
-    "X teams, Y matches" message verbatim. Removal is only allowed when both
+    "X pairs, Y matches" message verbatim. Removal is only allowed when both
     counts are zero.
     """
 
@@ -180,10 +180,10 @@ class PlayerHasParticipationError(DomainError):
         self,
         message: str,
         player_id: str,
-        teams_count: int,
+        pairs_count: int,
         matches_count: int,
     ) -> None:
         super().__init__(message)
         self.player_id = player_id
-        self.teams_count = teams_count
+        self.pairs_count = pairs_count
         self.matches_count = matches_count

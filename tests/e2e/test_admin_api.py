@@ -28,18 +28,18 @@ async def create_league(
 async def submit_match(
     client: AsyncClient,
     league_id: str,
-    team1: tuple[str, str] = ("alice", "bob"),
-    team2: tuple[str, str] = ("charlie", "diana"),
-    team1_score: str = "6",
-    team2_score: str = "3",
+    pair1: tuple[str, str] = ("alice", "bob"),
+    pair2: tuple[str, str] = ("charlie", "diana"),
+    pair1_score: str = "6",
+    pair2_score: str = "3",
 ) -> dict:
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": list(team1),
-            "team2_nicknames": list(team2),
-            "team1_score": team1_score,
-            "team2_score": team2_score,
+            "pair1_nicknames": list(pair1),
+            "pair2_nicknames": list(pair2),
+            "pair1_score": pair1_score,
+            "pair2_score": pair2_score,
         },
     )
     assert resp.status_code == 201, resp.text
@@ -60,15 +60,15 @@ async def get_player_id(client: AsyncClient, league_id: str, nickname: str) -> s
     raise AssertionError(f"Player '{nickname}' not found in roster")
 
 
-async def get_team_id(
+async def get_pair_id(
     client: AsyncClient, league_id: str, p1: str, p2: str
 ) -> str:
     roster = await get_roster(client, league_id)
     pair = {p1, p2}
-    for team in roster["teams"]:
-        if {team["player1_nickname"], team["player2_nickname"]} == pair:
-            return team["team_id"]
-    raise AssertionError(f"Team ({p1}, {p2}) not found in roster")
+    for pair in roster["pairs"]:
+        if {pair["player1_nickname"], pair["player2_nickname"]} == pair:
+            return pair["pair_id"]
+    raise AssertionError(f"Pair ({p1}, {p2}) not found in roster")
 
 
 # ---------------------------------------------------------------------------
@@ -280,76 +280,76 @@ async def test_update_player_rating_persists(client: AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DELETE /admin/leagues/{league_id}/teams/{team_id}
+# DELETE /admin/leagues/{league_id}/pairs/{pair_id}
 # ---------------------------------------------------------------------------
 
 
-async def test_delete_team_success(client: AsyncClient) -> None:
+async def test_delete_pair_success(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id, host_token = league["league_id"], league["host_token"]
 
-    # Submit a match so team exists; then delete the only match so team has no matches
+    # Submit a match so pair exists; then delete the only match so pair has no matches
     match = await submit_match(client, league_id)
     match_id = match["match_id"]
-    team_id = await get_team_id(client, league_id, "alice", "bob")
+    pair_id = await get_pair_id(client, league_id, "alice", "bob")
 
-    # Delete the match first so the team has no match records
+    # Delete the match first so the pair has no match records
     await client.delete(
         f"/admin/leagues/{league_id}/matches/{match_id}",
         headers={"X-Host-Token": host_token},
     )
 
     resp = await client.delete(
-        f"/admin/leagues/{league_id}/teams/{team_id}",
+        f"/admin/leagues/{league_id}/pairs/{pair_id}",
         headers={"X-Host-Token": host_token},
     )
 
     assert resp.status_code == 204
 
 
-async def test_delete_team_success_removes_from_roster(client: AsyncClient) -> None:
+async def test_delete_pair_success_removes_from_roster(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id, host_token = league["league_id"], league["host_token"]
 
     match = await submit_match(client, league_id)
-    team_id = await get_team_id(client, league_id, "alice", "bob")
+    pair_id = await get_pair_id(client, league_id, "alice", "bob")
 
     await client.delete(
         f"/admin/leagues/{league_id}/matches/{match['match_id']}",
         headers={"X-Host-Token": host_token},
     )
     await client.delete(
-        f"/admin/leagues/{league_id}/teams/{team_id}",
+        f"/admin/leagues/{league_id}/pairs/{pair_id}",
         headers={"X-Host-Token": host_token},
     )
 
     roster = await get_roster(client, league_id)
-    team_ids = {t["team_id"] for t in roster["teams"]}
-    assert team_id not in team_ids
+    pair_ids = {t["pair_id"] for t in roster["pairs"]}
+    assert pair_id not in pair_ids
 
 
-async def test_delete_team_with_matches_returns_409(client: AsyncClient) -> None:
+async def test_delete_pair_with_matches_returns_409(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id, host_token = league["league_id"], league["host_token"]
 
     await submit_match(client, league_id)
-    team_id = await get_team_id(client, league_id, "alice", "bob")
+    pair_id = await get_pair_id(client, league_id, "alice", "bob")
 
     resp = await client.delete(
-        f"/admin/leagues/{league_id}/teams/{team_id}",
+        f"/admin/leagues/{league_id}/pairs/{pair_id}",
         headers={"X-Host-Token": host_token},
     )
 
     assert resp.status_code == 409
-    assert resp.json()["error"] == "TeamHasMatchesError"
+    assert resp.json()["error"] == "PairHasMatchesError"
 
 
-async def test_delete_team_wrong_token_returns_401(client: AsyncClient) -> None:
+async def test_delete_pair_wrong_token_returns_401(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id = league["league_id"]
 
     match = await submit_match(client, league_id)
-    team_id = await get_team_id(client, league_id, "alice", "bob")
+    pair_id = await get_pair_id(client, league_id, "alice", "bob")
 
     await client.delete(
         f"/admin/leagues/{league_id}/matches/{match['match_id']}",
@@ -357,7 +357,7 @@ async def test_delete_team_wrong_token_returns_401(client: AsyncClient) -> None:
     )
 
     resp = await client.delete(
-        f"/admin/leagues/{league_id}/teams/{team_id}",
+        f"/admin/leagues/{league_id}/pairs/{pair_id}",
         headers={"X-Host-Token": "wrong-token"},
     )
 
@@ -365,25 +365,25 @@ async def test_delete_team_wrong_token_returns_401(client: AsyncClient) -> None:
     assert resp.json()["error"] == "UnauthorizedError"
 
 
-async def test_delete_team_not_found_returns_404(client: AsyncClient) -> None:
+async def test_delete_pair_not_found_returns_404(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id, host_token = league["league_id"], league["host_token"]
-    fake_team_id = "00000000-0000-0000-0000-000000000001"
+    fake_pair_id = "00000000-0000-0000-0000-000000000001"
 
     resp = await client.delete(
-        f"/admin/leagues/{league_id}/teams/{fake_team_id}",
+        f"/admin/leagues/{league_id}/pairs/{fake_pair_id}",
         headers={"X-Host-Token": host_token},
     )
 
     assert resp.status_code == 404
-    assert resp.json()["error"] == "TeamNotFoundError"
+    assert resp.json()["error"] == "PairNotFoundError"
 
 
-async def test_delete_team_league_not_found_returns_404(client: AsyncClient) -> None:
+async def test_delete_pair_league_not_found_returns_404(client: AsyncClient) -> None:
     fake_id = "00000000-0000-0000-0000-000000000000"
 
     resp = await client.delete(
-        f"/admin/leagues/{fake_id}/teams/{fake_id}",
+        f"/admin/leagues/{fake_id}/pairs/{fake_id}",
         headers={"X-Host-Token": "any-token"},
     )
 
@@ -400,40 +400,40 @@ async def test_edit_match_score_success(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id, host_token = league["league_id"], league["host_token"]
 
-    match = await submit_match(client, league_id, team1_score="6", team2_score="3")
+    match = await submit_match(client, league_id, pair1_score="6", pair2_score="3")
     match_id = match["match_id"]
 
     resp = await client.patch(
         f"/admin/leagues/{league_id}/matches/{match_id}",
-        json={"team1_score": "7", "team2_score": "5"},
+        json={"pair1_score": "7", "pair2_score": "5"},
         headers={"X-Host-Token": host_token},
     )
 
     assert resp.status_code == 200
     body = resp.json()
     assert body["match_id"] == match_id
-    assert body["team1_score"] == "7"
-    assert body["team2_score"] == "5"
+    assert body["pair1_score"] == "7"
+    assert body["pair2_score"] == "5"
 
 
 async def test_edit_match_score_persists(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id, host_token = league["league_id"], league["host_token"]
 
-    match = await submit_match(client, league_id, team1_score="6", team2_score="3")
+    match = await submit_match(client, league_id, pair1_score="6", pair2_score="3")
     match_id = match["match_id"]
 
     await client.patch(
         f"/admin/leagues/{league_id}/matches/{match_id}",
-        json={"team1_score": "2", "team2_score": "6"},
+        json={"pair1_score": "2", "pair2_score": "6"},
         headers={"X-Host-Token": host_token},
     )
 
     history_resp = await client.get(f"/leagues/{league_id}/matches")
     history = history_resp.json()["matches"]
     updated = next(m for m in history if m["match_id"] == match_id)
-    assert updated["team1_score"] == "2"
-    assert updated["team2_score"] == "6"
+    assert updated["pair1_score"] == "2"
+    assert updated["pair2_score"] == "6"
 
 
 async def test_edit_match_score_wrong_token_returns_401(client: AsyncClient) -> None:
@@ -444,7 +444,7 @@ async def test_edit_match_score_wrong_token_returns_401(client: AsyncClient) -> 
 
     resp = await client.patch(
         f"/admin/leagues/{league_id}/matches/{match['match_id']}",
-        json={"team1_score": "7", "team2_score": "5"},
+        json={"pair1_score": "7", "pair2_score": "5"},
         headers={"X-Host-Token": "wrong-token"},
     )
 
@@ -460,7 +460,7 @@ async def test_edit_match_score_invalid_score_returns_422(client: AsyncClient) -
 
     resp = await client.patch(
         f"/admin/leagues/{league_id}/matches/{match['match_id']}",
-        json={"team1_score": "abc", "team2_score": "5"},
+        json={"pair1_score": "abc", "pair2_score": "5"},
         headers={"X-Host-Token": host_token},
     )
 
@@ -476,7 +476,7 @@ async def test_edit_match_score_negative_returns_422(client: AsyncClient) -> Non
 
     resp = await client.patch(
         f"/admin/leagues/{league_id}/matches/{match['match_id']}",
-        json={"team1_score": "-1", "team2_score": "5"},
+        json={"pair1_score": "-1", "pair2_score": "5"},
         headers={"X-Host-Token": host_token},
     )
 
@@ -491,7 +491,7 @@ async def test_edit_match_score_match_not_found_returns_404(client: AsyncClient)
 
     resp = await client.patch(
         f"/admin/leagues/{league_id}/matches/{fake_match_id}",
-        json={"team1_score": "6", "team2_score": "4"},
+        json={"pair1_score": "6", "pair2_score": "4"},
         headers={"X-Host-Token": host_token},
     )
 
@@ -504,7 +504,7 @@ async def test_edit_match_score_league_not_found_returns_404(client: AsyncClient
 
     resp = await client.patch(
         f"/admin/leagues/{fake_id}/matches/{fake_id}",
-        json={"team1_score": "6", "team2_score": "4"},
+        json={"pair1_score": "6", "pair2_score": "4"},
         headers={"X-Host-Token": "any-token"},
     )
 
@@ -615,10 +615,10 @@ async def test_standings_update_after_score_edit(client: AsyncClient) -> None:
 
     match = await submit_match(
         client, league_id,
-        team1=("alice", "bob"),
-        team2=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1=("alice", "bob"),
+        pair2=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
     match_id = match["match_id"]
 
@@ -630,7 +630,7 @@ async def test_standings_update_after_score_edit(client: AsyncClient) -> None:
     # Flip the score so charlie+diana now win
     await client.patch(
         f"/admin/leagues/{league_id}/matches/{match_id}",
-        json={"team1_score": "2", "team2_score": "6"},
+        json={"pair1_score": "2", "pair2_score": "6"},
         headers={"X-Host-Token": host_token},
     )
 
@@ -651,10 +651,10 @@ async def _create_strict_roster_league(
             "title": title,
             "host_email": _DEFAULT_HOST_EMAIL,
             "rules": {
-                "version": 6,
-                "match_pair_idempotency": "once_per_league",
-                "one_team_per_player": True,
-                "ranking_subject": "team",
+                "version": 8,
+                "pair_matchup_idempotency": "once_per_league",
+                "one_pair_per_player": True,
+                "ranking_subject": "pair",
                 "tie_breakers": ["matches_won"],
                 "auto_register_players_on_match": False,
             },
@@ -722,10 +722,10 @@ async def test_add_players_makes_them_match_eligible(client: AsyncClient) -> Non
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["carol", "dave"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["carol", "dave"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
     assert resp.status_code == 201, resp.text
@@ -746,10 +746,10 @@ async def test_match_submission_rejected_when_player_not_on_roster(
     resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["alice", "bob"],
-            "team2_nicknames": ["carol", "dave"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["alice", "bob"],
+            "pair2_nicknames": ["carol", "dave"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
 
@@ -807,10 +807,10 @@ async def test_player_alias_lifecycle_and_alias_lookup(client: AsyncClient) -> N
     match_resp = await client.post(
         f"/leagues/{league_id}/matches",
         json={
-            "team1_nicknames": ["ali", "bob"],
-            "team2_nicknames": ["charlie", "diana"],
-            "team1_score": "6",
-            "team2_score": "3",
+            "pair1_nicknames": ["ali", "bob"],
+            "pair2_nicknames": ["charlie", "diana"],
+            "pair1_score": "6",
+            "pair2_score": "3",
         },
     )
     assert match_resp.status_code == 201, match_resp.text
@@ -820,7 +820,7 @@ async def test_player_alias_lifecycle_and_alias_lookup(client: AsyncClient) -> N
         params={"player_name": "ali"},
     )
     assert history_resp.status_code == 200, history_resp.text
-    assert history_resp.json()["matches"][0]["team1_player1_nickname"] == "alice"
+    assert history_resp.json()["matches"][0]["pair1_player1_nickname"] == "alice"
 
     remove_resp = await client.delete(
         f"/admin/leagues/{league_id}/players/{alice_id}/aliases/ali",
@@ -940,8 +940,8 @@ async def test_remove_player_from_roster_success(client: AsyncClient) -> None:
     assert nicknames == {"daniel"}
 
 
-async def test_remove_player_with_team_returns_409(client: AsyncClient) -> None:
-    """A player who already has a team (and therefore likely matches)
+async def test_remove_player_with_pair_returns_409(client: AsyncClient) -> None:
+    """A player who already has a pair (and therefore likely matches)
     cannot be hard-deleted — the API surfaces a 409 with the
     `PlayerHasParticipationError` payload."""
     league = await create_league(client)
@@ -958,7 +958,7 @@ async def test_remove_player_with_team_returns_409(client: AsyncClient) -> None:
     assert resp.status_code == 409
     body = resp.json()
     assert body["error"] == "PlayerHasParticipationError"
-    assert body["teams_count"] >= 1
+    assert body["pairs_count"] >= 1
     assert body["matches_count"] >= 1
 
 

@@ -23,7 +23,7 @@ canonical nickname plus zero or more aliases".
 | `Player.nicknames` | Domain collection: `list[PlayerNickname]`, non-empty, index 0 = canonical. | `League` aggregate. |
 | `player_aliases` | Persistence table. Rows are unique within a league; one row per (player, alias). Exactly one row per player has `is_canonical=true`. | Persistence layer. |
 
-`PlayerId` remains the only identity. Match history, teams, standings,
+`PlayerId` remains the only identity. Match history, pairs, standings,
 and chat-server URL templates all continue to key off `PlayerId`.
 
 ## Scope of this iteration
@@ -39,7 +39,7 @@ In-scope:
   `League.edit_player_nickname` is generalised to "set canonical"
   (rename canonical, or promote an existing alias).
 - `NicknameUniquenessPolicy` and `RosterMembershipPolicy` updated to
-  match against the alias union. `OneTeamPerPlayerPolicy` is
+  match against the alias union. `OnePairPerPlayerPolicy` is
   unchanged (works on `PlayerId`).
 - Two new admin HTTP endpoints
   (`POST /admin/leagues/{lid}/players/{pid}/aliases` and
@@ -55,10 +55,10 @@ In-scope:
   nickname) and `CannotRemoveCanonicalNicknameError` (must promote
   a different alias first).
 - One subtle correctness fix: the pre-aggregate
-  same-player-on-both-teams string check in
+  same-player-on-both-pairs string check in
   `SubmitMatchResultUseCase` is moved into the aggregate (after
   alias resolution) so two aliases of the same player on opposing
-  teams are detected.
+  pairs are detected.
 - Frontend: roster / Get-Players panel renders
   `canonical (alias1, alias2)` when aliases are present; the search
   input filters against the alias union; `@`-mention autocomplete
@@ -93,7 +93,7 @@ flowchart TD
         ROOT[League root]
         subgraph ENT [Internal entities]
             PE[Player]
-            TE[Team]
+            TE[Pair]
         end
         subgraph VOS [Value objects]
             PI[PlayerId]
@@ -194,7 +194,7 @@ def edit_player_nickname(self, player_id: str, new_nickname: str) -> Player:
     Raises PlayerNotFoundError, NicknameAlreadyInUseError as before."""
 ```
 
-`add_players` and `register_players_and_team` are unchanged at the
+`add_players` and `register_players_and_pair` are unchanged at the
 call site, but the `Player` they build now starts with
 `nicknames=[PlayerNickname(input)]`. New players begin life with
 zero aliases.
@@ -226,7 +226,7 @@ class NicknameUniquenessPolicy:
 roster_set = {n.value for player in players for n in player.nicknames}
 ```
 
-**`OneTeamPerPlayerPolicy`** — unchanged. Operates on `PlayerId`,
+**`OnePairPerPlayerPolicy`** — unchanged. Operates on `PlayerId`,
 never touches nicknames.
 
 ### New domain errors
@@ -247,23 +247,23 @@ class CannotRemoveCanonicalNicknameError(DomainError):
     previous canonical name."""
 ```
 
-### Same-player-on-both-teams correctness fix
+### Same-player-on-both-pairs correctness fix
 
 Today, `SubmitMatchResultUseCase` performs the
-`SamePlayerOnBothTeamsError` check by string-set intersection on the
+`SamePlayerOnBothPairsError` check by string-set intersection on the
 four submitted nicknames before the aggregate is loaded. With
 aliases this is unsound: "alice and bob vs ali and dan", where `ali`
 is an alias of `alice`, would be silently accepted.
 
 The fix is to move the check into the aggregate, after alias
-resolution. After `register_players_and_team` resolves both teams,
+resolution. After `register_players_and_pair` resolves both pairs,
 compare the resulting `PlayerId` sets:
 
 ```python
-team1_pids = {team1.player_id_1, team1.player_id_2}
-team2_pids = {team2.player_id_1, team2.player_id_2}
-if team1_pids & team2_pids:
-    raise SamePlayerOnBothTeamsError(...)
+pair1_pids = {pair1.player_id_1, pair1.player_id_2}
+pair2_pids = {pair2.player_id_1, pair2.player_id_2}
+if pair1_pids & pair2_pids:
+    raise SamePlayerOnBothPairsError(...)
 ```
 
 The pre-aggregate string-set check stays as a fast-path early exit
@@ -443,7 +443,7 @@ def player_to_domain(orm: PlayerORM) -> Player:
 `player_to_orm` and the repository's `save(league)` path apply alias
 deltas. The `League` aggregate accumulates pending alias adds /
 removes / canonical-changes on a per-player basis (mirrors the
-existing `pending_deleted_team_ids` / `pending_deleted_player_ids`
+existing `pending_deleted_pair_ids` / `pending_deleted_player_ids`
 patterns) so the repository can translate them to INSERT / DELETE /
 UPDATE statements without diffing the full alias collection.
 
@@ -467,8 +467,8 @@ canonical) internally; the use case still just calls
 `league.edit_player_nickname(player_id, new_nickname)`.
 
 `SubmitMatchResultUseCase` — drop the pre-aggregate
-same-player-on-both-teams string check; the aggregate now performs
-the authoritative check post-resolution (see "Same-player-on-both-teams
+same-player-on-both-pairs string check; the aggregate now performs
+the authoritative check post-resolution (see "Same-player-on-both-pairs
 correctness fix" above). The pre-aggregate fast-path for trivially
 identical strings stays.
 
@@ -519,7 +519,7 @@ Additive field on every `PlayerEntry`:
   "nickname": "alice",
   "aliases": ["al", "ali"],
   "rating": null,
-  "teams_count": 0,
+  "pairs_count": 0,
   "matches_count": 0
 }
 ```
@@ -560,7 +560,7 @@ continues to render canonical nicknames.
 | Host roster panel (`GET_ROSTER`) | **Yes** — same renderer. | n/a |
 | Match history rows | No — canonical only. | n/a |
 | Standings rows | No — canonical only. | n/a |
-| Team rows | No — canonical only. | n/a |
+| Pair rows | No — canonical only. | n/a |
 | Match submission form (`@`-mention autocomplete) | No — autocomplete row label is canonical. | **Yes** — autocomplete matches against the alias union but inserts the canonical into the form. The submit POST resolves any alias on the backend regardless. |
 
 `formatPlayerLabel(entry)` is a single helper in `js/chat.js`:
@@ -590,7 +590,7 @@ panel (Add Alias button, Remove Alias confirm, error toast for
    `add_alias_to_player`, `remove_alias_from_player`. Generalise
    `edit_player_nickname` (no-op / promote / replace). Add
    `LastNicknameError`, `CannotRemoveCanonicalNicknameError`. Move
-   the same-player-on-both-teams check into the aggregate.
+   the same-player-on-both-pairs check into the aggregate.
 2. **Application.** Add `AddAliasToPlayerUseCase`,
    `RemoveAliasFromPlayerUseCase`. Adjust
    `GetMatchHistoryByPlayerUseCase` and
@@ -614,7 +614,7 @@ panel (Add Alias button, Remove Alias confirm, error toast for
    - Domain: `tests/domain/test_league_aggregate.py` —
      `add_alias`, `remove_alias`, promote-alias-via-edit, alias
      collision across players, last-nickname guard,
-     same-player-via-aliases on both teams.
+     same-player-via-aliases on both pairs.
      `tests/domain/test_policies.py` — `NicknameUniquenessPolicy`
      and `RosterMembershipPolicy` against alias unions.
    - Application: round-trip tests for the two new use cases.
@@ -634,7 +634,7 @@ panel (Add Alias button, Remove Alias confirm, error toast for
 
 - ✅ Submitting a match with `["alice", "bob", "ali", "dan"]` where
   `ali` is an alias of `alice` raises 422
-  `SamePlayerOnBothTeamsError`.
+  `SamePlayerOnBothPairsError`.
 - ✅ Submitting a match with `["ali", "bob", "charlie", "dan"]`
   where `ali` is an alias of `alice` succeeds and registers the
   match against `alice`'s `PlayerId`. `alice.match_count` increases

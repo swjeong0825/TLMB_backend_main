@@ -9,7 +9,7 @@ from app.api.routers.league_router import router as league_router
 from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     CannotRemoveCanonicalNicknameError,
-    DuplicateTeamPairMatchError,
+    DuplicatePairMatchupMatchError,
     InvalidLeagueRulesError,
     InvalidPlayerRatingError,
     InvalidSetScoreError,
@@ -23,12 +23,12 @@ from app.domain.exceptions import (
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
-    SameTeamOnBothSidesError,
-    TeamConflictError,
-    TeamHasMatchesError,
-    TeamNotFoundError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
+    SamePairOnBothSidesError,
+    PairConflictError,
+    PairHasMatchesError,
+    PairNotFoundError,
     UnauthorizedError,
 )
 
@@ -64,9 +64,9 @@ async def player_not_found_handler(request: Request, exc: PlayerNotFoundError) -
     return JSONResponse(status_code=404, content={"error": "PlayerNotFoundError", "detail": str(exc)})
 
 
-@app.exception_handler(TeamNotFoundError)
-async def team_not_found_handler(request: Request, exc: TeamNotFoundError) -> JSONResponse:
-    return JSONResponse(status_code=404, content={"error": "TeamNotFoundError", "detail": str(exc)})
+@app.exception_handler(PairNotFoundError)
+async def pair_not_found_handler(request: Request, exc: PairNotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"error": "PairNotFoundError", "detail": str(exc)})
 
 
 @app.exception_handler(MatchNotFoundError)
@@ -84,9 +84,9 @@ async def league_title_exists_handler(request: Request, exc: LeagueTitleAlreadyE
     return JSONResponse(status_code=409, content={"error": "LeagueTitleAlreadyExistsError", "detail": str(exc)})
 
 
-@app.exception_handler(TeamConflictError)
-async def team_conflict_handler(request: Request, exc: TeamConflictError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"error": "TeamConflictError", "detail": str(exc)})
+@app.exception_handler(PairConflictError)
+async def pair_conflict_handler(request: Request, exc: PairConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"error": "PairConflictError", "detail": str(exc)})
 
 
 @app.exception_handler(NicknameAlreadyInUseError)
@@ -123,34 +123,34 @@ async def last_nickname_handler(
     )
 
 
-@app.exception_handler(TeamHasMatchesError)
-async def team_has_matches_handler(request: Request, exc: TeamHasMatchesError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"error": "TeamHasMatchesError", "detail": str(exc)})
+@app.exception_handler(PairHasMatchesError)
+async def pair_has_matches_handler(request: Request, exc: PairHasMatchesError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"error": "PairHasMatchesError", "detail": str(exc)})
 
 
-@app.exception_handler(SameTeamOnBothSidesError)
-async def same_team_handler(request: Request, exc: SameTeamOnBothSidesError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"error": "SameTeamOnBothSidesError", "detail": str(exc)})
+@app.exception_handler(SamePairOnBothSidesError)
+async def same_pair_handler(request: Request, exc: SamePairOnBothSidesError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"error": "SamePairOnBothSidesError", "detail": str(exc)})
 
 
-@app.exception_handler(DuplicateTeamPairMatchError)
-async def duplicate_team_pair_match_handler(
-    request: Request, exc: DuplicateTeamPairMatchError
+@app.exception_handler(DuplicatePairMatchupMatchError)
+async def duplicate_pair_matchup_match_handler(
+    request: Request, exc: DuplicatePairMatchupMatchError
 ) -> JSONResponse:
     return JSONResponse(
         status_code=409,
-        content={"error": "DuplicateTeamPairMatchError", "detail": str(exc)},
+        content={"error": "DuplicatePairMatchupMatchError", "detail": str(exc)},
     )
 
 
-@app.exception_handler(SamePlayerWithinSingleTeamError)
-async def same_player_single_team_handler(request: Request, exc: SamePlayerWithinSingleTeamError) -> JSONResponse:
-    return JSONResponse(status_code=422, content={"error": "SamePlayerWithinSingleTeamError", "detail": str(exc)})
+@app.exception_handler(SamePlayerWithinSinglePairError)
+async def same_player_single_pair_handler(request: Request, exc: SamePlayerWithinSinglePairError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"error": "SamePlayerWithinSinglePairError", "detail": str(exc)})
 
 
-@app.exception_handler(SamePlayerOnBothTeamsError)
-async def same_player_both_teams_handler(request: Request, exc: SamePlayerOnBothTeamsError) -> JSONResponse:
-    return JSONResponse(status_code=422, content={"error": "SamePlayerOnBothTeamsError", "detail": str(exc)})
+@app.exception_handler(SamePlayerOnBothPairsError)
+async def same_player_both_pairs_handler(request: Request, exc: SamePlayerOnBothPairsError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"error": "SamePlayerOnBothPairsError", "detail": str(exc)})
 
 
 @app.exception_handler(InvalidSetScoreError)
@@ -197,7 +197,7 @@ async def player_has_participation_handler(
             "error": "PlayerHasParticipationError",
             "detail": str(exc),
             "player_id": exc.player_id,
-            "teams_count": exc.teams_count,
+            "pairs_count": exc.pairs_count,
             "matches_count": exc.matches_count,
         },
     )

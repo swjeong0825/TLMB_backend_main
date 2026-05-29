@@ -48,7 +48,7 @@ All commands must be run from the `backend_main/` directory with `PYTHONPATH=.` 
 PYTHONPATH=. .venv/bin/alembic upgrade head
 ```
 
-This runs every migration in `alembic/versions/` that has not been applied yet. On a fresh database this creates all 4 tables: `leagues`, `players`, `teams`, `matches`.
+This runs every migration in `alembic/versions/` that has not been applied yet. On a fresh database this creates the current tables: `leagues`, `players`, `player_aliases`, `pairs`, `matches`.
 
 ### Check the current applied revision
 
@@ -116,8 +116,8 @@ Creates the following tables with all constraints and indexes:
 |---|---|
 | `leagues` | League root — title, host token, description |
 | `players` | Players auto-registered on first match submission |
-| `teams` | Doubles pairs; each player belongs to at most one team per league |
-| `matches` | Match results; references two teams and stores set scores |
+| `pairs` | Doubles pairs; each player belongs to at most one pair per league by default |
+| `matches` | Match results; references two pairs and stores set scores |
 
 ---
 
@@ -160,7 +160,7 @@ Drop the existing tables from the TCP instance, then re-run migrations:
 
 ```bash
 psql -h localhost -p 5432 -U <your_user> -d tennis_league_test \
-  -c "DROP TABLE IF EXISTS matches, teams, players, leagues CASCADE;"
+  -c "DROP TABLE IF EXISTS matches, pairs, player_aliases, players, leagues CASCADE;"
 
 PYTHONPATH=. .venv/bin/alembic upgrade head
 ```

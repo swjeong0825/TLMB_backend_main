@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.aggregates.league.entities import Player, Team
-from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname, TeamId
+from app.domain.aggregates.league.entities import Player, Pair
+from app.domain.aggregates.league.value_objects import PlayerId, PlayerNickname, PairId
 
 
 class NicknameUniquenessPolicy:
@@ -21,17 +21,17 @@ class NicknameUniquenessPolicy:
         return True
 
 
-class OneTeamPerPlayerPolicy:
-    def can_join_team(
+class OnePairPerPlayerPolicy:
+    def can_join_pair(
         self,
         player_id: PlayerId,
-        teams: list[Team],
-        exclude_team_id: TeamId | None = None,
+        pairs: list[Pair],
+        exclude_pair_id: PairId | None = None,
     ) -> bool:
-        for team in teams:
-            if exclude_team_id is not None and team.team_id == exclude_team_id:
+        for pair in pairs:
+            if exclude_pair_id is not None and pair.pair_id == exclude_pair_id:
                 continue
-            if team.player_id_1 == player_id or team.player_id_2 == player_id:
+            if pair.player_id_1 == player_id or pair.player_id_2 == player_id:
                 return False
         return True
 
@@ -47,9 +47,9 @@ class RosterMembershipPolicy:
     The "should I check at all?" gate
     (`LeagueRules.auto_register_players_on_match`) is intentionally NOT
     consulted here. Each call site decides whether to invoke the policy
-    based on its own semantics — mirrors how `OneTeamPerPlayerPolicy` is
-    gated by `LeagueRules.one_team_per_player` inside
-    `League.register_players_and_team`. See
+    based on its own semantics — mirrors how `OnePairPerPlayerPolicy` is
+    gated by `LeagueRules.one_pair_per_player` inside
+    `League.register_players_and_pair`. See
     `harness_notes/01_when_to_extract_a_policy.md`.
     """
 

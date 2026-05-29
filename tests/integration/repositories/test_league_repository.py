@@ -201,10 +201,10 @@ async def test_save_updates_existing_league_title(session: AsyncSession) -> None
     assert final.title == "Updated Title"
 
 
-async def test_save_persists_players_and_teams(session: AsyncSession) -> None:
+async def test_save_persists_players_and_pairs(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     league = _make_league("Player League")
-    league.register_players_and_team("alice", "bob")
+    league.register_players_and_pair("alice", "bob")
     await repo.save(league)
     await session.commit()
     session.expire_all()
@@ -214,13 +214,13 @@ async def test_save_persists_players_and_teams(session: AsyncSession) -> None:
     assert len(found.players) == 2
     nicknames = {p.nickname.value for p in found.players}
     assert nicknames == {"alice", "bob"}
-    assert len(found.teams) == 1
+    assert len(found.pairs) == 1
 
 
 async def test_save_updates_player_nickname(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     league = _make_league()
-    league.register_players_and_team("alice", "bob")
+    league.register_players_and_pair("alice", "bob")
     await repo.save(league)
     await session.commit()
     session.expire_all()
@@ -240,23 +240,23 @@ async def test_save_updates_player_nickname(session: AsyncSession) -> None:
     assert "alice" not in nicknames
 
 
-async def test_save_removes_pending_deleted_teams(session: AsyncSession) -> None:
+async def test_save_removes_pending_deleted_pairs(session: AsyncSession) -> None:
     repo = SqlAlchemyLeagueRepository(session)
     league = _make_league()
-    league.register_players_and_team("alice", "bob")
+    league.register_players_and_pair("alice", "bob")
     await repo.save(league)
     await session.commit()
     session.expire_all()
 
     reloaded = await repo.get_by_id_with_lock(league.league_id)
-    team_id = str(reloaded.teams[0].team_id.value)
-    reloaded.delete_team(team_id)
+    pair_id = str(reloaded.pairs[0].pair_id.value)
+    reloaded.delete_pair(pair_id)
     await repo.save(reloaded)
     await session.commit()
     session.expire_all()
 
     final = await repo.get_by_id(league.league_id)
-    assert len(final.teams) == 0
+    assert len(final.pairs) == 0
 
 
 # ---------------------------------------------------------------------------

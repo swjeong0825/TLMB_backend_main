@@ -186,9 +186,9 @@ async def test_v6_rules_round_trip_with_auto_register_false(
     league.rules = LeagueRules.from_dict(
         {
             "version": 6,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": False,
         }
@@ -209,8 +209,8 @@ async def test_match_count_surfaced_on_player_after_match(
     `match_count >= 1` so `remove_player` can block deletion."""
     repo = SqlAlchemyLeagueRepository(session)
     league = _make_league()
-    league.register_players_and_team("alice", "bob")
-    league.register_players_and_team("carol", "dave")
+    league.register_players_and_pair("alice", "bob")
+    league.register_players_and_pair("carol", "dave")
     await repo.save(league)
     await session.commit()
     session.expire_all()
@@ -218,7 +218,7 @@ async def test_match_count_surfaced_on_player_after_match(
     reloaded = await repo.get_by_id_with_lock(league.league_id)
     t1 = next(
         t
-        for t in reloaded.teams
+        for t in reloaded.pairs
         if {
             next(p.nickname.value for p in reloaded.players if p.player_id == t.player_id_1),
             next(p.nickname.value for p in reloaded.players if p.player_id == t.player_id_2),
@@ -227,7 +227,7 @@ async def test_match_count_surfaced_on_player_after_match(
     )
     t2 = next(
         t
-        for t in reloaded.teams
+        for t in reloaded.pairs
         if {
             next(p.nickname.value for p in reloaded.players if p.player_id == t.player_id_1),
             next(p.nickname.value for p in reloaded.players if p.player_id == t.player_id_2),
@@ -242,10 +242,10 @@ async def test_match_count_surfaced_on_player_after_match(
     match_orm = MatchORM(
         match_id=uuid.uuid4(),
         league_id=reloaded.league_id.value,
-        team1_id=t1.team_id.value,
-        team2_id=t2.team_id.value,
-        team1_score="6",
-        team2_score="4",
+        pair1_id=t1.pair_id.value,
+        pair2_id=t2.pair_id.value,
+        pair1_score="6",
+        pair2_score="4",
     )
     session.add(match_orm)
     await repo.save(reloaded)
@@ -264,7 +264,7 @@ async def test_match_count_surfaced_on_player_after_match(
 async def test_match_count_zero_for_roster_only_players(
     session: AsyncSession,
 ) -> None:
-    """Players added via `add_players` but never on a team load with
+    """Players added via `add_players` but never on a pair load with
     `match_count == 0`."""
     repo = SqlAlchemyLeagueRepository(session)
     league = _make_league()

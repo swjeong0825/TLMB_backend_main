@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from app.domain.aggregates.league.value_objects import (
     PlayerId,
     PlayerNickname,
-    TeamId,
+    PairId,
 )
 
 
@@ -21,7 +21,7 @@ class Player:
     guard without re-querying. It defaults to `0` for freshly-created
     in-memory players (which by definition have no matches yet). It is
     never persisted back to the players table — it is a read-side projection
-    of how many `matches` reference any team this player is on.
+    of how many `matches` reference any pair this player is on.
     """
 
     player_id: PlayerId
@@ -70,7 +70,7 @@ class Player:
 
 
 @dataclass(frozen=True)
-class Team:
-    team_id: TeamId
+class Pair:
+    pair_id: PairId
     player_id_1: PlayerId
     player_id_2: PlayerId

@@ -24,7 +24,7 @@ from app.api.schemas.league_schemas import (
     SearchLeaguesResponse,
     SubmitMatchResultRequest,
     SubmitMatchResultResponse,
-    TeamEntrySchema,
+    PairEntrySchema,
 )
 from app.config import player_match_delete_window_seconds, player_score_edit_window_seconds
 from app.application.use_cases.create_league_use_case import (
@@ -134,10 +134,10 @@ async def submit_match_result(
     result = await use_case.execute(
         SubmitMatchResultCommand(
             league_id=league_id,
-            team1_nicknames=(body.team1_nicknames[0], body.team1_nicknames[1]),
-            team2_nicknames=(body.team2_nicknames[0], body.team2_nicknames[1]),
-            team1_score=body.team1_score,
-            team2_score=body.team2_score,
+            pair1_nicknames=(body.pair1_nicknames[0], body.pair1_nicknames[1]),
+            pair2_nicknames=(body.pair2_nicknames[0], body.pair2_nicknames[1]),
+            pair1_score=body.pair1_score,
+            pair2_score=body.pair2_score,
         )
     )
     return SubmitMatchResultResponse(
@@ -176,14 +176,14 @@ async def edit_match_score_by_player(
             host_token=None,
             league_id=league_id,
             match_id=match_id,
-            team1_score=body.team1_score,
-            team2_score=body.team2_score,
+            pair1_score=body.pair1_score,
+            pair2_score=body.pair2_score,
         )
     )
     return EditMatchScoreResponse(
         match_id=result.match_id,
-        team1_score=result.team1_score,
-        team2_score=result.team2_score,
+        pair1_score=result.pair1_score,
+        pair2_score=result.pair2_score,
     )
 
 
@@ -295,7 +295,7 @@ def _to_standings_entry_schema(entry) -> StandingsEntrySchema:
         games_diff=entry.games_diff,
         win_pct=entry.win_pct,
         draws=entry.draws,
-        team_id=entry.team_id,
+        pair_id=entry.pair_id,
         player1_nickname=entry.player1_nickname,
         player2_nickname=entry.player2_nickname,
         player_id=entry.player_id,
@@ -317,12 +317,12 @@ async def get_match_history(
         matches=[
             MatchHistoryRecordSchema(
                 match_id=r.match_id,
-                team1_player1_nickname=r.team1_player1_nickname,
-                team1_player2_nickname=r.team1_player2_nickname,
-                team2_player1_nickname=r.team2_player1_nickname,
-                team2_player2_nickname=r.team2_player2_nickname,
-                team1_score=r.team1_score,
-                team2_score=r.team2_score,
+                pair1_player1_nickname=r.pair1_player1_nickname,
+                pair1_player2_nickname=r.pair1_player2_nickname,
+                pair2_player1_nickname=r.pair2_player1_nickname,
+                pair2_player2_nickname=r.pair2_player2_nickname,
+                pair1_score=r.pair1_score,
+                pair2_score=r.pair2_score,
                 created_at=r.created_at,
             )
             for r in records
@@ -347,12 +347,12 @@ async def get_match_history_by_player(
         matches=[
             MatchHistoryRecordSchema(
                 match_id=r.match_id,
-                team1_player1_nickname=r.team1_player1_nickname,
-                team1_player2_nickname=r.team1_player2_nickname,
-                team2_player1_nickname=r.team2_player1_nickname,
-                team2_player2_nickname=r.team2_player2_nickname,
-                team1_score=r.team1_score,
-                team2_score=r.team2_score,
+                pair1_player1_nickname=r.pair1_player1_nickname,
+                pair1_player2_nickname=r.pair1_player2_nickname,
+                pair2_player1_nickname=r.pair2_player1_nickname,
+                pair2_player2_nickname=r.pair2_player2_nickname,
+                pair1_score=r.pair1_score,
+                pair2_score=r.pair2_score,
                 created_at=r.created_at,
             )
             for r in records
@@ -381,18 +381,18 @@ async def get_league_roster(
                 nickname=p.nickname,
                 aliases=p.aliases,
                 rating=p.rating,
-                teams_count=p.teams_count,
+                pairs_count=p.pairs_count,
                 matches_count=p.matches_count,
             )
             for p in roster.players
         ],
-        teams=[
-            TeamEntrySchema(
-                team_id=t.team_id,
+        pairs=[
+            PairEntrySchema(
+                pair_id=t.pair_id,
                 player1_nickname=t.player1_nickname,
                 player2_nickname=t.player2_nickname,
             )
-            for t in roster.teams
+            for t in roster.pairs
         ],
         player_score_edit_window_seconds=player_score_edit_window_seconds(),
         player_match_delete_window_seconds=player_match_delete_window_seconds(),

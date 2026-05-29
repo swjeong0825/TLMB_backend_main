@@ -16,17 +16,15 @@ RankingMetricLiteral = Literal[
 ]
 
 
-MatchPairIdempotencyLiteral = Literal["none", "once_per_league", "once_per_day"]
+PairMatchupIdempotencyLiteral = Literal["none", "once_per_league", "once_per_day"]
 
 
-class LeagueRulesV7Request(BaseModel):
+class LeagueRulesV8Request(BaseModel):
     """Shape of `rules` on create-league.
 
-    `version` accepts 1 through 7: v1..v6 inputs
-    are upgraded transparently in `LeagueRules.from_dict` — v5's
-    `require_allowlist` is replaced by v6's
-    `auto_register_players_on_match` with the boolean inverted (the new
-    flag is the opposite framing), and v7 adds `once_per_day`.
+    The public create-league API documents and accepts v8 only. v8 uses pair
+    terminology throughout: `pair_matchup_idempotency`,
+    `one_pair_per_player`, and `ranking_subject="pair"`.
 
     `auto_register_players_on_match` (default `true`) controls whether
     submitting a match with an unknown nickname auto-creates the `Player`
@@ -37,18 +35,12 @@ class LeagueRulesV7Request(BaseModel):
     The v3 cross-rule (`(player, OTPP=true)` is rejected) is preserved.
     """
 
-    version: Literal[1, 2, 3, 4, 5, 6, 7]
-    match_pair_idempotency: MatchPairIdempotencyLiteral
-    one_team_per_player: bool = True
-    ranking_subject: Literal["team", "player"] | None = None
-    tie_breakers: list[RankingMetricLiteral] | None = None
+    version: Literal[8]
+    pair_matchup_idempotency: PairMatchupIdempotencyLiteral
+    one_pair_per_player: bool = True
+    ranking_subject: Literal["pair", "player"] = "pair"
+    tie_breakers: list[RankingMetricLiteral] = Field(default_factory=lambda: ["matches_won"])
     auto_register_players_on_match: bool = True
-
-
-LeagueRulesV6Request = LeagueRulesV7Request
-LeagueRulesV5Request = LeagueRulesV7Request
-LeagueRulesV4Request = LeagueRulesV7Request
-LeagueRulesV3Request = LeagueRulesV7Request
 
 
 class CreateLeagueRequest(BaseModel):
@@ -73,7 +65,7 @@ class CreateLeagueRequest(BaseModel):
     host_email: EmailStr
     description: str | None = None
     league_timezone: str = "America/Los_Angeles"
-    rules: LeagueRulesV7Request | None = None
+    rules: LeagueRulesV8Request | None = None
     initial_players: list[str] = []
 
     @field_validator("title")
@@ -107,16 +99,16 @@ class SearchLeaguesResponse(BaseModel):
 
 
 class SubmitMatchResultRequest(BaseModel):
-    team1_nicknames: list[str]
-    team2_nicknames: list[str]
-    team1_score: str
-    team2_score: str
+    pair1_nicknames: list[str]
+    pair2_nicknames: list[str]
+    pair1_score: str
+    pair2_score: str
 
-    @field_validator("team1_nicknames", "team2_nicknames")
+    @field_validator("pair1_nicknames", "pair2_nicknames")
     @classmethod
     def must_have_exactly_two(cls, v: list[str]) -> list[str]:
         if len(v) != 2:
-            raise ValueError("Each team must have exactly 2 player nicknames")
+            raise ValueError("Each pair must have exactly 2 player nicknames")
         return v
 
 
@@ -138,15 +130,15 @@ class StandingsEntrySchema(BaseModel):
     """Polymorphic standings row.
 
     `subject_kind` discriminates which identifier/display fields are populated:
-    - "team": team_id, player1_nickname, player2_nickname are present;
+    - "pair": pair_id, player1_nickname, player2_nickname are present;
       player_id and nickname are None.
-    - "player": player_id and nickname are present; team_id, player1_nickname,
+    - "player": player_id and nickname are present; pair_id, player1_nickname,
       player2_nickname are None.
 
     Metric fields are populated for both variants.
     """
 
-    subject_kind: Literal["team", "player"]
+    subject_kind: Literal["pair", "player"]
     rank: int
     matches_played: int
     wins: int
@@ -156,7 +148,7 @@ class StandingsEntrySchema(BaseModel):
     games_diff: int
     win_pct: float
     draws: int = 0
-    team_id: str | None = None
+    pair_id: str | None = None
     player1_nickname: str | None = None
     player2_nickname: str | None = None
     player_id: str | None = None
@@ -179,12 +171,12 @@ class GetStandingsResponse(BaseModel):
 
 class MatchHistoryRecordSchema(BaseModel):
     match_id: str
-    team1_player1_nickname: str
-    team1_player2_nickname: str
-    team2_player1_nickname: str
-    team2_player2_nickname: str
-    team1_score: str
-    team2_score: str
+    pair1_player1_nickname: str
+    pair1_player2_nickname: str
+    pair2_player1_nickname: str
+    pair2_player2_nickname: str
+    pair1_score: str
+    pair2_score: str
     created_at: datetime | None
 
 
@@ -197,12 +189,12 @@ class PlayerEntrySchema(BaseModel):
     nickname: str
     aliases: list[str] = Field(default_factory=list)
     rating: float | None = None
-    teams_count: int = 0
+    pairs_count: int = 0
     matches_count: int = 0
 
 
-class TeamEntrySchema(BaseModel):
-    team_id: str
+class PairEntrySchema(BaseModel):
+    pair_id: str
     player1_nickname: str
     player2_nickname: str
 
@@ -211,15 +203,15 @@ class LeagueRulesResponseSchema(BaseModel):
     """Read-side projection of `LeagueRules` returned alongside league metadata.
 
     Mirrors `LeagueRules.to_dict()` so the frontend can render and gate UI on
-    the active rule configuration without an additional round-trip. v7 is
+    the active rule configuration without an additional round-trip. v8 is
     the canonical response version (older inputs are upgraded by
     `LeagueRules.from_dict` before they are returned).
     """
 
     version: int
-    match_pair_idempotency: MatchPairIdempotencyLiteral
-    one_team_per_player: bool
-    ranking_subject: Literal["team", "player"]
+    pair_matchup_idempotency: PairMatchupIdempotencyLiteral
+    one_pair_per_player: bool
+    ranking_subject: Literal["pair", "player"]
     tie_breakers: list[RankingMetricLiteral]
     auto_register_players_on_match: bool
 
@@ -250,6 +242,6 @@ class GetLeagueRosterResponse(BaseModel):
     latest_match_date: date | None = None
     rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
-    teams: list[TeamEntrySchema]
+    pairs: list[PairEntrySchema]
     player_score_edit_window_seconds: int
     player_match_delete_window_seconds: int

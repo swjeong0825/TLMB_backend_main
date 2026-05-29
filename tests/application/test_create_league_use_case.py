@@ -199,7 +199,7 @@ class TestCreateLeagueUseCase:
             "daniel",
             "jason",
         }
-        assert league.teams == []
+        assert league.pairs == []
 
     async def test_empty_initial_players_is_a_noop(
         self, mock_league_repo: AsyncMock

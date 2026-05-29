@@ -24,7 +24,7 @@ from app.application.use_cases.add_players_use_case import (
     AddPlayersUseCase,
 )
 from app.application.use_cases.delete_match_use_case import DeleteMatchCommand, DeleteMatchUseCase
-from app.application.use_cases.delete_team_use_case import DeleteTeamCommand, DeleteTeamUseCase
+from app.application.use_cases.delete_pair_use_case import DeletePairCommand, DeletePairUseCase
 from app.application.use_cases.edit_match_score_use_case import (
     EditMatchScoreCommand,
     EditMatchScoreUseCase,
@@ -49,7 +49,7 @@ from app.dependencies import (
     get_add_alias_to_player_use_case,
     get_add_players_use_case,
     get_delete_match_use_case,
-    get_delete_team_use_case,
+    get_delete_pair_use_case,
     get_edit_match_score_use_case,
     get_edit_player_nickname_use_case,
     get_get_league_admin_info_use_case,
@@ -114,22 +114,22 @@ async def edit_player_nickname(
 
 
 @router.delete(
-    "/leagues/{league_id}/teams/{team_id}",
+    "/leagues/{league_id}/pairs/{pair_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @limiter.limit("60/minute")
-async def delete_team(
+async def delete_pair(
     request: Request,
     league_id: str,
-    team_id: str,
+    pair_id: str,
     x_host_token: str = Header(..., alias="X-Host-Token"),
-    use_case: DeleteTeamUseCase = Depends(get_delete_team_use_case),
+    use_case: DeletePairUseCase = Depends(get_delete_pair_use_case),
 ) -> None:
     await use_case.execute(
-        DeleteTeamCommand(
+        DeletePairCommand(
             host_token=x_host_token,
             league_id=league_id,
-            team_id=team_id,
+            pair_id=pair_id,
         )
     )
 
@@ -153,14 +153,14 @@ async def edit_match_score(
             host_token=x_host_token,
             league_id=league_id,
             match_id=match_id,
-            team1_score=body.team1_score,
-            team2_score=body.team2_score,
+            pair1_score=body.pair1_score,
+            pair2_score=body.pair2_score,
         )
     )
     return EditMatchScoreResponse(
         match_id=result.match_id,
-        team1_score=result.team1_score,
-        team2_score=result.team2_score,
+        pair1_score=result.pair1_score,
+        pair2_score=result.pair2_score,
     )
 
 

@@ -3,7 +3,7 @@
 ## Problem
 
 The current implementation fetches **all matches in the league** from the database, then
-filters in Python to keep only the ones involving the player's team.
+filters in Python to keep only the ones involving the player's pair.
 
 **Current flow (`get_match_history_by_player_use_case.py`, lines 56–60):**
 
@@ -11,7 +11,7 @@ filters in Python to keep only the ones involving the player's team.
 all_matches = await self._match_repo.get_all_by_league(league_id)
 player_matches = [
     m for m in all_matches
-    if m.team1_id == team.team_id or m.team2_id == team.team_id
+    if m.pair1_id == pair.pair_id or m.pair2_id == pair.pair_id
 ]
 ```
 
@@ -39,22 +39,22 @@ Three files need to change.
 
 ```python
 @abstractmethod
-async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]: ...
+async def get_all_by_pair(self, pair_id: PairId, league_id: LeagueId) -> list[Match]: ...
 ```
 
 ### 2. SQLAlchemy repository implementation
 
 **`app/infrastructure/persistence/repositories/match_repository.py`** — implement the method.
-The `OR` pattern already exists in `has_matches_for_team`; this reuses it with full row
+The `OR` pattern already exists in `has_matches_for_pair`; this reuses it with full row
 retrieval and ordering:
 
 ```python
-async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Match]:
+async def get_all_by_pair(self, pair_id: PairId, league_id: LeagueId) -> list[Match]:
     result = await self._session.execute(
         select(MatchORM)
         .where(
             MatchORM.league_id == league_id.value,
-            (MatchORM.team1_id == team_id.value) | (MatchORM.team2_id == team_id.value),
+            (MatchORM.pair1_id == pair_id.value) | (MatchORM.pair2_id == pair_id.value),
         )
         .order_by(MatchORM.created_at.desc())
     )
@@ -66,7 +66,7 @@ async def get_all_by_team(self, team_id: TeamId, league_id: LeagueId) -> list[Ma
 ```sql
 SELECT * FROM matches
 WHERE league_id = :league_id
-  AND (team1_id = :team_id OR team2_id = :team_id)
+  AND (pair1_id = :pair_id OR pair2_id = :pair_id)
 ORDER BY created_at DESC;
 ```
 
@@ -80,11 +80,11 @@ two-step fetch-then-filter with a single optimized call:
 all_matches = await self._match_repo.get_all_by_league(league_id)
 player_matches = [
     m for m in all_matches
-    if m.team1_id == team.team_id or m.team2_id == team.team_id
+    if m.pair1_id == pair.pair_id or m.pair2_id == pair.pair_id
 ]
 
 # After
-player_matches = await self._match_repo.get_all_by_team(team.team_id, league_id)
+player_matches = await self._match_repo.get_all_by_pair(pair.pair_id, league_id)
 ```
 
 The `records.sort(...)` at the end of the method can also be removed since the SQL query
@@ -94,11 +94,11 @@ already guarantees `created_at DESC` ordering.
 
 ## What Is Not Optimized
 
-The league roster load (`league_repo.get_by_id` with `selectinload` for players and teams)
-is still needed to resolve the player nickname → `team_id` lookup. This is intentionally
+The league roster load (`league_repo.get_by_id` with `selectinload` for players and pairs)
+is still needed to resolve the player nickname → `pair_id` lookup. This is intentionally
 left as-is for two reasons:
 
-1. **DDD aggregate boundary** — Players and teams belong to the `League` aggregate. A
+1. **DDD aggregate boundary** — Players and pairs belong to the `League` aggregate. A
    targeted SQL join bypassing the aggregate would require a separate read-model or query
    service, adding significant architectural complexity.
 2. **Scale** — League rosters in a tennis context are small (tens of rows). Loading the
@@ -116,7 +116,7 @@ be updated to stub the new method instead of the old one:
 mock_match_repo.get_all_by_league.return_value = [...]
 
 # After
-mock_match_repo.get_all_by_team.return_value = [...]
+mock_match_repo.get_all_by_pair.return_value = [...]
 ```
 
 The integration and E2E tests do not need changes — they exercise the full stack and are

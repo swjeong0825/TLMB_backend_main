@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from app.domain.aggregates.league.entities import Player, Team
+from app.domain.aggregates.league.entities import Player, Pair
 from app.domain.aggregates.league.league_rules import (
     LeagueRules,
     RankingMetric,
@@ -17,7 +17,7 @@ class StandingsEntry:
     """Discriminated row in a standings response.
 
     `subject_kind` selects which set of identifier/display fields applies:
-    - "team": team_id, player1_nickname, player2_nickname are populated.
+    - "pair": pair_id, player1_nickname, player2_nickname are populated.
     - "player": player_id, nickname are populated.
 
     Metric fields (matches_played, wins, losses, draws, games_won, games_lost,
@@ -26,7 +26,7 @@ class StandingsEntry:
     and does not participate in any ranking metric today.
     """
 
-    subject_kind: Literal["team", "player"]
+    subject_kind: Literal["pair", "player"]
     rank: int
     matches_played: int
     wins: int
@@ -36,7 +36,7 @@ class StandingsEntry:
     games_diff: int
     win_pct: float
     draws: int = 0
-    team_id: str | None = None
+    pair_id: str | None = None
     player1_nickname: str | None = None
     player2_nickname: str | None = None
     player_id: str | None = None
@@ -100,84 +100,84 @@ class StandingsCalculator:
     def compute(
         self,
         matches: list[Match],
-        teams: list[Team],
+        pairs: list[Pair],
         players: list[Player],
         rules: LeagueRules,
     ) -> list[StandingsEntry]:
         subject: RankingSubject = rules.ranking_subject
-        if subject == "team":
-            return self._compute_for_teams(matches, teams, players, rules)
+        if subject == "pair":
+            return self._compute_for_pairs(matches, pairs, players, rules)
         # Player-subject branch. Under v3 the (player, OTPP=true) cross-rule is
         # rejected by `LeagueRules.from_dict`, so this branch only ever runs for
-        # leagues with one_team_per_player=false. Each player row aggregates
-        # per-match outcomes across every team the player belongs to, so a
-        # player who partnered with different teammates across matches can have
-        # a different metric tuple than any individual teammate.
+        # leagues with one_pair_per_player=false. Each player row aggregates
+        # per-match outcomes across every pair the player belongs to, so a
+        # player who partnered with different pairmates across matches can have
+        # a different metric tuple than any individual pairmate.
         # See design doc 18 (configurable_ranking_v3).
-        return self._compute_for_players(matches, teams, players, rules)
+        return self._compute_for_players(matches, pairs, players, rules)
 
-    def _compute_for_teams(
+    def _compute_for_pairs(
         self,
         matches: list[Match],
-        teams: list[Team],
+        pairs: list[Pair],
         players: list[Player],
         rules: LeagueRules,
     ) -> list[StandingsEntry]:
         player_map = {p.player_id: p.nickname.value for p in players}
 
-        agg_by_team: dict[str, _Aggregate] = {
-            str(t.team_id.value): _Aggregate() for t in teams
+        agg_by_pair: dict[str, _Aggregate] = {
+            str(pair.pair_id.value): _Aggregate() for pair in pairs
         }
 
         for match in matches:
-            t1 = str(match.team1_id.value)
-            t2 = str(match.team2_id.value)
-            s1 = int(match.set_score.team1_score)
-            s2 = int(match.set_score.team2_score)
+            pair1_key = str(match.pair1_id.value)
+            pair2_key = str(match.pair2_id.value)
+            pair1_score = int(match.set_score.pair1_score)
+            pair2_score = int(match.set_score.pair2_score)
             side = match.set_score.winner_side()
-            if t1 in agg_by_team:
-                agg_by_team[t1] = agg_by_team[t1].add(
-                    won=(side == "team1"),
-                    lost=(side == "team2"),
+            if pair1_key in agg_by_pair:
+                agg_by_pair[pair1_key] = agg_by_pair[pair1_key].add(
+                    won=(side == "pair1"),
+                    lost=(side == "pair2"),
                     drew=(side == "draw"),
-                    my_score=s1,
-                    opp_score=s2,
+                    my_score=pair1_score,
+                    opp_score=pair2_score,
                 )
-            if t2 in agg_by_team:
-                agg_by_team[t2] = agg_by_team[t2].add(
-                    won=(side == "team2"),
-                    lost=(side == "team1"),
+            if pair2_key in agg_by_pair:
+                agg_by_pair[pair2_key] = agg_by_pair[pair2_key].add(
+                    won=(side == "pair2"),
+                    lost=(side == "pair1"),
                     drew=(side == "draw"),
-                    my_score=s2,
-                    opp_score=s1,
+                    my_score=pair2_score,
+                    opp_score=pair1_score,
                 )
 
-        rows: list[tuple[Team, _Aggregate]] = [
-            (t, agg_by_team[str(t.team_id.value)]) for t in teams
+        rows: list[tuple[Pair, _Aggregate]] = [
+            (pair, agg_by_pair[str(pair.pair_id.value)]) for pair in pairs
         ]
         rows = self._sort_by_tie_breakers(rows, rules.tie_breakers)
 
-        return self._assign_ranks_team(rows, rules.tie_breakers, player_map)
+        return self._assign_ranks_pair(rows, rules.tie_breakers, player_map)
 
     def _compute_for_players(
         self,
         matches: list[Match],
-        teams: list[Team],
+        pairs: list[Pair],
         players: list[Player],
         rules: LeagueRules,
     ) -> list[StandingsEntry]:
-        # Build, per player, the set of teams they belong to.
+        # Build, per player, the set of pairs they belong to.
         # Under v3 this branch only runs for leagues with OTPP=false (the
         # `(player, OTPP=true)` cross-rule is rejected by LeagueRules), so a
-        # player may belong to multiple teams; the aggregation naturally unions
-        # match outcomes across every team they appear on.
-        teams_for_player: dict[str, set[str]] = {}
-        for t in teams:
-            teams_for_player.setdefault(str(t.player_id_1.value), set()).add(
-                str(t.team_id.value)
+        # player may belong to multiple pairs; the aggregation naturally unions
+        # match outcomes across every pair they appear on.
+        pairs_for_player: dict[str, set[str]] = {}
+        for pair in pairs:
+            pairs_for_player.setdefault(str(pair.player_id_1.value), set()).add(
+                str(pair.pair_id.value)
             )
-            teams_for_player.setdefault(str(t.player_id_2.value), set()).add(
-                str(t.team_id.value)
+            pairs_for_player.setdefault(str(pair.player_id_2.value), set()).add(
+                str(pair.pair_id.value)
             )
 
         agg_by_player: dict[str, _Aggregate] = {
@@ -185,30 +185,30 @@ class StandingsCalculator:
         }
 
         for match in matches:
-            t1 = str(match.team1_id.value)
-            t2 = str(match.team2_id.value)
-            s1 = int(match.set_score.team1_score)
-            s2 = int(match.set_score.team2_score)
+            pair1_key = str(match.pair1_id.value)
+            pair2_key = str(match.pair2_id.value)
+            pair1_score = int(match.set_score.pair1_score)
+            pair2_score = int(match.set_score.pair2_score)
             side = match.set_score.winner_side()
-            for player_id, team_ids in teams_for_player.items():
-                if t1 in team_ids and t2 in team_ids:
+            for player_id, pair_ids in pairs_for_player.items():
+                if pair1_key in pair_ids and pair2_key in pair_ids:
                     # Pathological self-match — Match.create forbids it, but be safe.
                     continue
-                if t1 in team_ids:
+                if pair1_key in pair_ids:
                     agg_by_player[player_id] = agg_by_player[player_id].add(
-                        won=(side == "team1"),
-                        lost=(side == "team2"),
+                        won=(side == "pair1"),
+                        lost=(side == "pair2"),
                         drew=(side == "draw"),
-                        my_score=s1,
-                        opp_score=s2,
+                        my_score=pair1_score,
+                        opp_score=pair2_score,
                     )
-                elif t2 in team_ids:
+                elif pair2_key in pair_ids:
                     agg_by_player[player_id] = agg_by_player[player_id].add(
-                        won=(side == "team2"),
-                        lost=(side == "team1"),
+                        won=(side == "pair2"),
+                        lost=(side == "pair1"),
                         drew=(side == "draw"),
-                        my_score=s2,
-                        opp_score=s1,
+                        my_score=pair2_score,
+                        opp_score=pair1_score,
                     )
 
         rows: list[tuple[Player, _Aggregate]] = [
@@ -230,15 +230,15 @@ class StandingsCalculator:
         )
 
     @staticmethod
-    def _assign_ranks_team(
-        sorted_rows: list[tuple[Team, _Aggregate]],
+    def _assign_ranks_pair(
+        sorted_rows: list[tuple[Pair, _Aggregate]],
         tie_breakers: tuple[RankingMetric, ...],
         player_map: dict,
     ) -> list[StandingsEntry]:
         entries: list[StandingsEntry] = []
         prev_key: tuple | None = None
         prev_rank = 0
-        for position, (team, agg) in enumerate(sorted_rows, start=1):
+        for position, (pair, agg) in enumerate(sorted_rows, start=1):
             current_key = tuple(agg.metric_value(m) for m in tie_breakers)
             if prev_key is not None and current_key == prev_key:
                 rank = prev_rank
@@ -247,13 +247,13 @@ class StandingsCalculator:
                 prev_rank = rank
                 prev_key = current_key
 
-            team_id_str = str(team.team_id.value)
-            nick1 = player_map.get(team.player_id_1, "unknown")
-            nick2 = player_map.get(team.player_id_2, "unknown")
+            pair_id_str = str(pair.pair_id.value)
+            nick1 = player_map.get(pair.player_id_1, "unknown")
+            nick2 = player_map.get(pair.player_id_2, "unknown")
 
             entries.append(
                 StandingsEntry(
-                    subject_kind="team",
+                    subject_kind="pair",
                     rank=rank,
                     matches_played=agg.matches_played,
                     wins=agg.wins,
@@ -263,7 +263,7 @@ class StandingsCalculator:
                     games_diff=agg.games_diff,
                     win_pct=agg.win_pct,
                     draws=agg.draws,
-                    team_id=team_id_str,
+                    pair_id=pair_id_str,
                     player1_nickname=nick1,
                     player2_nickname=nick2,
                 )

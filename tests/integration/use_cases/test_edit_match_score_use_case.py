@@ -35,14 +35,14 @@ async def test_updates_match_score(persisted_league_with_match: dict) -> None:
                 host_token="fixture-host-token",
                 league_id=str(league.league_id),
                 match_id=match_id,
-                team1_score="3",
-                team2_score="6",
+                pair1_score="3",
+                pair2_score="6",
             )
         )
 
     assert result.match_id == match_id
-    assert result.team1_score == "3"
-    assert result.team2_score == "6"
+    assert result.pair1_score == "3"
+    assert result.pair2_score == "6"
 
 
 async def test_new_score_persisted_to_db(persisted_league_with_match: dict) -> None:
@@ -59,8 +59,8 @@ async def test_new_score_persisted_to_db(persisted_league_with_match: dict) -> N
                 host_token="fixture-host-token",
                 league_id=str(league.league_id),
                 match_id=match_id,
-                team1_score="0",
-                team2_score="6",
+                pair1_score="0",
+                pair2_score="6",
             )
         )
         await s.commit()
@@ -70,8 +70,8 @@ async def test_new_score_persisted_to_db(persisted_league_with_match: dict) -> N
             MatchId.from_str(match_id), league.league_id
         )
 
-    assert updated.set_score.team1_score == "0"
-    assert updated.set_score.team2_score == "6"
+    assert updated.set_score.pair1_score == "0"
+    assert updated.set_score.pair2_score == "6"
 
 
 async def test_raises_for_wrong_token(persisted_league_with_match: dict) -> None:
@@ -88,8 +88,8 @@ async def test_raises_for_wrong_token(persisted_league_with_match: dict) -> None
                     host_token="wrong-token",
                     league_id=str(league.league_id),
                     match_id=match_id,
-                    team1_score="3",
-                    team2_score="6",
+                    pair1_score="3",
+                    pair2_score="6",
                 )
             )
 
@@ -108,8 +108,8 @@ async def test_raises_for_invalid_score(persisted_league_with_match: dict) -> No
                     host_token="fixture-host-token",
                     league_id=str(league.league_id),
                     match_id=match_id,
-                    team1_score="abc",
-                    team2_score="6",
+                    pair1_score="abc",
+                    pair2_score="6",
                 )
             )
 
@@ -126,8 +126,8 @@ async def test_raises_for_unknown_match(session: AsyncSession, persisted_league:
                 host_token="fixture-host-token",
                 league_id=str(league.league_id),
                 match_id="00000000-0000-0000-0000-000000000001",
-                team1_score="6",
-                team2_score="3",
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
@@ -141,7 +141,7 @@ async def test_raises_for_unknown_league(session: AsyncSession) -> None:
                 host_token="any",
                 league_id="00000000-0000-0000-0000-000000000000",
                 match_id="00000000-0000-0000-0000-000000000001",
-                team1_score="6",
-                team2_score="3",
+                pair1_score="6",
+                pair2_score="3",
             )
         )

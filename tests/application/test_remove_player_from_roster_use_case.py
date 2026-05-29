@@ -107,11 +107,11 @@ class TestRemovePlayerFromRosterUseCase:
                 )
             )
 
-    async def test_player_on_team_rejected_with_409_class(
+    async def test_player_on_pair_rejected_with_409_class(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        league.register_players_and_team("alex", "daniel")
+        league.register_players_and_pair("alex", "daniel")
         alex = next(p for p in league.players if p.nickname.value == "alex")
         mock_league_repo.get_by_id_with_lock.return_value = league
         use_case = self._use_case(mock_league_repo)
@@ -125,13 +125,13 @@ class TestRemovePlayerFromRosterUseCase:
                 )
             )
 
-        assert exc.value.teams_count == 1
+        assert exc.value.pairs_count == 1
 
     async def test_blocked_remove_does_not_save(
         self, mock_league_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        league.register_players_and_team("alex", "daniel")
+        league.register_players_and_pair("alex", "daniel")
         alex = next(p for p in league.players if p.nickname.value == "alex")
         mock_league_repo.get_by_id_with_lock.return_value = league
         mock_league_repo.save.reset_mock()

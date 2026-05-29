@@ -22,69 +22,69 @@
 
 ---
 
-## Invariant: One Team Per Player Per League (configurable)
+## Invariant: One Pair Per Player Per League (configurable)
 
-- Statement: **When** the league’s `LeagueRules.one_team_per_player` is true (the default), a player may belong to at most one team within that league.
-- Why it exists: Standings and several read paths (e.g. standings-by-player) assume a single team affiliation per player. A player on two teams requires explicit support in those queries.
+- Statement: **When** the league’s `LeagueRules.one_pair_per_player` is true (the default), a player may belong to at most one pair within that league.
+- Why it exists: Standings and several read paths (e.g. standings-by-player) assume a single pair affiliation per player. A player on two pairs requires explicit support in those queries.
 - Scope / context: League Management
-- Likely owner: League aggregate root (checked on implicit registration via `OneTeamPerPlayerPolicy` when the flag is true)
-- Violated when: A match submission attempts to register a player who is already a member of a different team in the same league **and** the league requires one team per player.
-- Notes: When `one_team_per_player` is false (legal under v3), this invariant does not apply; the by-player read models (`GetStandingsByPlayerUseCase`, `GetMatchHistoryByPlayerUseCase`) aggregate across every team the player belongs to. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md) and [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md).
+- Likely owner: League aggregate root (checked on implicit registration via `OnePairPerPlayerPolicy` when the flag is true)
+- Violated when: A match submission attempts to register a player who is already a member of a different pair in the same league **and** the league requires one pair per player.
+- Notes: When `one_pair_per_player` is false (legal under v3), this invariant does not apply; the by-player read models (`GetStandingsByPlayerUseCase`, `GetMatchHistoryByPlayerUseCase`) aggregate across every pair the player belongs to. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md) and [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md).
 
 ---
 
-## Invariant: Team Has Exactly Two Distinct Players
+## Invariant: Pair Has Exactly Two Distinct Players
 
-- Statement: A team must always consist of exactly two players, and those two players must be distinct (a player cannot be paired with themselves).
-- Why it exists: The system models doubles tennis, where every team is a pair. A team with one player or with the same player listed twice is not a valid doubles team.
+- Statement: A pair must always consist of exactly two players, and those two players must be distinct (a player cannot be paired with themselves).
+- Why it exists: The system models doubles tennis, where every pair is a pair. A pair with one player or with the same player listed twice is not a valid doubles pair.
 - Scope / context: League Management
-- Likely owner: Team entity inside the League aggregate (enforced at team creation time)
-- Violated when: A team is created with fewer or more than two player slots, or when both player slots reference the same player.
-- Notes: This invariant is enforced implicitly during implicit registration — the match submission always provides exactly two player nicknames per team, and the backend validates the structure before proceeding.
+- Likely owner: Pair entity inside the League aggregate (enforced at pair creation time)
+- Violated when: A pair is created with fewer or more than two player slots, or when both player slots reference the same player.
+- Notes: This invariant is enforced implicitly during implicit registration — the match submission always provides exactly two player nicknames per pair, and the backend validates the structure before proceeding.
 
 ---
 
-## Invariant: Teams Are Created Only Through Match Submission
+## Invariant: Pairs Are Created Only Through Match Submission
 
-- Statement: No team record may exist in the league unless it was created as part of a confirmed match submission.
-- Why it exists: Explicit team pre-registration is out of scope in V1. Allowing orphaned team records (not linked to any match) would pollute the roster and create ambiguous state.
+- Statement: No pair record may exist in the league unless it was created as part of a confirmed match submission.
+- Why it exists: Explicit pair pre-registration is out of scope in V1. Allowing orphaned pair records (not linked to any match) would pollute the roster and create ambiguous state.
 - Scope / context: League Management
-- Likely owner: League aggregate root (the SubmitMatchResult application use case is the only path through which teams are created; it invokes `League.register_players_and_team` and saves through LeagueRepository)
-- Violated when: A team is inserted into the league outside of the match submission flow.
-- Notes: In V1, there is no explicit team creation endpoint. The only team creation path is implicit registration triggered by a match submission. Admin operations may edit or delete existing teams but cannot create new ones outside this flow.
+- Likely owner: League aggregate root (the SubmitMatchResult application use case is the only path through which pairs are created; it invokes `League.register_players_and_pair` and saves through LeagueRepository)
+- Violated when: A pair is inserted into the league outside of the match submission flow.
+- Notes: In V1, there is no explicit pair creation endpoint. The only pair creation path is implicit registration triggered by a match submission. Admin operations may edit or delete existing pairs but cannot create new ones outside this flow.
 
 ---
 
 ## Invariant: Players Are Created Through Match Submission Or Roster Pre-Registration
 
-- Statement: Every `Player` record in the league originates from one of exactly two paths — `League.register_players_and_team` (called by `SubmitMatchResultUseCase` on first match submission for a new nickname) or `League.add_players` (called by `CreateLeagueUseCase` with seeded `initial_players` or by `AddPlayersUseCase` when the host pre-registers a roster nickname).
+- Statement: Every `Player` record in the league originates from one of exactly two paths — `League.register_players_and_pair` (called by `SubmitMatchResultUseCase` on first match submission for a new nickname) or `League.add_players` (called by `CreateLeagueUseCase` with seeded `initial_players` or by `AddPlayersUseCase` when the host pre-registers a roster nickname).
 - Why it exists: There is still no explicit per-player registration endpoint or login flow; players are created only by host actions that either record a match or pre-declare an allowed nickname. Constraining the creation paths keeps the roster congruent with either match participation or host curation.
 - Scope / context: League Management
-- Likely owner: League aggregate root (the only two methods that append to `self.players` are `register_players_and_team` and `add_players`).
+- Likely owner: League aggregate root (the only two methods that append to `self.players` are `register_players_and_pair` and `add_players`).
 - Violated when: A `Player` row is inserted via any other code path (e.g. a hypothetical direct admin create-player endpoint, or a use case that bypasses the aggregate).
-- Notes: Pre-registering a nickname that already matches an existing roster Player raises `NicknameAlreadyInUseError` (the host is asking for a duplicate). Players can be hard-deleted via `League.remove_player` only when they belong to zero teams **and** appear in zero matches; otherwise `PlayerHasParticipationError` is raised. Full specification: [20_roster_pre_registration.md](20_roster_pre_registration.md). (The v5 allowlist's "remove never deletes Player" lifecycle asymmetry was retired with the v6 refactor — the roster IS the player list now, so add and remove are inverses.)
+- Notes: Pre-registering a nickname that already matches an existing roster Player raises `NicknameAlreadyInUseError` (the host is asking for a duplicate). Players can be hard-deleted via `League.remove_player` only when they belong to zero pairs **and** appear in zero matches; otherwise `PlayerHasParticipationError` is raised. Full specification: [20_roster_pre_registration.md](20_roster_pre_registration.md). (The v5 allowlist's "remove never deletes Player" lifecycle asymmetry was retired with the v6 refactor — the roster IS the player list now, so add and remove are inverses.)
 
 ---
 
-## Invariant: Match Involves Two Distinct Teams
+## Invariant: Match Involves Two Distinct Pairs
 
-- Statement: The two teams in a match (team1 and team2) must be different teams; a team cannot play against itself.
-- Why it exists: A match between a team and itself is not a valid doubles result and would corrupt standings calculations.
+- Statement: The two pairs in a match (pair1 and pair2) must be different pairs; a pair cannot play against itself.
+- Why it exists: A match between a pair and itself is not a valid doubles result and would corrupt standings calculations.
 - Scope / context: Match Recording
-- Likely owner: Match aggregate root (enforced on match creation via `team1_id ≠ team2_id` check)
-- Violated when: A match submission provides the same team identifier for both team1 and team2.
-- Notes: When one-team-per-player holds, this invariant combined with the League aggregate’s membership rules derivably guarantees that no player can appear on both sides of a match (given distinct team IDs). A separate explicit cross-player check is still used in the application layer for clear error messages. If one-team-per-player is disabled in a future version, cross-side player overlap must be ruled out by other means or explicitly allowed by product design.
+- Likely owner: Match aggregate root (enforced on match creation via `pair1_id ≠ pair2_id` check)
+- Violated when: A match submission provides the same pair identifier for both pair1 and pair2.
+- Notes: When one-pair-per-player holds, this invariant combined with the League aggregate’s membership rules derivably guarantees that no player can appear on both sides of a match (given distinct pair IDs). A separate explicit cross-player check is still used in the application layer for clear error messages. If one-pair-per-player is disabled in a future version, cross-side player overlap must be ruled out by other means or explicitly allowed by product design.
 
 ---
 
 ## Invariant: Match Pair Idempotency (optional per league)
 
-- Statement: **When** `LeagueRules.match_pair_idempotency` is `once_per_league`, the system must not persist a second match in that league between the same **unordered** pair of teams (same two `team_id` values). **When** it is `once_per_day`, the system must not persist a second match for that pair within the same league-local calendar day.
+- Statement: **When** `LeagueRules.pair_matchup_idempotency` is `once_per_league`, the system must not persist a second match in that league between the same **unordered** pair matchup (same two `pair_id` values). **When** it is `once_per_day`, the system must not persist a second match for that pair within the same league-local calendar day.
 - Why it exists: Some leagues treat a round-robin or season as allowing only one official result per pairing; most casual leagues only need to prevent accidental duplicate submissions on the same day.
 - Scope / context: Match Recording (enforced in `SubmitMatchResultUseCase` using `MatchRepository`, not inside the Match aggregate)
-- Likely owner: Application use case + `MatchRepository.exists_match_for_team_pair` / `exists_match_for_team_pair_between`
-- Violated when: A second submit resolves to two team IDs that already appear together on an existing match row in that league, either globally (`once_per_league`) or within the UTC `[start, end)` range for the current date in `League.league_timezone` (`once_per_day`).
-- Notes: When the setting is `none`, multiple matches between the same two teams are allowed. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
+- Likely owner: Application use case + `MatchRepository.exists_match_for_pair_matchup` / `exists_match_for_pair_matchup_between`
+- Violated when: A second submit resolves to two pair IDs that already appear together on an existing match row in that league, either globally (`once_per_league`) or within the UTC `[start, end)` range for the current date in `League.league_timezone` (`once_per_day`).
+- Notes: When the setting is `none`, multiple matches between the same two pairs are allowed. See [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
 
 ---
 
@@ -99,14 +99,14 @@
 
 ---
 
-## Invariant: Team Cannot Be Deleted While Match Records Exist
+## Invariant: Pair Cannot Be Deleted While Match Records Exist
 
-- Statement: A team record may not be deleted from the league if any match record references that team.
-- Why it exists: Deleting a team while matches reference it would leave orphaned match records, corrupt standings, and break match history. The host must explicitly clean up match records before removing the team.
+- Statement: A pair record may not be deleted from the league if any match record references that pair.
+- Why it exists: Deleting a pair while matches reference it would leave orphaned match records, corrupt standings, and break match history. The host must explicitly clean up match records before removing the pair.
 - Scope / context: Admin Operations → League Management / Match Recording
 - Likely owner: Application layer (precondition check before delegating to the domain)
-- Violated when: A delete-team admin request is made for a team that still has one or more associated match records in the league.
-- Notes: This is a hard precondition enforced by the backend, not a cascading auto-delete. The backend returns a structured error if the precondition fails, listing that matches must be removed first. The host uses the delete-match admin action to clear the affected records before retrying the team deletion.
+- Violated when: A delete-pair admin request is made for a pair that still has one or more associated match records in the league.
+- Notes: This is a hard precondition enforced by the backend, not a cascading auto-delete. The backend returns a structured error if the precondition fails, listing that matches must be removed first. The host uses the delete-match admin action to clear the affected records before retrying the pair deletion.
 
 ---
 
@@ -125,9 +125,9 @@
 
 ### Constraint: Implicit Registration and Match Persistence Are Atomic
 
-- Statement: When a match submission involves new players or a new team, the creation of those player/team records and the creation of the match record must succeed or fail together as a single atomic operation.
+- Statement: When a match submission involves new players or a new pair, the creation of those player/pair records and the creation of the match record must succeed or fail together as a single atomic operation.
 - Why it exists: Partial state — players registered but no match saved, or a match saved but players not registered — would leave the league in an inconsistent state. The roster would not match the match history.
-- Scope / context: Cross-aggregate: League Management (player/team creation) and Match Recording (match creation)
-- Owner: SubmitMatchResult application use case — loads the League aggregate through LeagueRepository, invokes League domain behavior to register any new players/teams, creates the Match aggregate, and persists both through their repositories within a single database transaction
-- Violated when: Player/team records are committed to the database without the associated match record, or vice versa.
+- Scope / context: Cross-aggregate: League Management (player/pair creation) and Match Recording (match creation)
+- Owner: SubmitMatchResult application use case — loads the League aggregate through LeagueRepository, invokes League domain behavior to register any new players/pairs, creates the Match aggregate, and persists both through their repositories within a single database transaction
+- Violated when: Player/pair records are committed to the database without the associated match record, or vice versa.
 - Notes: This constraint is enforced at the application layer via a single transaction boundary, not inside either aggregate root individually. The use case is the coordination point. All nickname lookups are scoped to the leagueId from the incoming command — cross-league resolution is impossible by design, since unknown nicknames trigger implicit registration within the target league rather than a global lookup. The roster pre-registration path also creates Player rows, but it does **not** create matches, so this atomicity constraint is specific to match submission. The pre-registration path's own atomicity is owned by `CreateLeagueUseCase` / `AddPlayersUseCase` (see [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`").

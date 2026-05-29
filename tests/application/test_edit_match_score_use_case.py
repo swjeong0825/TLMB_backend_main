@@ -10,7 +10,7 @@ from app.application.use_cases.edit_match_score_use_case import (
     EditMatchScoreCommand,
     EditMatchScoreUseCase,
 )
-from app.domain.aggregates.league.value_objects import TeamId
+from app.domain.aggregates.league.value_objects import PairId
 from app.domain.exceptions import (
     InvalidSetScoreError,
     LeagueNotFoundError,
@@ -31,7 +31,7 @@ class TestEditMatchScoreUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate(), "6", "3")
+        match = make_match(league.league_id, PairId.generate(), PairId.generate(), "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_by_id.return_value = match
@@ -42,20 +42,20 @@ class TestEditMatchScoreUseCase:
                 host_token="valid-token",
                 league_id=str(league.league_id),
                 match_id=str(match.match_id),
-                team1_score="4",
-                team2_score="6",
+                pair1_score="4",
+                pair2_score="6",
             )
         )
 
         assert result.match_id == str(match.match_id)
-        assert result.team1_score == "4"
-        assert result.team2_score == "6"
+        assert result.pair1_score == "4"
+        assert result.pair2_score == "6"
 
     async def test_match_score_is_persisted(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_by_id.return_value = match
@@ -66,8 +66,8 @@ class TestEditMatchScoreUseCase:
                 host_token="valid-token",
                 league_id=str(league.league_id),
                 match_id=str(match.match_id),
-                team1_score="7",
-                team2_score="5",
+                pair1_score="7",
+                pair2_score="5",
             )
         )
 
@@ -85,8 +85,8 @@ class TestEditMatchScoreUseCase:
                     host_token="token",
                     league_id="00000000-0000-0000-0000-000000000000",
                     match_id="00000000-0000-0000-0000-000000000001",
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -103,8 +103,8 @@ class TestEditMatchScoreUseCase:
                     host_token="wrong-token",
                     league_id=str(league.league_id),
                     match_id="00000000-0000-0000-0000-000000000001",
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -122,8 +122,8 @@ class TestEditMatchScoreUseCase:
                     host_token="valid-token",
                     league_id=str(league.league_id),
                     match_id="00000000-0000-0000-0000-000000000001",
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -131,7 +131,7 @@ class TestEditMatchScoreUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_by_id.return_value = match
@@ -143,8 +143,8 @@ class TestEditMatchScoreUseCase:
                     host_token="valid-token",
                     league_id=str(league.league_id),
                     match_id=str(match.match_id),
-                    team1_score="-1",
-                    team2_score="6",
+                    pair1_score="-1",
+                    pair2_score="6",
                 )
             )
 
@@ -152,7 +152,7 @@ class TestEditMatchScoreUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_by_id.return_value = match
@@ -164,8 +164,8 @@ class TestEditMatchScoreUseCase:
                     host_token="valid-token",
                     league_id=str(league.league_id),
                     match_id=str(match.match_id),
-                    team1_score="abc",
-                    team2_score="6",
+                    pair1_score="abc",
+                    pair2_score="6",
                 )
             )
 
@@ -195,7 +195,7 @@ class TestEditMatchScoreUseCasePlayerWindow:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=60)
 
         mock_league_repo.get_by_id.return_value = league
@@ -207,20 +207,20 @@ class TestEditMatchScoreUseCasePlayerWindow:
                 host_token=None,
                 league_id=str(league.league_id),
                 match_id=str(match.match_id),
-                team1_score="7",
-                team2_score="5",
+                pair1_score="7",
+                pair2_score="5",
             )
         )
 
-        assert result.team1_score == "7"
-        assert result.team2_score == "5"
+        assert result.pair1_score == "7"
+        assert result.pair2_score == "5"
         mock_match_repo.save.assert_awaited_once_with(match)
 
     async def test_player_outside_window_raises_expired(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=7200)
 
         mock_league_repo.get_by_id.return_value = league
@@ -233,8 +233,8 @@ class TestEditMatchScoreUseCasePlayerWindow:
                     host_token=None,
                     league_id=str(league.league_id),
                     match_id=str(match.match_id),
-                    team1_score="7",
-                    team2_score="5",
+                    pair1_score="7",
+                    pair2_score="5",
                 )
             )
 
@@ -247,7 +247,7 @@ class TestEditMatchScoreUseCasePlayerWindow:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league(host_token="valid-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(days=30)
 
         mock_league_repo.get_by_id.return_value = league
@@ -259,12 +259,12 @@ class TestEditMatchScoreUseCasePlayerWindow:
                 host_token="valid-token",
                 league_id=str(league.league_id),
                 match_id=str(match.match_id),
-                team1_score="6",
-                team2_score="2",
+                pair1_score="6",
+                pair2_score="2",
             )
         )
 
-        assert result.team1_score == "6"
+        assert result.pair1_score == "6"
         mock_match_repo.save.assert_awaited_once_with(match)
 
     async def test_player_no_created_at_is_rejected(
@@ -275,7 +275,7 @@ class TestEditMatchScoreUseCasePlayerWindow:
         # rather than allowed (fail-closed: defense against unexpected
         # state).
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = None
 
         mock_league_repo.get_by_id.return_value = league
@@ -288,8 +288,8 @@ class TestEditMatchScoreUseCasePlayerWindow:
                     host_token=None,
                     league_id=str(league.league_id),
                     match_id=str(match.match_id),
-                    team1_score="6",
-                    team2_score="2",
+                    pair1_score="6",
+                    pair2_score="2",
                 )
             )
 
@@ -307,8 +307,8 @@ class TestEditMatchScoreUseCasePlayerWindow:
                     host_token=None,
                     league_id="00000000-0000-0000-0000-000000000000",
                     match_id="00000000-0000-0000-0000-000000000001",
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -326,8 +326,8 @@ class TestEditMatchScoreUseCasePlayerWindow:
                     host_token=None,
                     league_id=str(league.league_id),
                     match_id="00000000-0000-0000-0000-000000000001",
-                    team1_score="6",
-                    team2_score="3",
+                    pair1_score="6",
+                    pair2_score="3",
                 )
             )
 
@@ -337,7 +337,7 @@ class TestEditMatchScoreUseCasePlayerWindow:
         # Constructed without an explicit window_seconds, the default
         # is 1 hour. A match older than that fails for a player.
         league = make_league(host_token="any-token")
-        match = make_match(league.league_id, TeamId.generate(), TeamId.generate())
+        match = make_match(league.league_id, PairId.generate(), PairId.generate())
         match.created_at = datetime.now(timezone.utc) - timedelta(seconds=3700)
 
         mock_league_repo.get_by_id.return_value = league
@@ -350,8 +350,8 @@ class TestEditMatchScoreUseCasePlayerWindow:
                     host_token=None,
                     league_id=str(league.league_id),
                     match_id=str(match.match_id),
-                    team1_score="7",
-                    team2_score="5",
+                    pair1_score="7",
+                    pair2_score="5",
                 )
             )
         assert exc.value.window_seconds == 3600

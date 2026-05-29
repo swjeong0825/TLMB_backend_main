@@ -17,11 +17,11 @@ from app.application.use_cases.submit_match_result_use_case import (
 from app.domain.aggregates.league.aggregate_root import League
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.exceptions import (
-    DuplicateTeamPairMatchError,
+    DuplicatePairMatchupMatchError,
     LeagueNotFoundError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
-    TeamConflictError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
+    PairConflictError,
 )
 from app.infrastructure.persistence.repositories.league_repository import (
     SqlAlchemyLeagueRepository,
@@ -33,7 +33,7 @@ from app.infrastructure.persistence.models.orm_models import MatchORM
 from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import (
     SqlAlchemySubmitMatchResultUnitOfWork,
 )
-from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS
+from tests.integration.league_rules_fixtures import LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS
 
 
 def _use_case(sf: async_sessionmaker) -> SubmitMatchResultUseCase:
@@ -47,20 +47,20 @@ async def _create_league(sf: async_sessionmaker, title: str = "Test", token: str
             None,
             token,
             host_email="host@example.com",
-            rules=LEAGUE_RULES_ALLOW_DUPLICATE_TEAM_PAIRS,
+            rules=LEAGUE_RULES_ALLOW_DUPLICATE_PAIR_MATCHUPS,
         )
         await SqlAlchemyLeagueRepository(s).save(league)
         await s.commit()
     return league
 
 
-def _rules(match_pair_idempotency: str) -> LeagueRules:
+def _rules(pair_matchup_idempotency: str) -> LeagueRules:
     return LeagueRules.from_dict(
         {
-            "version": 7,
-            "match_pair_idempotency": match_pair_idempotency,
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "version": 8,
+            "pair_matchup_idempotency": pair_matchup_idempotency,
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": True,
         }
@@ -99,17 +99,17 @@ async def _set_match_created_at(
         await s.commit()
 
 
-async def test_creates_players_teams_and_match(
+async def test_creates_players_pairs_and_match(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league(session_factory)
     result = await _use_case(session_factory).execute(
         SubmitMatchResultCommand(
             league_id=str(league.league_id),
-            team1_nicknames=("alice", "bob"),
-            team2_nicknames=("charlie", "diana"),
-            team1_score="6",
-            team2_score="3",
+            pair1_nicknames=("alice", "bob"),
+            pair2_nicknames=("charlie", "diana"),
+            pair1_score="6",
+            pair2_score="3",
         )
     )
 
@@ -117,28 +117,28 @@ async def test_creates_players_teams_and_match(
     async with session_factory() as s:
         saved_league = await SqlAlchemyLeagueRepository(s).get_by_id(league.league_id)
         assert len(saved_league.players) == 4
-        assert len(saved_league.teams) == 2
+        assert len(saved_league.pairs) == 2
         assert saved_league.latest_match_date == result.created_at.astimezone(
             ZoneInfo(saved_league.league_timezone.value)
         ).date()
 
         matches = await SqlAlchemyMatchRepository(s).get_all_by_league(league.league_id)
         assert len(matches) == 1
-        assert matches[0].set_score.team1_score == "6"
-        assert matches[0].set_score.team2_score == "3"
+        assert matches[0].set_score.pair1_score == "6"
+        assert matches[0].set_score.pair2_score == "3"
 
 
-async def test_reuses_existing_team_on_rematch(
+async def test_reuses_existing_pair_on_rematch(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league(session_factory)
     use_case = _use_case(session_factory)
     cmd = SubmitMatchResultCommand(
         league_id=str(league.league_id),
-        team1_nicknames=("alice", "bob"),
-        team2_nicknames=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1_nicknames=("alice", "bob"),
+        pair2_nicknames=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     await use_case.execute(cmd)
@@ -147,7 +147,7 @@ async def test_reuses_existing_team_on_rematch(
     async with session_factory() as s:
         saved = await SqlAlchemyLeagueRepository(s).get_by_id(league.league_id)
         assert len(saved.players) == 4   # no duplicates
-        assert len(saved.teams) == 2     # no duplicate teams
+        assert len(saved.pairs) == 2     # no duplicate pairs
 
         matches = await SqlAlchemyMatchRepository(s).get_all_by_league(league.league_id)
         assert len(matches) == 2
@@ -160,77 +160,77 @@ async def test_raises_for_unknown_league(
         await _use_case(session_factory).execute(
             SubmitMatchResultCommand(
                 league_id="00000000-0000-0000-0000-000000000000",
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
 
-async def test_raises_for_same_player_within_team(
+async def test_raises_for_same_player_within_pair(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league(session_factory)
-    with pytest.raises(SamePlayerWithinSingleTeamError):
+    with pytest.raises(SamePlayerWithinSinglePairError):
         await _use_case(session_factory).execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "alice"),
-                team2_nicknames=("charlie", "diana"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "alice"),
+                pair2_nicknames=("charlie", "diana"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
 
-async def test_raises_for_same_player_on_both_teams(
+async def test_raises_for_same_player_on_both_pairs(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league(session_factory)
-    with pytest.raises(SamePlayerOnBothTeamsError):
+    with pytest.raises(SamePlayerOnBothPairsError):
         await _use_case(session_factory).execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "bob"),
-                team2_nicknames=("alice", "charlie"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "bob"),
+                pair2_nicknames=("alice", "charlie"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
 
-async def test_raises_when_player_already_in_another_team(
+async def test_raises_when_player_already_in_another_pair(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league(session_factory)
     use_case = _use_case(session_factory)
 
-    # Register alice+bob as a team
+    # Register alice+bob as a pair
     await use_case.execute(
         SubmitMatchResultCommand(
             league_id=str(league.league_id),
-            team1_nicknames=("alice", "bob"),
-            team2_nicknames=("charlie", "diana"),
-            team1_score="6",
-            team2_score="3",
+            pair1_nicknames=("alice", "bob"),
+            pair2_nicknames=("charlie", "diana"),
+            pair1_score="6",
+            pair2_score="3",
         )
     )
 
-    # Try to pair alice with eve in a different team
-    with pytest.raises(TeamConflictError):
+    # Try to pair alice with eve in a different pair
+    with pytest.raises(PairConflictError):
         await use_case.execute(
             SubmitMatchResultCommand(
                 league_id=str(league.league_id),
-                team1_nicknames=("alice", "eve"),
-                team2_nicknames=("frank", "grace"),
-                team1_score="6",
-                team2_score="3",
+                pair1_nicknames=("alice", "eve"),
+                pair2_nicknames=("frank", "grace"),
+                pair1_score="6",
+                pair2_score="3",
             )
         )
 
 
-async def test_raises_duplicate_team_pair_when_once_per_league(
+async def test_raises_duplicate_pair_matchup_when_once_per_league(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league_with_rules(
@@ -242,17 +242,17 @@ async def test_raises_duplicate_team_pair_when_once_per_league(
     use_case = _use_case(session_factory)
     cmd = SubmitMatchResultCommand(
         league_id=str(league.league_id),
-        team1_nicknames=("alice", "bob"),
-        team2_nicknames=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1_nicknames=("alice", "bob"),
+        pair2_nicknames=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
     await use_case.execute(cmd)
-    with pytest.raises(DuplicateTeamPairMatchError):
+    with pytest.raises(DuplicatePairMatchupMatchError):
         await use_case.execute(cmd)
 
 
-async def test_raises_duplicate_team_pair_when_once_per_day_and_same_local_day(
+async def test_raises_duplicate_pair_matchup_when_once_per_day_and_same_local_day(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     league = await _create_league_with_rules(
@@ -263,14 +263,14 @@ async def test_raises_duplicate_team_pair_when_once_per_day_and_same_local_day(
     use_case = _use_case(session_factory)
     cmd = SubmitMatchResultCommand(
         league_id=str(league.league_id),
-        team1_nicknames=("alice", "bob"),
-        team2_nicknames=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1_nicknames=("alice", "bob"),
+        pair2_nicknames=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     await use_case.execute(cmd)
-    with pytest.raises(DuplicateTeamPairMatchError):
+    with pytest.raises(DuplicatePairMatchupMatchError):
         await use_case.execute(cmd)
 
 
@@ -286,10 +286,10 @@ async def test_allows_same_pair_when_once_per_day_and_prior_local_day(
     use_case = _use_case(session_factory)
     cmd = SubmitMatchResultCommand(
         league_id=str(league.league_id),
-        team1_nicknames=("alice", "bob"),
-        team2_nicknames=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1_nicknames=("alice", "bob"),
+        pair2_nicknames=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     first = await use_case.execute(cmd)
@@ -320,10 +320,10 @@ async def test_once_per_day_uses_league_local_day_not_rolling_24_hours(
     use_case = _use_case(session_factory)
     cmd = SubmitMatchResultCommand(
         league_id=str(league.league_id),
-        team1_nicknames=("alice", "bob"),
-        team2_nicknames=("charlie", "diana"),
-        team1_score="6",
-        team2_score="3",
+        pair1_nicknames=("alice", "bob"),
+        pair2_nicknames=("charlie", "diana"),
+        pair1_score="6",
+        pair2_score="3",
     )
 
     first = await use_case.execute(cmd)

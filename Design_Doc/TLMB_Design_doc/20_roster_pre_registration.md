@@ -4,7 +4,7 @@
 
 Hosts can pre-register player nicknames on a league **before** any match
 is recorded, and can hard-delete pre-registered nicknames that have not
-yet been involved in any team or match. The optional
+yet been involved in any pair or match. The optional
 `LeagueRules.auto_register_players_on_match` flag (default `True`)
 controls whether new nicknames may also appear for the first time on a
 match submission, or whether only roster members may play.
@@ -45,14 +45,14 @@ Out of scope:
   league creation — rules remain immutable per
   [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md).
 - Soft-delete of players. Removal is hard-delete (`DELETE players`),
-  gated by `teams_count == 0 AND matches_count == 0`.
+  gated by `pairs_count == 0 AND matches_count == 0`.
 
 ## Domain model
 
 ### Aggregate placement
 
 The roster lives **inside the existing `League` aggregate**, alongside
-`teams`. There is no separate side table — the v5 `allowlist_entries`
+`pairs`. There is no separate side table — the v5 `allowlist_entries`
 table is dropped by alembic `007`.
 
 ```mermaid
@@ -61,7 +61,7 @@ flowchart TD
         ROOT[League root]
         subgraph ENT [Internal entities]
             PE[Player]
-            TE[Team]
+            TE[Pair]
         end
         subgraph VOS [Value objects]
             PI[PlayerId]
@@ -101,11 +101,11 @@ def update_player_rating(self, player_id: str, rating: float | None) -> Player:
     ratings."""
 
 def remove_player(self, player_id: str) -> None:
-    """Hard-delete iff the player has zero teams and zero matches.
+    """Hard-delete iff the player has zero pairs and zero matches.
     Raises PlayerNotFoundError if the id is not in the league. Raises
-    PlayerHasParticipationError(teams_count, matches_count) if the
-    player belongs to any team or appears in any match — the host must
-    delete the team or match first. Removed ids are appended to
+    PlayerHasParticipationError(pairs_count, matches_count) if the
+    player belongs to any pair or appears in any match — the host must
+    delete the pair or match first. Removed ids are appended to
     pending_deleted_player_ids so the repository can DELETE the row on
     save."""
 
@@ -118,7 +118,7 @@ def validate_match_participants_on_roster(self, nicknames: Iterable[str]) -> Non
 ```
 
 `pending_deleted_player_ids` mirrors the existing
-`pending_deleted_team_ids` pattern (see
+`pending_deleted_pair_ids` pattern (see
 [05_aggregate_designs/league.md](05_aggregate_designs/league.md)).
 
 ### `RosterMembershipPolicy`
@@ -126,7 +126,7 @@ def validate_match_participants_on_roster(self, nicknames: Iterable[str]) -> Non
 The diff computation lives in a dedicated policy
 (`domain/aggregates/league/policies.py`) rather than inline on the
 aggregate method, mirroring `NicknameUniquenessPolicy` and
-`OneTeamPerPlayerPolicy`:
+`OnePairPerPlayerPolicy`:
 
 ```python
 class RosterMembershipPolicy:
@@ -144,7 +144,7 @@ class RosterMembershipPolicy:
    (`if self.rules.auto_register_players_on_match: return`) stays on the
    aggregate method, NOT inside the policy.** Each call site that
    consults the policy decides whether and how to gate. This is the
-   same pattern as `OneTeamPerPlayerPolicy`. When `edit_player_nickname`
+   same pattern as `OnePairPerPlayerPolicy`. When `edit_player_nickname`
    (the committed next caller) starts consulting the policy, it gets to
    choose its own gate semantics — e.g. only enforce when the *new*
    nickname is being changed to something not already on the roster.
@@ -185,7 +185,7 @@ v6 replaces v5's `require_allowlist` with the inverted-default
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `auto_register_players_on_match` | `bool` | `true` | When `true`, `SubmitMatchResultUseCase` accepts any submission and auto-registers any new nicknames via `register_players_and_team`. When `false`, the use case rejects submissions whose four nicknames include one not present in `self.players`. |
+| `auto_register_players_on_match` | `bool` | `true` | When `true`, `SubmitMatchResultUseCase` accepts any submission and auto-registers any new nicknames via `register_players_and_pair`. When `false`, the use case rejects submissions whose four nicknames include one not present in `self.players`. |
 
 All other v3/v4/v5 fields are unchanged. The v3 cross-rule
 (`(player, OTPP=true)` is rejected) is preserved verbatim.
@@ -281,7 +281,7 @@ players added via the v6 path remain on the roster.
 ### Repository load: per-player participation count
 
 `SqlAlchemyLeagueRepository` now surfaces `Player.match_count` (and
-implicitly, `teams_count` via the existing `teams` collection) on every
+implicitly, `pairs_count` via the existing `pairs` collection) on every
 aggregate load so `League.remove_player` can enforce its
 zero-participation guard. The count is computed by a small grouped
 query the repository runs in the same load batch (`SELECT player_id,
@@ -348,13 +348,13 @@ league = await uow.league_repo.get_by_id_with_lock(league_id)
 if league is None:
     raise LeagueNotFoundError(...)
 league.validate_match_participants_on_roster([t1_n1, t1_n2, t2_n1, t2_n2])
-_, team1 = league.register_players_and_team(t1_n1, t1_n2)
+_, pair1 = league.register_players_and_pair(t1_n1, t1_n2)
 ...
 ```
 
 When `auto_register_players_on_match=true` (the default for every
 post-007 league) this is a no-op and behavior is byte-identical to
-today's open-league flow. When `false`, `register_players_and_team` is
+today's open-league flow. When `false`, `register_players_and_pair` is
 never reached for a missing nickname; the use case raises
 `RosterMembershipRequiredError` with `missing_nicknames`.
 
@@ -383,10 +383,10 @@ list[str]` with default `[]`:
   "description": "Invite-only club tournament",
   "league_timezone": "America/Los_Angeles",
   "rules": {
-    "version": 7,
-    "match_pair_idempotency": "once_per_league",
-    "one_team_per_player": true,
-    "ranking_subject": "team",
+    "version": 8,
+    "pair_matchup_idempotency": "once_per_league",
+    "one_pair_per_player": true,
+    "ranking_subject": "pair",
     "tie_breakers": ["matches_won"],
     "auto_register_players_on_match": false
   },
@@ -434,7 +434,7 @@ success, `409` on `PlayerHasParticipationError`.
 | Domain error | HTTP status | Notes |
 |---|---|---|
 | `NicknameAlreadyInUseError` | 409 | At least one nickname in the POST duplicates another (existing roster or in-batch). |
-| `PlayerHasParticipationError` | 409 | DELETE rejected because the target player is on a team or in a match. Body includes `teams_count`, `matches_count`. |
+| `PlayerHasParticipationError` | 409 | DELETE rejected because the target player is on a pair or in a match. Body includes `pairs_count`, `matches_count`. |
 | `PlayerNotFoundError` | 404 | DELETE target id is not on this league's roster. |
 | `RosterMembershipRequiredError` | 422 | Submitted match contains nicknames not on the roster (only when `auto_register_players_on_match=false`). Body includes `missing_nicknames: ["..."]` so clients can render the list verbatim. |
 
@@ -457,7 +457,7 @@ directly from the structured body, never by parsing `detail`.
 {
   "error": "PlayerHasParticipationError",
   "detail": "...",
-  "teams_count": 1,
+  "pairs_count": 1,
   "matches_count": 3
 }
 ```
@@ -494,7 +494,7 @@ directly from the structured body, never by parsing `detail`.
    upgrade idempotency + downgrade; repo participation-count
    round-trip; create-with-bootstrap atomicity); e2e
    (`tests/e2e/test_admin_api.py` — full host-managed flow,
-   remove-if-unused, remove-blocked-by-team, strict-roster match
+   remove-if-unused, remove-blocked-by-pair, strict-roster match
    rejection).
 
 ## Related documents

@@ -10,7 +10,7 @@ from app.application.use_cases.get_standings_use_case import GetStandingsQuery, 
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.exceptions import LeagueNotFoundError
 from app.domain.services.standings_calculator import StandingsEntry
-from tests.application.conftest import make_league, make_match, make_player, make_team
+from tests.application.conftest import make_league, make_match, make_player, make_pair
 
 
 class TestGetStandingsUseCase:
@@ -36,11 +36,11 @@ class TestGetStandingsUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("charlie", "diana")
-        team1 = league.teams[0]
-        team2 = league.teams[1]
-        match = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        pair1 = league.pairs[0]
+        pair2 = league.pairs[1]
+        match = make_match(league.league_id, pair1.pair_id, pair2.pair_id, "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = [match]
@@ -49,7 +49,7 @@ class TestGetStandingsUseCase:
         result = await use_case.execute(GetStandingsQuery(league_id=str(league.league_id)))
 
         assert len(result.entries) == 2
-        winner = next(e for e in result.entries if e.team_id == str(team1.team_id.value))
+        winner = next(e for e in result.entries if e.pair_id == str(pair1.pair_id.value))
         assert winner.wins == 1
         assert winner.losses == 0
         assert winner.rank == 1
@@ -145,8 +145,8 @@ class TestGetStandingsUseCase:
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
-        team = league.teams[0]
+        league.register_players_and_pair("alice", "bob")
+        pair = league.pairs[0]
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = []
         use_case = self._use_case(mock_league_repo, mock_match_repo)
@@ -156,16 +156,16 @@ class TestGetStandingsUseCase:
         assert len(result.entries) == 1
         assert isinstance(result.entries[0], StandingsEntry)
 
-    async def test_tied_teams_both_ranked_first(
+    async def test_tied_pairs_both_ranked_first(
         self, mock_league_repo: AsyncMock, mock_match_repo: AsyncMock
     ) -> None:
         league = make_league()
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("charlie", "diana")
-        team1 = league.teams[0]
-        team2 = league.teams[1]
-        m1 = make_match(league.league_id, team1.team_id, team2.team_id, "6", "3")
-        m2 = make_match(league.league_id, team2.team_id, team1.team_id, "6", "3")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        pair1 = league.pairs[0]
+        pair2 = league.pairs[1]
+        m1 = make_match(league.league_id, pair1.pair_id, pair2.pair_id, "6", "3")
+        m2 = make_match(league.league_id, pair2.pair_id, pair1.pair_id, "6", "3")
 
         mock_league_repo.get_by_id.return_value = league
         mock_match_repo.get_all_by_league.return_value = [m1, m2]
@@ -182,10 +182,10 @@ class TestGetStandingsUseCase:
         from app.domain.aggregates.league.league_rules import LeagueRules
 
         rules = LeagueRules(
-            version=7,
-            match_pair_idempotency="once_per_league",
-            one_team_per_player=True,
-            ranking_subject="team",
+            version=8,
+            pair_matchup_idempotency="once_per_league",
+            one_pair_per_player=True,
+            ranking_subject="pair",
             tie_breakers=("games_won", "matches_won"),
             auto_register_players_on_match=True,
         )

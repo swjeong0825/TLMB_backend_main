@@ -47,14 +47,14 @@ app/domain/events.py
 ```
 
 **Creation order within Phase 1:**
-1. `league/value_objects.py` — `LeagueId`, `PlayerId`, `TeamId`, `HostToken`, `PlayerNickname` (no internal dependencies)
+1. `league/value_objects.py` — `LeagueId`, `PlayerId`, `PairId`, `HostToken`, `PlayerNickname` (no internal dependencies)
 2. `match/value_objects.py` — `MatchId`, `SetScore` (no internal dependencies)
-3. `league/entities.py` — `Player`, `Team` (depends on `league/value_objects.py`)
-4. `league/policies.py` — `NicknameUniquenessPolicy`, `OneTeamPerPlayerPolicy` (depends on `league/entities.py`)
+3. `league/entities.py` — `Player`, `Pair` (depends on `league/value_objects.py`)
+4. `league/policies.py` — `NicknameUniquenessPolicy`, `OnePairPerPlayerPolicy` (depends on `league/entities.py`)
 5. `league/aggregate_root.py` — `League` (depends on entities, value objects, policies)
 6. `match/aggregate_root.py` — `Match` (depends on `match/value_objects.py`)
 7. `domain/services/standings_calculator.py` — `StandingsCalculator` (depends on League entities and Match aggregate)
-8. `domain/events.py` — event data classes only: `LeagueCreated`, `PlayersAndTeamRegistered`, `PlayerNicknameEdited`, `TeamDeleted`; no event bus wiring
+8. `domain/events.py` — event data classes only: `LeagueCreated`, `PlayersAndPairRegistered`, `PlayerNicknameEdited`, `PairDeleted`; no event bus wiring
 9. `league/repository.py` — abstract `LeagueRepository` interface (depends on aggregate root and value objects)
 10. `match/repository.py` — abstract `MatchRepository` interface (depends on aggregate root and value objects)
 
@@ -69,34 +69,34 @@ app/domain/events.py
 - `SetScore` accepts valid non-negative integer strings
 - `SetScore` raises `InvalidSetScoreError` on non-integer input
 - `SetScore` raises `InvalidSetScoreError` on negative integer input
-- `SetScore.winner_side()` returns correct side (team1, team2, or draw)
+- `SetScore.winner_side()` returns correct side (pair1, pair2, or draw)
 
 **`tests/domain/test_league_aggregate.py`**
 - `League.create` returns aggregate with empty roster and populated `host_token` and `league_id`
 - `League.create` raises on blank title
-- `register_players_and_team` registers two new players and a new team
-- `register_players_and_team` is idempotent when both players and team already exist
-- `register_players_and_team` registers one new player when the other already exists and they share no existing team
-- `register_players_and_team` raises `TeamConflictError` when either player already belongs to a different team
-- `register_players_and_team` raises `SamePlayerWithinSingleTeamError` when both nicknames normalize to the same value
+- `register_players_and_pair` registers two new players and a new pair
+- `register_players_and_pair` is idempotent when both players and pair already exist
+- `register_players_and_pair` registers one new player when the other already exists and they share no existing pair
+- `register_players_and_pair` raises `PairConflictError` when either player already belongs to a different pair
+- `register_players_and_pair` raises `SamePlayerWithinSinglePairError` when both nicknames normalize to the same value
 - `edit_player_nickname` updates the nickname on the correct player
 - `edit_player_nickname` raises `PlayerNotFoundError` when player ID does not exist
 - `edit_player_nickname` raises `NicknameAlreadyInUseError` when new nickname is taken by a different player
-- `delete_team` removes the team from the team list; player records remain
-- `delete_team` raises `TeamNotFoundError` when team ID does not exist in the league
+- `delete_pair` removes the pair from the pair list; player records remain
+- `delete_pair` raises `PairNotFoundError` when pair ID does not exist in the league
 
 **`tests/domain/test_match_aggregate.py`**
-- `Match.create` returns aggregate with correct team IDs and score
-- `Match.create` raises `SameTeamOnBothSidesError` when `team1_id == team2_id`
+- `Match.create` returns aggregate with correct pair IDs and score
+- `Match.create` raises `SamePairOnBothSidesError` when `pair1_id == pair2_id`
 - `Match.edit_score` updates the set score on the aggregate
 - `Match.edit_score` raises `InvalidSetScoreError` on invalid score input
 
 **`tests/domain/test_standings_calculator.py`**
-- Single match: winning team has 1 win, losing team has 1 loss, ranks are 1 and 2
+- Single match: winning pair has 1 win, losing pair has 1 loss, ranks are 1 and 2
 - Multiple matches: win counts aggregate correctly across matches
-- Tied teams share the same rank; next team receives rank = (position), not (tied_rank + 1) — e.g. two teams at rank 1 → next team is rank 3
-- Draw match (equal scores): neither team receives a win or loss; both remain in standings with 0 wins
-- Empty match list: all teams returned with 0 wins, 0 losses, all at rank 1
+- Tied pairs share the same rank; next pair receives rank = (position), not (tied_rank + 1) — e.g. two pairs at rank 1 → next pair is rank 3
+- Draw match (equal scores): neither pair receives a win or loss; both remain in standings with 0 wins
+- Empty match list: all pairs returned with 0 wins, 0 losses, all at rank 1
 
 ---
 
@@ -115,7 +115,7 @@ app/application/use_cases/get_standings_use_case.py
 app/application/use_cases/get_match_history_use_case.py
 app/application/use_cases/get_league_roster_use_case.py
 app/application/use_cases/edit_player_nickname_use_case.py
-app/application/use_cases/delete_team_use_case.py
+app/application/use_cases/delete_pair_use_case.py
 app/application/use_cases/edit_match_score_use_case.py
 app/application/use_cases/delete_match_use_case.py
 ```
@@ -129,13 +129,13 @@ app/application/use_cases/delete_match_use_case.py
 
 **`tests/application/test_submit_match_result_use_case.py`**
 - Happy path with all new players: league save and match save both called within UoW; `match_id` returned
-- Happy path with all existing players on known teams: same flow; no new player/team entities created
+- Happy path with all existing players on known pairs: same flow; no new player/pair entities created
 - Raises `LeagueNotFoundError` when `get_by_id_with_lock` returns `None`
-- Raises `SamePlayerWithinSingleTeamError` when team1 has duplicate nicknames (before aggregate is loaded)
-- Raises `SamePlayerOnBothTeamsError` when same nickname appears on both teams (before aggregate is loaded)
+- Raises `SamePlayerWithinSinglePairError` when pair1 has duplicate nicknames (before aggregate is loaded)
+- Raises `SamePlayerOnBothPairsError` when same nickname appears on both pairs (before aggregate is loaded)
 - Raises `InvalidSetScoreError` when score is non-integer (before aggregate is loaded)
-- Raises `TeamConflictError` when a player is already on a different team (via aggregate)
-- Raises `SameTeamOnBothSidesError` when both teams resolve to the same existing team (via `Match.create`)
+- Raises `PairConflictError` when a player is already on a different pair (via aggregate)
+- Raises `SamePairOnBothSidesError` when both pairs resolve to the same existing pair (via `Match.create`)
 - UoW is rolled back on any domain error; no partial commit occurs
 
 **`tests/application/test_get_standings_use_case.py`**
@@ -147,7 +147,7 @@ app/application/use_cases/delete_match_use_case.py
 - Raises `LeagueNotFoundError` when league does not exist
 
 **`tests/application/test_get_league_roster_use_case.py`**
-- Happy path: returns player list and team list from loaded League aggregate
+- Happy path: returns player list and pair list from loaded League aggregate
 - Raises `LeagueNotFoundError` when league does not exist
 
 **`tests/application/test_edit_player_nickname_use_case.py`**
@@ -157,12 +157,12 @@ app/application/use_cases/delete_match_use_case.py
 - Raises `PlayerNotFoundError` when player ID not in league
 - Raises `NicknameAlreadyInUseError` when new nickname is taken
 
-**`tests/application/test_delete_team_use_case.py`**
-- Happy path: `MatchRepository.has_matches_for_team` returns False; `league.delete_team` called; `LeagueRepository.save` called
+**`tests/application/test_delete_pair_use_case.py`**
+- Happy path: `MatchRepository.has_matches_for_pair` returns False; `league.delete_pair` called; `LeagueRepository.save` called
 - Raises `LeagueNotFoundError` when league does not exist
 - Raises `UnauthorizedError` when `host_token` does not match
-- Raises `TeamNotFoundError` when team ID not in league
-- Raises `TeamHasMatchesError` when `has_matches_for_team` returns True
+- Raises `PairNotFoundError` when pair ID not in league
+- Raises `PairHasMatchesError` when `has_matches_for_pair` returns True
 
 **`tests/application/test_edit_match_score_use_case.py`**
 - Happy path: `match.edit_score` called; `MatchRepository.save` called; updated score returned
@@ -190,7 +190,7 @@ app/infrastructure/config/database.py
 app/infrastructure/persistence/models/orm_models.py
 app/infrastructure/persistence/mappers/league_mapper.py
 app/infrastructure/persistence/mappers/player_mapper.py
-app/infrastructure/persistence/mappers/team_mapper.py
+app/infrastructure/persistence/mappers/pair_mapper.py
 app/infrastructure/persistence/mappers/match_mapper.py
 app/infrastructure/persistence/repositories/league_repository.py
 app/infrastructure/persistence/repositories/match_repository.py
@@ -201,9 +201,9 @@ alembic/versions/<timestamp>_initial_schema.py
 
 **Creation order within Phase 3:**
 1. `infrastructure/config/database.py` — engine and `AsyncSession` factory (no domain dependency)
-2. `infrastructure/persistence/models/orm_models.py` — SQLAlchemy ORM models for `leagues`, `players`, `teams`, `matches`; all columns, FK constraints, and unique indexes from `12_persistence_strategy.md`
-3. Mapper files — `league_mapper.py`, `player_mapper.py`, `team_mapper.py`, `match_mapper.py`; each mapper reconstructs typed value objects from ORM rows and converts domain objects to ORM rows
-4. `league_repository.py` — concrete `LeagueRepository`; `save` upserts league row + all player/team rows + hard-deletes rows in `pending_deleted_team_ids`
+2. `infrastructure/persistence/models/orm_models.py` — SQLAlchemy ORM models for `leagues`, `players`, `pairs`, `matches`; all columns, FK constraints, and unique indexes from `12_persistence_strategy.md`
+3. Mapper files — `league_mapper.py`, `player_mapper.py`, `pair_mapper.py`, `match_mapper.py`; each mapper reconstructs typed value objects from ORM rows and converts domain objects to ORM rows
+4. `league_repository.py` — concrete `LeagueRepository`; `save` upserts league row + all player/pair rows + hard-deletes rows in `pending_deleted_pair_ids`
 5. `match_repository.py` — concrete `MatchRepository`; `delete` is a hard `DELETE`
 6. `infrastructure/persistence/unit_of_work/submit_match_result_uow.py` — wires both repositories to one shared `AsyncSession`
 7. Alembic `env.py` configured for async SQLAlchemy; initial migration generating the 4 tables
@@ -211,16 +211,16 @@ alembic/versions/<timestamp>_initial_schema.py
 ### Tests to write
 
 **`tests/integration/test_league_repository.py`** (requires test DB)
-- `save` then `get_by_id` roundtrip: League with players and teams is reloaded with all fields intact
+- `save` then `get_by_id` roundtrip: League with players and pairs is reloaded with all fields intact
 - `get_by_normalized_title` returns the league for a matching lowercased title; returns `None` for a non-existent title
 - `get_by_id_with_lock` loads the League aggregate (lock behavior verified by confirming the SELECT ... FOR UPDATE SQL is issued)
-- `save` after `delete_team`: deleted team row is removed from the `teams` table; player rows remain
+- `save` after `delete_pair`: deleted pair row is removed from the `pairs` table; player rows remain
 - `get_by_id` returns `None` for a non-existent `league_id`
 
 **`tests/integration/test_match_repository.py`** (requires test DB)
-- `save` then `get_by_id` roundtrip: Match is reloaded with correct team IDs and `SetScore`
+- `save` then `get_by_id` roundtrip: Match is reloaded with correct pair IDs and `SetScore`
 - `get_all_by_league` returns all matches for the league in no guaranteed order (use case layer sorts)
-- `has_matches_for_team` returns `True` when at least one match references the team; `False` otherwise
+- `has_matches_for_pair` returns `True` when at least one match references the pair; `False` otherwise
 - `delete` removes the match row; subsequent `get_by_id` returns `None`
 - `get_by_id` with wrong `league_id` returns `None` (cross-league access guard)
 
@@ -259,7 +259,7 @@ app/main.py
 - `SubmitMatchResultRequest`, `SubmitMatchResultResponse`
 - `GetStandingsResponse`, `StandingsEntrySchema`
 - `GetMatchHistoryResponse`, `MatchHistoryRecordSchema`
-- `GetLeagueRosterResponse`, `PlayerEntrySchema`, `TeamEntrySchema`
+- `GetLeagueRosterResponse`, `PlayerEntrySchema`, `PairEntrySchema`
 
 **`admin_schemas.py`** — request and response schemas for all 4 admin endpoints:
 - `EditPlayerNicknameRequest`, `EditPlayerNicknameResponse`
@@ -276,7 +276,7 @@ app/main.py
 
 **`admin_router.py`** — 4 admin routes; all require `X-Host-Token` header (extracted and passed into use case command — host token verification happens inside the use case via the domain aggregate, not in the router):
 - `PATCH /admin/leagues/{league_id}/players/{player_id}` → `EditPlayerNicknameUseCase`
-- `DELETE /admin/leagues/{league_id}/teams/{team_id}` → `DeleteTeamUseCase`
+- `DELETE /admin/leagues/{league_id}/pairs/{pair_id}` → `DeletePairUseCase`
 - `PATCH /admin/leagues/{league_id}/matches/{match_id}` → `EditMatchScoreUseCase`
 - `DELETE /admin/leagues/{league_id}/matches/{match_id}` → `DeleteMatchUseCase`
 
@@ -300,14 +300,14 @@ app/main.py
 - `GET /leagues?title_prefix=...&limit=200`: limit clamped to cap (100); use case receives at most 100
 - `POST /leagues/{league_id}/matches` happy path with new players: 201 with `match_id`
 - `POST /leagues/{league_id}/matches` with unknown `league_id`: 404
-- `POST /leagues/{league_id}/matches` with same player on both teams: 422 `SamePlayerOnBothTeamsError`
+- `POST /leagues/{league_id}/matches` with same player on both pairs: 422 `SamePlayerOnBothPairsError`
 - `POST /leagues/{league_id}/matches` with non-integer score: 422 `InvalidSetScoreError`
-- `POST /leagues/{league_id}/matches` with player already on a different team: 409 `TeamConflictError`
+- `POST /leagues/{league_id}/matches` with player already on a different pair: 409 `PairConflictError`
 - `GET /leagues/{league_id}/standings` happy path: 200 with ranked standings list
 - `GET /leagues/{league_id}/standings` with unknown `league_id`: 404
 - `GET /leagues/{league_id}/matches` happy path: 200 with match list sorted by `created_at` descending
 - `GET /leagues/{league_id}/matches` with unknown `league_id`: 404
-- `GET /leagues/{league_id}/roster` happy path: 200 with player and team lists
+- `GET /leagues/{league_id}/roster` happy path: 200 with player and pair lists
 - `GET /leagues/{league_id}/roster` with unknown `league_id`: 404
 
 **`tests/api/test_admin_router.py`** (uses TestClient + test DB)
@@ -317,10 +317,10 @@ app/main.py
 - `PATCH /admin/.../players/{player_id}` unknown player: 404
 - `PATCH /admin/.../players/{player_id}` nickname already in use: 409
 - `PATCH /admin/.../players/{player_id}` blank new nickname: 422
-- `DELETE /admin/.../teams/{team_id}` happy path: 204 No Content
-- `DELETE /admin/.../teams/{team_id}` wrong token: 401
-- `DELETE /admin/.../teams/{team_id}` unknown team: 404
-- `DELETE /admin/.../teams/{team_id}` team has associated matches: 409 `TeamHasMatchesError`
+- `DELETE /admin/.../pairs/{pair_id}` happy path: 204 No Content
+- `DELETE /admin/.../pairs/{pair_id}` wrong token: 401
+- `DELETE /admin/.../pairs/{pair_id}` unknown pair: 404
+- `DELETE /admin/.../pairs/{pair_id}` pair has associated matches: 409 `PairHasMatchesError`
 - `PATCH /admin/.../matches/{match_id}` happy path: 200 with updated scores
 - `PATCH /admin/.../matches/{match_id}` wrong token: 401
 - `PATCH /admin/.../matches/{match_id}` invalid score: 422
@@ -346,16 +346,16 @@ tests/e2e/test_error_paths.py
 ### Tests to write
 
 **`tests/e2e/test_full_match_flow.py`**
-- Create league → submit first match with 4 new players → verify standings show 1 win / 1 loss → submit second match with same teams → verify standings updated correctly
+- Create league → submit first match with 4 new players → verify standings show 1 win / 1 loss → submit second match with same pairs → verify standings updated correctly
 - Create league → submit match → edit winning player's nickname → get standings → verify updated nickname appears in standings response
 - Create league → submit match → get match history → verify player nicknames, scores, and `created_at` ordering are correct
 
 **`tests/e2e/test_admin_delete_flow.py`**
-- Create league → submit match → delete match → verify match no longer appears in match history and standings show 0 wins/losses for all teams
-- Create league → submit match → attempt to delete team with associated match → verify 409 `TeamHasMatchesError` → delete match first → delete team → verify team no longer appears in roster
+- Create league → submit match → delete match → verify match no longer appears in match history and standings show 0 wins/losses for all pairs
+- Create league → submit match → attempt to delete pair with associated match → verify 409 `PairHasMatchesError` → delete match first → delete pair → verify pair no longer appears in roster
 
 **`tests/e2e/test_error_paths.py`**
-- Submit match where one player is already on a different team: verify 409 `TeamConflictError` is returned and no new player, team, or match record is persisted (atomicity check)
-- Submit match where both teams resolve to the same existing team: verify 409 `SameTeamOnBothSidesError`; no match record created
+- Submit match where one player is already on a different pair: verify 409 `PairConflictError` is returned and no new player, pair, or match record is persisted (atomicity check)
+- Submit match where both pairs resolve to the same existing pair: verify 409 `SamePairOnBothSidesError`; no match record created
 - Create two leagues with the same title (case-insensitive): verify second creation returns 409 `LeagueTitleAlreadyExistsError`
 - Submit match with non-integer score: verify 422 `InvalidSetScoreError`; no state change persisted

@@ -52,8 +52,8 @@ class LeagueORM(Base):
     players: Mapped[list[PlayerORM]] = relationship(
         "PlayerORM", back_populates="league", cascade="all, delete-orphan"
     )
-    teams: Mapped[list[TeamORM]] = relationship(
-        "TeamORM", back_populates="league", cascade="all, delete-orphan"
+    pairs: Mapped[list[PairORM]] = relationship(
+        "PairORM", back_populates="league", cascade="all, delete-orphan"
     )
     matches: Mapped[list[MatchORM]] = relationship(
         "MatchORM", back_populates="league"
@@ -127,14 +127,14 @@ class PlayerAliasORM(Base):
     player: Mapped[PlayerORM] = relationship("PlayerORM", back_populates="aliases")
 
 
-class TeamORM(Base):
-    __tablename__ = "teams"
+class PairORM(Base):
+    __tablename__ = "pairs"
     __table_args__ = (
-        UniqueConstraint("league_id", "player_id_1", "player_id_2", name="uq_teams_league_players"),
-        Index("ix_teams_league_id", "league_id"),
+        UniqueConstraint("league_id", "player_id_1", "player_id_2", name="uq_pairs_league_players"),
+        Index("ix_pairs_league_id", "league_id"),
     )
 
-    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pair_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     league_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("leagues.league_id", ondelete="CASCADE"),
@@ -157,15 +157,15 @@ class TeamORM(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=_utcnow, nullable=False
     )
 
-    league: Mapped[LeagueORM] = relationship("LeagueORM", back_populates="teams")
+    league: Mapped[LeagueORM] = relationship("LeagueORM", back_populates="pairs")
 
 
 class MatchORM(Base):
     __tablename__ = "matches"
     __table_args__ = (
         Index("ix_matches_league_created", "league_id", "created_at"),
-        Index("ix_matches_team1_id", "team1_id"),
-        Index("ix_matches_team2_id", "team2_id"),
+        Index("ix_matches_pair1_id", "pair1_id"),
+        Index("ix_matches_pair2_id", "pair2_id"),
     )
 
     match_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -174,18 +174,18 @@ class MatchORM(Base):
         ForeignKey("leagues.league_id"),
         nullable=False,
     )
-    team1_id: Mapped[uuid.UUID] = mapped_column(
+    pair1_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("teams.team_id"),
+        ForeignKey("pairs.pair_id"),
         nullable=False,
     )
-    team2_id: Mapped[uuid.UUID] = mapped_column(
+    pair2_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("teams.team_id"),
+        ForeignKey("pairs.pair_id"),
         nullable=False,
     )
-    team1_score: Mapped[str] = mapped_column(String, nullable=False)
-    team2_score: Mapped[str] = mapped_column(String, nullable=False)
+    pair1_score: Mapped[str] = mapped_column(String, nullable=False)
+    pair2_score: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

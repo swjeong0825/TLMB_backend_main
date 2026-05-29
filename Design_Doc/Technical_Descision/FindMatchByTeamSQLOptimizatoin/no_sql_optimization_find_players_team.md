@@ -1,24 +1,24 @@
-# No SQL Optimization: `GetMatchHistoryByPlayerUseCase` — Finding the Player's Team
+# No SQL Optimization: `GetMatchHistoryByPlayerUseCase` — Finding the Player's Pair
 
 ## Context
 
-After resolving the player by nickname, the use case needs the player's `team_id` before
+After resolving the player by nickname, the use case needs the player's `pair_id` before
 it can query matches. This lookup currently loads the **entire league roster** (all players
-and all teams) into memory and resolves both lookups in Python.
+and all pairs) into memory and resolves both lookups in Python.
 
 **Current flow (`get_match_history_by_player_use_case.py`, lines 32–53):**
 
 ```python
-league = await self._league_repo.get_by_id(league_id)  # loads all players + teams
+league = await self._league_repo.get_by_id(league_id)  # loads all players + pairs
 
 player = next(
     (p for p in league.players if p.nickname == normalized_name),
     None,
 )
 
-team = next(
+pair = next(
     (
-        t for t in league.teams
+        t for t in league.pairs
         if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
     ),
     None,
@@ -30,10 +30,10 @@ team = next(
 ```sql
 SELECT * FROM leagues WHERE league_id = :league_id;
 SELECT * FROM players WHERE league_id = :league_id;
-SELECT * FROM teams   WHERE league_id = :league_id;
+SELECT * FROM pairs   WHERE league_id = :league_id;
 ```
 
-The player and team lookups then happen entirely in Python.
+The player and pair lookups then happen entirely in Python.
 
 ---
 
@@ -41,17 +41,17 @@ The player and team lookups then happen entirely in Python.
 
 ### 1. DDD Aggregate Boundary
 
-In this codebase, `Player` and `Team` are **entities owned by the `League` aggregate**.
+In this codebase, `Player` and `Pair` are **entities owned by the `League` aggregate**.
 The `LeagueRepository` is the only sanctioned way to load them — it always fetches the
-full aggregate (league + players + teams) as a consistent unit.
+full aggregate (league + players + pairs) as a consistent unit.
 
-A targeted query to resolve a player nickname directly to a `team_id` would require
+A targeted query to resolve a player nickname directly to a `pair_id` would require
 bypassing the aggregate, for example:
 
 ```sql
-SELECT t.team_id
+SELECT t.pair_id
 FROM players p
-JOIN teams t
+JOIN pairs t
   ON p.player_id = t.player1_id OR p.player_id = t.player2_id
 WHERE p.league_id     = :league_id
   AND p.nickname_normalized = :nickname;
@@ -76,10 +76,10 @@ Roster size is different. A tennis league roster is bounded in practice:
 | Entity   | Realistic upper bound |
 |----------|-----------------------|
 | Players  | ~50–100 per league    |
-| Teams    | ~25–50 per league     |
+| Pairs    | ~25–50 per league     |
 | Matches  | Unbounded (grows forever) |
 
-Loading 50–100 player rows and 25–50 team rows is a trivially small payload. The
+Loading 50–100 player rows and 25–50 pair rows is a trivially small payload. The
 three SQL queries issued by `get_by_id` complete in a single round-trip per table and
 transfer at most a few kilobytes. There is no meaningful latency or memory cost to
 optimize away.
@@ -103,7 +103,7 @@ Revisit this decision if any of the following become true:
 - The use case is called in a **high-frequency hot path** (e.g., batch processing or
   real-time feeds) where even small per-call costs compound.
 - The architecture already introduces a **read-model layer** for other reasons, at which
-  point a dedicated player→team resolution query fits naturally without added complexity.
+  point a dedicated player→pair resolution query fits naturally without added complexity.
 
 ---
 

@@ -14,7 +14,7 @@ There is no multi-step orchestration that spans multiple use cases and requires 
 
 **SubmitMatchResult + implicit registration** — although this involves two aggregates (League and Match), the entire operation is handled atomically within a single use case (`SubmitMatchResultUseCase`) under one Unit of Work. There is no multi-step sequence that needs to be coordinated across separate use cases.
 
-**Admin operations** — each admin action (edit nickname, delete team, edit score, delete match) is an independent, atomic use case. There is no admin setup or teardown flow that chains multiple operations.
+**Admin operations** — each admin action (edit nickname, delete pair, edit score, delete match) is an independent, atomic use case. There is no admin setup or teardown flow that chains multiple operations.
 
 **League setup by host** — creating a league and then submitting the first match are separate, independent user-triggered actions. The system does not require them to be coupled in a workflow; the host simply calls each endpoint independently.
 

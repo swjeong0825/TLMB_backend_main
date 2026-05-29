@@ -61,7 +61,7 @@ class GetStandingsByPlayerUseCase:
                 league_id, start_at=start_at, end_at=end_at
             )
         all_entries = self._calculator.compute(
-            matches, league.teams, league.players, league.rules
+            matches, league.pairs, league.players, league.rules
         )
 
         if league.rules.ranking_subject == "player":
@@ -69,18 +69,18 @@ class GetStandingsByPlayerUseCase:
             filtered = [e for e in all_entries if e.player_id == pid]
             return StandingsView(entries=filtered, tie_breakers=league.rules.tie_breakers)
 
-        # Subject = "team": surface every team the player belongs to.
-        # Under OTPP=true the player has at most one team, so the result is a
-        # single-element array (or empty if all of their teams have been
-        # deleted). Under OTPP=false a player may belong to multiple teams and
-        # all of their team rows are returned. See design doc 18.
-        player_team_ids = {
-            str(t.team_id.value)
-            for t in league.teams
+        # Subject = "pair": surface every pair the player belongs to.
+        # Under OTPP=true the player has at most one pair, so the result is a
+        # single-element array (or empty if all of their pairs have been
+        # deleted). Under OTPP=false a player may belong to multiple pairs and
+        # all of their pair rows are returned. See design doc 18.
+        player_pair_ids = {
+            str(t.pair_id.value)
+            for t in league.pairs
             if t.player_id_1 == player.player_id or t.player_id_2 == player.player_id
         }
-        if not player_team_ids:
+        if not player_pair_ids:
             return StandingsView(entries=[], tie_breakers=league.rules.tie_breakers)
 
-        filtered = [e for e in all_entries if e.team_id in player_team_ids]
+        filtered = [e for e in all_entries if e.pair_id in player_pair_ids]
         return StandingsView(entries=filtered, tie_breakers=league.rules.tie_breakers)

@@ -20,13 +20,13 @@ class PlayerEntry:
     nickname: str
     aliases: list[str] = field(default_factory=list)
     rating: float | None = None
-    teams_count: int = 0
+    pairs_count: int = 0
     matches_count: int = 0
 
 
 @dataclass
-class TeamEntry:
-    team_id: str
+class PairEntry:
+    pair_id: str
     player1_nickname: str
     player2_nickname: str
 
@@ -44,7 +44,7 @@ class RosterView:
     league_timezone: str
     rules: dict[str, Any]
     players: list[PlayerEntry]
-    teams: list[TeamEntry]
+    pairs: list[PairEntry]
     latest_match_date: date | None = None
 
 
@@ -68,9 +68,9 @@ class GetLeagueRosterUseCase:
                     nickname=p.canonical_nickname.value,
                     aliases=[alias.value for alias in p.aliases],
                     rating=p.rating,
-                    teams_count=sum(
+                    pairs_count=sum(
                         1
-                        for t in league.teams
+                        for t in league.pairs
                         if t.player_id_1 == p.player_id or t.player_id_2 == p.player_id
                     ),
                     matches_count=p.match_count,
@@ -80,14 +80,14 @@ class GetLeagueRosterUseCase:
             key=lambda e: e.nickname,
         )
 
-        teams = sorted(
+        pairs = sorted(
             [
-                TeamEntry(
-                    team_id=str(t.team_id.value),
+                PairEntry(
+                    pair_id=str(t.pair_id.value),
                     player1_nickname=player_map.get(t.player_id_1, "unknown"),
                     player2_nickname=player_map.get(t.player_id_2, "unknown"),
                 )
-                for t in league.teams
+                for t in league.pairs
             ],
             key=lambda e: e.player1_nickname,
         )
@@ -98,5 +98,5 @@ class GetLeagueRosterUseCase:
             latest_match_date=league.latest_match_date,
             rules=league.rules.to_dict(),
             players=players,
-            teams=teams,
+            pairs=pairs,
         )

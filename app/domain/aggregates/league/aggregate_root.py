@@ -6,11 +6,11 @@ from datetime import date, datetime, timezone
 from math import isfinite
 from zoneinfo import ZoneInfo
 
-from app.domain.aggregates.league.entities import Player, Team
+from app.domain.aggregates.league.entities import Player, Pair
 from app.domain.aggregates.league.league_rules import LeagueRules
 from app.domain.aggregates.league.policies import (
     NicknameUniquenessPolicy,
-    OneTeamPerPlayerPolicy,
+    OnePairPerPlayerPolicy,
     RosterMembershipPolicy,
 )
 from app.domain.aggregates.league.value_objects import (
@@ -21,7 +21,7 @@ from app.domain.aggregates.league.value_objects import (
     LeagueTimezone,
     PlayerId,
     PlayerNickname,
-    TeamId,
+    PairId,
 )
 from app.domain.exceptions import (
     CannotRemoveCanonicalNicknameError,
@@ -31,10 +31,10 @@ from app.domain.exceptions import (
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
-    TeamConflictError,
-    TeamNotFoundError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
+    PairConflictError,
+    PairNotFoundError,
 )
 
 
@@ -49,8 +49,8 @@ class League:
     description: str | None
     rules: LeagueRules
     players: list[Player]
-    teams: list[Team]
-    pending_deleted_team_ids: list[TeamId] = field(default_factory=list)
+    pairs: list[Pair]
+    pending_deleted_pair_ids: list[PairId] = field(default_factory=list)
     pending_deleted_player_ids: list[PlayerId] = field(default_factory=list)
 
     @classmethod
@@ -76,8 +76,8 @@ class League:
             description=description,
             rules=resolved_rules,
             players=[],
-            teams=[],
-            pending_deleted_team_ids=[],
+            pairs=[],
+            pending_deleted_pair_ids=[],
             pending_deleted_player_ids=[],
         )
 
@@ -98,19 +98,19 @@ class League:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(ZoneInfo(self.league_timezone.value)).date()
 
-    def register_players_and_team(
+    def register_players_and_pair(
         self, p1_nickname: str, p2_nickname: str
-    ) -> tuple[list[Player], Team]:
+    ) -> tuple[list[Player], Pair]:
         nick1 = PlayerNickname(p1_nickname)
         nick2 = PlayerNickname(p2_nickname)
 
         if nick1 == nick2:
-            raise SamePlayerWithinSingleTeamError(
+            raise SamePlayerWithinSinglePairError(
                 "Both nicknames normalize to the same value"
             )
 
-        team_policy = OneTeamPerPlayerPolicy()
-        enforce_one_team = self.rules.one_team_per_player
+        pair_policy = OnePairPerPlayerPolicy()
+        enforce_one_pair = self.rules.one_pair_per_player
 
         p1 = self._find_player_by_nickname(nick1)
         p2 = self._find_player_by_nickname(nick2)
@@ -128,22 +128,22 @@ class League:
             new_players.append(p2)
 
         if p1.player_id == p2.player_id:
-            raise SamePlayerWithinSingleTeamError(
+            raise SamePlayerWithinSinglePairError(
                 "Both nicknames resolve to the same player"
             )
 
-        existing_team = self._find_team_for_players(p1.player_id, p2.player_id)
-        if existing_team is not None:
-            return new_players, existing_team
+        existing_pair = self._find_pair_for_players(p1.player_id, p2.player_id)
+        if existing_pair is not None:
+            return new_players, existing_pair
 
-        if enforce_one_team:
-            if not team_policy.can_join_team(p1.player_id, self.teams):
-                raise TeamConflictError(
-                    f"Player '{nick1.value}' is already a member of a different team"
+        if enforce_one_pair:
+            if not pair_policy.can_join_pair(p1.player_id, self.pairs):
+                raise PairConflictError(
+                    f"Player '{nick1.value}' is already a member of a different pair"
                 )
-            if not team_policy.can_join_team(p2.player_id, self.teams):
-                raise TeamConflictError(
-                    f"Player '{nick2.value}' is already a member of a different team"
+            if not pair_policy.can_join_pair(p2.player_id, self.pairs):
+                raise PairConflictError(
+                    f"Player '{nick2.value}' is already a member of a different pair"
                 )
 
         if nick1.value <= nick2.value:
@@ -151,10 +151,10 @@ class League:
         else:
             pid1, pid2 = p2.player_id, p1.player_id
 
-        new_team = Team(team_id=TeamId.generate(), player_id_1=pid1, player_id_2=pid2)
-        self.teams.append(new_team)
+        new_pair = Pair(pair_id=PairId.generate(), player_id_1=pid1, player_id_2=pid2)
+        self.pairs.append(new_pair)
 
-        return new_players, new_team
+        return new_players, new_pair
 
     def edit_player_nickname(self, player_id: str, new_nickname: str) -> Player:
         pid = PlayerId.from_str(player_id)
@@ -235,14 +235,14 @@ class League:
         player.rating = self._normalize_rating(rating)
         return player
 
-    def delete_team(self, team_id: str) -> None:
-        tid = TeamId.from_str(team_id)
-        team = self._find_team_by_id(tid)
-        if team is None:
-            raise TeamNotFoundError(f"Team '{team_id}' not found in this league")
+    def delete_pair(self, pair_id: str) -> None:
+        tid = PairId.from_str(pair_id)
+        pair = self._find_pair_by_id(tid)
+        if pair is None:
+            raise PairNotFoundError(f"Pair '{pair_id}' not found in this league")
 
-        self.teams = [t for t in self.teams if t.team_id != tid]
-        self.pending_deleted_team_ids.append(tid)
+        self.pairs = [t for t in self.pairs if t.pair_id != tid]
+        self.pending_deleted_pair_ids.append(tid)
 
     def add_players(
         self,
@@ -254,9 +254,9 @@ class League:
         Replaces the v5 `add_allowlist_entries`: the `allowlist_entries` side
         table no longer exists, so this writes `Player` rows directly. Each
         input nickname becomes a fresh `Player` on the roster, available to
-        match submissions immediately. Players added this way have 0 teams
-        and 0 matches until they appear on a confirmed match (`Team` creation
-        still only happens inside `register_players_and_team`).
+        match submissions immediately. Players added this way have 0 pairs
+        and 0 matches until they appear on a confirmed match (`Pair` creation
+        still only happens inside `register_players_and_pair`).
 
         Raises `NicknameAlreadyInUseError` if any input nickname (after
         `PlayerNickname` normalization) duplicates an existing roster
@@ -297,50 +297,50 @@ class League:
         self.players.extend(new_players)
         return new_players
 
-    def validate_teams_do_not_share_players(self, team1: Team, team2: Team) -> None:
-        team1_player_ids = {team1.player_id_1, team1.player_id_2}
-        team2_player_ids = {team2.player_id_1, team2.player_id_2}
-        if team1_player_ids & team2_player_ids:
-            raise SamePlayerOnBothTeamsError(
-                "The same player appears on both teams"
+    def validate_pairs_do_not_share_players(self, pair1: Pair, pair2: Pair) -> None:
+        pair1_player_ids = {pair1.player_id_1, pair1.player_id_2}
+        pair2_player_ids = {pair2.player_id_1, pair2.player_id_2}
+        if pair1_player_ids & pair2_player_ids:
+            raise SamePlayerOnBothPairsError(
+                "The same player appears on both pairs"
             )
 
     def remove_player(self, player_id: str) -> None:
         """Remove a pre-registered roster player.
 
         Raises `PlayerNotFoundError` if the id is not on the roster. Raises
-        `PlayerHasParticipationError` (carries `teams_count` and
-        `matches_count`) if the player is on any team or referenced by any
+        `PlayerHasParticipationError` (carries `pairs_count` and
+        `matches_count`) if the player is on any pair or referenced by any
         match — only zero-participation players can be removed so that the
         match-history history is never silently mutated. Removed player ids
         are appended to `pending_deleted_player_ids` so the repository can
         DELETE the row on save.
 
         `match_count` is read from the `Player` entity (populated by the
-        repository at load time); `teams_count` is derived in-aggregate from
-        `self.teams`.
+        repository at load time); `pairs_count` is derived in-aggregate from
+        `self.pairs`.
         """
         pid = PlayerId.from_str(player_id)
         player = self._find_player_by_id(pid)
         if player is None:
             raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
 
-        teams_count = sum(
+        pairs_count = sum(
             1
-            for t in self.teams
+            for t in self.pairs
             if t.player_id_1 == pid or t.player_id_2 == pid
         )
         matches_count = player.match_count
 
-        if teams_count > 0 or matches_count > 0:
+        if pairs_count > 0 or matches_count > 0:
             raise PlayerHasParticipationError(
                 (
-                    f"Player '{player_id}' has {teams_count} team(s) and "
+                    f"Player '{player_id}' has {pairs_count} pair(s) and "
                     f"{matches_count} match(es); only players with zero "
                     f"participation can be removed"
                 ),
                 player_id=player_id,
-                teams_count=teams_count,
+                pairs_count=pairs_count,
                 matches_count=matches_count,
             )
 
@@ -352,7 +352,7 @@ class League:
 
         No-op when `rules.auto_register_players_on_match` is True — the
         match submission path will implicitly create new `Player` rows for
-        any unknown nicknames via `register_players_and_team`. When False,
+        any unknown nicknames via `register_players_and_pair`. When False,
         delegates to `RosterMembershipPolicy` to compute the set of missing
         nicknames; raises `RosterMembershipRequiredError` if any are
         missing. The rule-flag gate lives here (not inside the policy) so
@@ -386,14 +386,14 @@ class League:
                 return p
         return None
 
-    def _find_team_by_id(self, team_id: TeamId) -> Team | None:
-        for t in self.teams:
-            if t.team_id == team_id:
+    def _find_pair_by_id(self, pair_id: PairId) -> Pair | None:
+        for t in self.pairs:
+            if t.pair_id == pair_id:
                 return t
         return None
 
-    def _find_team_for_players(self, pid1: PlayerId, pid2: PlayerId) -> Team | None:
-        for t in self.teams:
+    def _find_pair_for_players(self, pid1: PlayerId, pid2: PlayerId) -> Pair | None:
+        for t in self.pairs:
             if (t.player_id_1 == pid1 and t.player_id_2 == pid2) or (
                 t.player_id_1 == pid2 and t.player_id_2 == pid1
             ):

@@ -24,8 +24,8 @@ from app.domain.exceptions import (
     NicknameAlreadyInUseError,
     PlayerHasParticipationError,
     PlayerNotFoundError,
-    TeamHasMatchesError,
-    TeamNotFoundError,
+    PairHasMatchesError,
+    PairNotFoundError,
     UnauthorizedError,
 )
 
@@ -228,17 +228,17 @@ class TestEditPlayerNickname:
 
 
 # ---------------------------------------------------------------------------
-# DELETE /admin/leagues/{league_id}/teams/{team_id}
+# DELETE /admin/leagues/{league_id}/pairs/{pair_id}
 # ---------------------------------------------------------------------------
 
 
-class TestDeleteTeam:
-    _URL = "/admin/leagues/league-id/teams/team-id"
+class TestDeletePair:
+    _URL = "/admin/leagues/league-id/pairs/pair-id"
 
     async def test_returns_204_on_success(
-        self, client: AsyncClient, mock_delete_team_uc: AsyncMock
+        self, client: AsyncClient, mock_delete_pair_uc: AsyncMock
     ) -> None:
-        mock_delete_team_uc.execute.return_value = None
+        mock_delete_pair_uc.execute.return_value = None
         response = await client.delete(
             self._URL, headers={"X-Host-Token": "valid-token"}
         )
@@ -249,33 +249,33 @@ class TestDeleteTeam:
         assert response.status_code == 422
 
     async def test_league_not_found_returns_404(
-        self, client: AsyncClient, mock_delete_team_uc: AsyncMock
+        self, client: AsyncClient, mock_delete_pair_uc: AsyncMock
     ) -> None:
-        mock_delete_team_uc.execute.side_effect = LeagueNotFoundError("not found")
+        mock_delete_pair_uc.execute.side_effect = LeagueNotFoundError("not found")
         response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
         assert response.status_code == 404
 
-    async def test_team_not_found_returns_404(
-        self, client: AsyncClient, mock_delete_team_uc: AsyncMock
+    async def test_pair_not_found_returns_404(
+        self, client: AsyncClient, mock_delete_pair_uc: AsyncMock
     ) -> None:
-        mock_delete_team_uc.execute.side_effect = TeamNotFoundError("not found")
+        mock_delete_pair_uc.execute.side_effect = PairNotFoundError("not found")
         response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
         assert response.status_code == 404
 
     async def test_wrong_token_returns_401(
-        self, client: AsyncClient, mock_delete_team_uc: AsyncMock
+        self, client: AsyncClient, mock_delete_pair_uc: AsyncMock
     ) -> None:
-        mock_delete_team_uc.execute.side_effect = UnauthorizedError("unauthorized")
+        mock_delete_pair_uc.execute.side_effect = UnauthorizedError("unauthorized")
         response = await client.delete(self._URL, headers={"X-Host-Token": "wrong"})
         assert response.status_code == 401
 
-    async def test_team_with_matches_returns_409(
-        self, client: AsyncClient, mock_delete_team_uc: AsyncMock
+    async def test_pair_with_matches_returns_409(
+        self, client: AsyncClient, mock_delete_pair_uc: AsyncMock
     ) -> None:
-        mock_delete_team_uc.execute.side_effect = TeamHasMatchesError("has matches")
+        mock_delete_pair_uc.execute.side_effect = PairHasMatchesError("has matches")
         response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
         assert response.status_code == 409
-        assert response.json()["error"] == "TeamHasMatchesError"
+        assert response.json()["error"] == "PairHasMatchesError"
 
 
 # ---------------------------------------------------------------------------
@@ -290,11 +290,11 @@ class TestEditMatchScore:
         self, client: AsyncClient, mock_edit_match_score_uc: AsyncMock
     ) -> None:
         mock_edit_match_score_uc.execute.return_value = UpdatedMatchResult(
-            match_id="match-id", team1_score="4", team2_score="6"
+            match_id="match-id", pair1_score="4", pair2_score="6"
         )
         response = await client.patch(
             self._URL,
-            json={"team1_score": "4", "team2_score": "6"},
+            json={"pair1_score": "4", "pair2_score": "6"},
             headers={"X-Host-Token": "valid-token"},
         )
         assert response.status_code == 200
@@ -303,21 +303,21 @@ class TestEditMatchScore:
         self, client: AsyncClient, mock_edit_match_score_uc: AsyncMock
     ) -> None:
         mock_edit_match_score_uc.execute.return_value = UpdatedMatchResult(
-            match_id="mid", team1_score="7", team2_score="5"
+            match_id="mid", pair1_score="7", pair2_score="5"
         )
         response = await client.patch(
             self._URL,
-            json={"team1_score": "7", "team2_score": "5"},
+            json={"pair1_score": "7", "pair2_score": "5"},
             headers={"X-Host-Token": "token"},
         )
         data = response.json()
-        assert data["team1_score"] == "7"
-        assert data["team2_score"] == "5"
+        assert data["pair1_score"] == "7"
+        assert data["pair2_score"] == "5"
         assert data["match_id"] == "mid"
 
     async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
         response = await client.patch(
-            self._URL, json={"team1_score": "6", "team2_score": "3"}
+            self._URL, json={"pair1_score": "6", "pair2_score": "3"}
         )
         assert response.status_code == 422
 
@@ -327,7 +327,7 @@ class TestEditMatchScore:
         mock_edit_match_score_uc.execute.side_effect = LeagueNotFoundError("not found")
         response = await client.patch(
             self._URL,
-            json={"team1_score": "6", "team2_score": "3"},
+            json={"pair1_score": "6", "pair2_score": "3"},
             headers={"X-Host-Token": "token"},
         )
         assert response.status_code == 404
@@ -338,7 +338,7 @@ class TestEditMatchScore:
         mock_edit_match_score_uc.execute.side_effect = MatchNotFoundError("not found")
         response = await client.patch(
             self._URL,
-            json={"team1_score": "6", "team2_score": "3"},
+            json={"pair1_score": "6", "pair2_score": "3"},
             headers={"X-Host-Token": "token"},
         )
         assert response.status_code == 404
@@ -349,7 +349,7 @@ class TestEditMatchScore:
         mock_edit_match_score_uc.execute.side_effect = UnauthorizedError("unauthorized")
         response = await client.patch(
             self._URL,
-            json={"team1_score": "6", "team2_score": "3"},
+            json={"pair1_score": "6", "pair2_score": "3"},
             headers={"X-Host-Token": "wrong"},
         )
         assert response.status_code == 401
@@ -689,15 +689,15 @@ class TestRemovePlayerFromRoster:
     async def test_player_with_participation_returns_409_with_counts(
         self, client: AsyncClient, mock_remove_player_from_roster_uc: AsyncMock
     ) -> None:
-        """Removing a player with non-zero team/match participation is
-        rejected with 409. The structured `teams_count` and `matches_count`
+        """Removing a player with non-zero pair/match participation is
+        rejected with 409. The structured `pairs_count` and `matches_count`
         fields are surfaced verbatim so the chat agent and frontend can
-        render a clear "X teams, Y matches" message."""
+        render a clear "X pairs, Y matches" message."""
         mock_remove_player_from_roster_uc.execute.side_effect = (
             PlayerHasParticipationError(
-                "Player 'pid' has 1 team(s) and 3 match(es); only players with zero participation can be removed",
+                "Player 'pid' has 1 pair(s) and 3 match(es); only players with zero participation can be removed",
                 player_id="player-id",
-                teams_count=1,
+                pairs_count=1,
                 matches_count=3,
             )
         )
@@ -706,5 +706,5 @@ class TestRemovePlayerFromRoster:
         body = response.json()
         assert body["error"] == "PlayerHasParticipationError"
         assert body["player_id"] == "player-id"
-        assert body["teams_count"] == 1
+        assert body["pairs_count"] == 1
         assert body["matches_count"] == 3

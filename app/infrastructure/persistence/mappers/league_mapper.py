@@ -12,14 +12,14 @@ from app.domain.aggregates.league.value_objects import (
 )
 from app.infrastructure.persistence.models.orm_models import LeagueORM
 from app.infrastructure.persistence.mappers.player_mapper import player_to_domain
-from app.infrastructure.persistence.mappers.team_mapper import team_to_domain
+from app.infrastructure.persistence.mappers.pair_mapper import pair_to_domain
 
 
 def league_to_domain(
     orm: LeagueORM,
     match_counts_by_player: dict[uuid.UUID, int] | None = None,
 ) -> League:
-    """Map a LeagueORM (with `players`, `teams` eagerly loaded) into a domain
+    """Map a LeagueORM (with `players`, `pairs` eagerly loaded) into a domain
     League aggregate.
 
     `match_counts_by_player` is an optional per-player participation count
@@ -35,7 +35,7 @@ def league_to_domain(
         player = player_to_domain(p)
         player.match_count = counts.get(p.player_id, 0)
         players.append(player)
-    teams = [team_to_domain(t) for t in orm.teams]
+    pairs = [pair_to_domain(t) for t in orm.pairs]
     return League(
         league_id=LeagueId(value=orm.league_id),
         host_token=HostToken(value=orm.host_token),
@@ -46,8 +46,8 @@ def league_to_domain(
         description=orm.description,
         rules=LeagueRules.from_dict(orm.rules),
         players=players,
-        teams=teams,
-        pending_deleted_team_ids=[],
+        pairs=pairs,
+        pending_deleted_pair_ids=[],
         pending_deleted_player_ids=[],
     )
 

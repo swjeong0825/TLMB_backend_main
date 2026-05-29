@@ -11,8 +11,8 @@ asserting that:
    (`require_allowlist=true` becomes `auto_register_players_on_match=false`
    and vice versa).
 2. v6 rows are untouched by re-running the upgrade SQL (idempotent).
-3. Other rule fields (`one_team_per_player`, `ranking_subject`,
-   `tie_breakers`, `match_pair_idempotency`) are preserved verbatim.
+3. Other rule fields (`one_pair_per_player`, `ranking_subject`,
+   `tie_breakers`, `pair_matchup_idempotency`) are preserved verbatim.
 4. Downgrade restores the legacy `require_allowlist` key with the
    inverted boolean value, drops `auto_register_players_on_match`, and
    resets `version` to 5.
@@ -76,7 +76,6 @@ async def _insert_league_with_raw_rules(
             "rules": json.dumps(rules),
         },
     )
-    await session.commit()
     return league_id
 
 
@@ -91,12 +90,10 @@ async def _read_rules(session: AsyncSession, league_id: uuid.UUID) -> dict:
 
 async def _run_upgrade(session: AsyncSession) -> None:
     await session.execute(text(_UPGRADE_SQL))
-    await session.commit()
 
 
 async def _run_downgrade(session: AsyncSession) -> None:
     await session.execute(text(_DOWNGRADE_SQL))
-    await session.commit()
 
 
 class TestMigration007:
@@ -112,9 +109,9 @@ class TestMigration007:
     ) -> None:
         v5_row = {
             "version": 5,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "require_allowlist": False,
         }
@@ -128,19 +125,19 @@ class TestMigration007:
         assert rules["version"] == 6
         assert "require_allowlist" not in rules
         assert rules["auto_register_players_on_match"] is True
-        assert rules["one_team_per_player"] is True
-        assert rules["ranking_subject"] == "team"
+        assert rules["one_pair_per_player"] is True
+        assert rules["ranking_subject"] == "pair"
         assert rules["tie_breakers"] == ["matches_won"]
-        assert rules["match_pair_idempotency"] == "once_per_league"
+        assert rules["pair_matchup_idempotency"] == "once_per_league"
 
     async def test_v5_require_allowlist_true_becomes_v6_auto_register_false(
         self, session: AsyncSession
     ) -> None:
         v5_row = {
             "version": 5,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "require_allowlist": True,
         }
@@ -160,9 +157,9 @@ class TestMigration007:
     ) -> None:
         existing_v6 = {
             "version": 6,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": True,
         }
@@ -180,9 +177,9 @@ class TestMigration007:
     ) -> None:
         v5_row = {
             "version": 5,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "require_allowlist": True,
         }
@@ -197,17 +194,17 @@ class TestMigration007:
         assert rules["version"] == 5
         assert "auto_register_players_on_match" not in rules
         assert rules["require_allowlist"] is True
-        assert rules["one_team_per_player"] is True
-        assert rules["ranking_subject"] == "team"
+        assert rules["one_pair_per_player"] is True
+        assert rules["ranking_subject"] == "pair"
 
     async def test_downgrade_inverts_auto_register_true_to_require_allowlist_false(
         self, session: AsyncSession
     ) -> None:
         v6_row = {
             "version": 6,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": True,
         }
@@ -230,9 +227,9 @@ class TestMigration007:
         to `auto_register_players_on_match=true`."""
         v5_no_flag = {
             "version": 5,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
         }
         league_id = await _insert_league_with_raw_rules(

@@ -24,12 +24,12 @@ class MatchId:
 
 @dataclass(frozen=True)
 class SetScore:
-    team1_score: str
-    team2_score: str
+    pair1_score: str
+    pair2_score: str
 
     def __post_init__(self) -> None:
-        self._validate_score(self.team1_score)
-        self._validate_score(self.team2_score)
+        self._validate_score(self.pair1_score)
+        self._validate_score(self.pair2_score)
 
     @staticmethod
     def _validate_score(score: str) -> None:
@@ -41,10 +41,10 @@ class SetScore:
             raise InvalidSetScoreError(f"Score '{score}' must be a non-negative integer")
 
     def winner_side(self) -> str:
-        t1 = int(self.team1_score)
-        t2 = int(self.team2_score)
-        if t1 > t2:
-            return "team1"
-        if t2 > t1:
-            return "team2"
+        pair1_score = int(self.pair1_score)
+        pair2_score = int(self.pair2_score)
+        if pair1_score > pair2_score:
+            return "pair1"
+        if pair2_score > pair1_score:
+            return "pair2"
         return "draw"

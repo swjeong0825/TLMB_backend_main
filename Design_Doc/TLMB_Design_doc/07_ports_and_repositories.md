@@ -2,13 +2,13 @@
 
 ## Aggregate Repository: LeagueRepository
 
-- Aggregate root handled: League (including all Player entities and Team entities owned by the root)
+- Aggregate root handled: League (including all Player entities and Pair entities owned by the root)
 - Required methods:
-  - `get_by_id(league_id: LeagueId) -> League | None` — load the full League aggregate with all players and teams populated; no row lock; used for read-only queries
-  - `get_by_id_with_lock(league_id: LeagueId) -> League | None` — load the full League aggregate under a SELECT ... FOR UPDATE row lock; used by all mutating use cases (SubmitMatchResult, EditPlayerNickname, DeleteTeam) to prevent concurrent roster corruption
+  - `get_by_id(league_id: LeagueId) -> League | None` — load the full League aggregate with all players and pairs populated; no row lock; used for read-only queries
+  - `get_by_id_with_lock(league_id: LeagueId) -> League | None` — load the full League aggregate under a SELECT ... FOR UPDATE row lock; used by all mutating use cases (SubmitMatchResult, EditPlayerNickname, DeletePair) to prevent concurrent roster corruption
   - `get_by_normalized_title(normalized_title: str) -> League | None` — title uniqueness pre-check used by `CreateLeagueUseCase` before calling `League.create`
-  - `save(league: League) -> None` — persist the League aggregate root and all its current player and team entities
-- Returns domain objects?: Yes — returns the League aggregate with Player and Team entities fully populated; never returns ORM models to application/domain code
+  - `save(league: League) -> None` — persist the League aggregate root and all its current player and pair entities
+- Returns domain objects?: Yes — returns the League aggregate with Player and Pair entities fully populated; never returns ORM models to application/domain code
 - Notes:
   - `get_by_id` is the standard load path for all use cases that mutate or read league state
   - `get_by_normalized_title` accepts a pre-lowercased title string; the application use case normalizes the title before calling this method
@@ -22,9 +22,9 @@
 - Required methods:
   - `get_by_id(match_id: MatchId, league_id: LeagueId) -> Match | None` — load a single Match scoped to its league; returns None if the match does not exist or does not belong to the given league (prevents cross-league access at the repository level)
   - `get_all_by_league(league_id: LeagueId) -> list[Match]` — load all match records for a league; used by standings computation and match history views
-  - `has_matches_for_team(team_id: TeamId, league_id: LeagueId) -> bool` — returns True if any match record in the league references the given team; used as the precondition check in `DeleteTeamUseCase` before delegating to League domain behavior
-  - `exists_match_for_team_pair(league_id: LeagueId, team1_id: TeamId, team2_id: TeamId) -> bool` — returns True if any match in the league involves exactly this **unordered** pair of teams (either orientation of team1_id / team2_id on the match row); used by `SubmitMatchResultUseCase` when `LeagueRules.match_pair_idempotency` is `once_per_league` (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md))
-  - `exists_match_for_team_pair_between(league_id: LeagueId, team1_id: TeamId, team2_id: TeamId, start_at: datetime, end_at: datetime) -> bool` — same unordered-pair check, additionally constrained to match rows whose `created_at` is in UTC `[start_at, end_at)`; used by `SubmitMatchResultUseCase` when `match_pair_idempotency` is `once_per_day` after the application layer converts the league-local calendar day into UTC bounds
+  - `has_matches_for_pair(pair_id: PairId, league_id: LeagueId) -> bool` — returns True if any match record in the league references the given pair; used as the precondition check in `DeletePairUseCase` before delegating to League domain behavior
+  - `exists_match_for_pair_matchup(league_id: LeagueId, pair1_id: PairId, pair2_id: PairId) -> bool` — returns True if any match in the league involves exactly this **unordered** pair matchup (either orientation of pair1_id / pair2_id on the match row); used by `SubmitMatchResultUseCase` when `LeagueRules.pair_matchup_idempotency` is `once_per_league` (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md))
+  - `exists_match_for_pair_matchup_between(league_id: LeagueId, pair1_id: PairId, pair2_id: PairId, start_at: datetime, end_at: datetime) -> bool` — same unordered-pair check, additionally constrained to match rows whose `created_at` is in UTC `[start_at, end_at)`; used by `SubmitMatchResultUseCase` when `pair_matchup_idempotency` is `once_per_day` after the application layer converts the league-local calendar day into UTC bounds
   - `save(match: Match) -> None` — persist a new or updated Match aggregate root
   - `delete(match_id: MatchId, league_id: LeagueId) -> None` — hard-delete a match record; scoped to league_id as a safety guard
 - Returns domain objects?: Yes — returns Match aggregate root; never returns ORM models to application/domain code
@@ -61,7 +61,7 @@ This keeps the aggregate constructor pure (it receives all required state as par
 
 ### Repositories participating in a shared transaction
 The only use case that requires two repositories in a single transaction is **SubmitMatchResult**:
-- `LeagueRepository.save` — persists updated League state (any newly registered players/teams)
+- `LeagueRepository.save` — persists updated League state (any newly registered players/pairs)
 - `MatchRepository.save` — persists the new Match aggregate
 
 All other use cases involve exactly one repository and do not require a cross-repository transaction boundary.

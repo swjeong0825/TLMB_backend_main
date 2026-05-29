@@ -5,7 +5,7 @@ v2-shaped rows are not present. This test inserts v2 rows directly, executes
 the same SQL alembic 004 runs in `upgrade()`, and asserts:
 
 1. Every v1/v2 row is bumped to v3.
-2. `(player, OTPP=true)` rows are rewritten to `(team, OTPP=true)`.
+2. `(player, OTPP=true)` rows are rewritten to `(pair, OTPP=true)`.
 3. Custom `tie_breakers` are preserved verbatim.
 4. The migration is idempotent (re-running on v3 rows is a no-op).
 5. Downgrade resets `version` to `2` for v3 rows; the rewritten
@@ -26,7 +26,7 @@ _REWRITE_SQL = (
     "SET rules = rules || CAST(:patch AS jsonb) "
     "WHERE (rules->>'version')::int IN (1, 2) "
     "  AND (rules->>'ranking_subject') = 'player' "
-    "  AND (rules->>'one_team_per_player')::bool = true"
+    "  AND (rules->>'one_pair_per_player')::bool = true"
 )
 _BUMP_SQL = (
     "UPDATE leagues "
@@ -39,7 +39,7 @@ _DOWNGRADE_SQL = (
     "WHERE (rules->>'version')::int = 3"
 )
 
-_REWRITE_PATCH = {"version": 3, "ranking_subject": "team"}
+_REWRITE_PATCH = {"version": 3, "ranking_subject": "pair"}
 _BUMP_PATCH = {"version": 3}
 _DOWNGRADE_PATCH = {"version": 2}
 
@@ -65,7 +65,6 @@ async def _insert_league_with_raw_rules(
             "rules": json.dumps(rules),
         },
     )
-    await session.commit()
     return league_id
 
 
@@ -81,12 +80,10 @@ async def _read_rules(session: AsyncSession, league_id: uuid.UUID) -> dict:
 async def _run_upgrade(session: AsyncSession) -> None:
     await session.execute(text(_REWRITE_SQL), {"patch": json.dumps(_REWRITE_PATCH)})
     await session.execute(text(_BUMP_SQL), {"patch": json.dumps(_BUMP_PATCH)})
-    await session.commit()
 
 
 async def _run_downgrade(session: AsyncSession) -> None:
     await session.execute(text(_DOWNGRADE_SQL), {"patch": json.dumps(_DOWNGRADE_PATCH)})
-    await session.commit()
 
 
 class TestMigration004:
@@ -97,18 +94,18 @@ class TestMigration004:
         async with session_factory() as s:
             yield s
 
-    async def test_team_otpp_true_v2_row_is_bumped_to_v3(
+    async def test_pair_otpp_true_v2_row_is_bumped_to_v3(
         self, session: AsyncSession
     ) -> None:
-        v2_team_otpp_true = {
+        v2_pair_otpp_true = {
             "version": 2,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
         }
         league_id = await _insert_league_with_raw_rules(
-            session, v2_team_otpp_true, "Team OTPP True"
+            session, v2_pair_otpp_true, "Pair OTPP True"
         )
 
         await _run_upgrade(session)
@@ -116,18 +113,18 @@ class TestMigration004:
         rules = await _read_rules(session, league_id)
         assert rules["version"] == 3
         # Untouched fields preserved.
-        assert rules["ranking_subject"] == "team"
-        assert rules["one_team_per_player"] is True
-        assert rules["match_pair_idempotency"] == "once_per_league"
+        assert rules["ranking_subject"] == "pair"
+        assert rules["one_pair_per_player"] is True
+        assert rules["pair_matchup_idempotency"] == "once_per_league"
         assert rules["tie_breakers"] == ["matches_won"]
 
-    async def test_player_otpp_true_v2_row_is_rewritten_to_team_otpp_true(
+    async def test_player_otpp_true_v2_row_is_rewritten_to_pair_otpp_true(
         self, session: AsyncSession
     ) -> None:
         v2_player_otpp_true = {
             "version": 2,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
             "ranking_subject": "player",
             "tie_breakers": ["matches_won"],
         }
@@ -139,26 +136,26 @@ class TestMigration004:
 
         rules = await _read_rules(session, league_id)
         assert rules["version"] == 3
-        # Cross-rule rewrite: ranking_subject flipped to "team".
-        assert rules["ranking_subject"] == "team"
-        assert rules["one_team_per_player"] is True
+        # Cross-rule rewrite: ranking_subject flipped to "pair".
+        assert rules["ranking_subject"] == "pair"
+        assert rules["one_pair_per_player"] is True
         # tie_breakers preserved verbatim.
         assert rules["tie_breakers"] == ["matches_won"]
-        assert rules["match_pair_idempotency"] == "once_per_league"
+        assert rules["pair_matchup_idempotency"] == "once_per_league"
 
     async def test_custom_tie_breakers_preserved_through_rewrite(
         self, session: AsyncSession
     ) -> None:
         custom_tie_breakers = ["games_won", "games_diff"]
-        v2_team_with_custom_tbs = {
+        v2_pair_with_custom_tbs = {
             "version": 2,
-            "match_pair_idempotency": "none",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "none",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": custom_tie_breakers,
         }
         league_id = await _insert_league_with_raw_rules(
-            session, v2_team_with_custom_tbs, "Team Custom TBs"
+            session, v2_pair_with_custom_tbs, "Pair Custom TBs"
         )
 
         await _run_upgrade(session)
@@ -174,8 +171,8 @@ class TestMigration004:
         custom_tie_breakers = ["games_won", "games_diff"]
         v2_player_otpp_true_custom = {
             "version": 2,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
             "ranking_subject": "player",
             "tie_breakers": custom_tie_breakers,
         }
@@ -187,7 +184,7 @@ class TestMigration004:
 
         rules = await _read_rules(session, league_id)
         assert rules["version"] == 3
-        assert rules["ranking_subject"] == "team"
+        assert rules["ranking_subject"] == "pair"
         assert rules["tie_breakers"] == custom_tie_breakers
 
     async def test_upgrade_is_idempotent_for_v3_rows(
@@ -195,8 +192,8 @@ class TestMigration004:
     ) -> None:
         existing_v3 = {
             "version": 3,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": False,
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": False,
             "ranking_subject": "player",
             "tie_breakers": ["matches_won", "games_diff"],
         }
@@ -215,8 +212,8 @@ class TestMigration004:
     ) -> None:
         v2_player_otpp_true = {
             "version": 2,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
             "ranking_subject": "player",
             "tie_breakers": ["matches_won"],
         }
@@ -232,5 +229,5 @@ class TestMigration004:
         assert rules["version"] == 2
         # ranking_subject NOT restored — this is the irreversible part of the
         # rewrite, documented in the migration module docstring.
-        assert rules["ranking_subject"] == "team"
-        assert rules["one_team_per_player"] is True
+        assert rules["ranking_subject"] == "pair"
+        assert rules["one_pair_per_player"] is True

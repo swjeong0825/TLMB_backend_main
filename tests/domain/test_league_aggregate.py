@@ -24,10 +24,10 @@ from app.domain.exceptions import (
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
-    SamePlayerOnBothTeamsError,
-    SamePlayerWithinSingleTeamError,
-    TeamConflictError,
-    TeamNotFoundError,
+    SamePlayerOnBothPairsError,
+    SamePlayerWithinSinglePairError,
+    PairConflictError,
+    PairNotFoundError,
 )
 
 
@@ -49,13 +49,13 @@ def _league(title: str = "Test League") -> League:
 
 
 def _league_otpp_false(title: str = "OTPP-False League") -> League:
-    """League configured with v3 `(team, OTPP=false)` rules."""
+    """League configured with v3 `(pair, OTPP=false)` rules."""
     rules = LeagueRules.from_dict(
         {
             "version": 3,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": False,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": False,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
         }
     )
@@ -76,9 +76,9 @@ def _league_require_roster() -> League:
     rules = LeagueRules.from_dict(
         {
             "version": 6,
-            "match_pair_idempotency": "once_per_league",
-            "one_team_per_player": True,
-            "ranking_subject": "team",
+            "pair_matchup_idempotency": "once_per_league",
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
             "tie_breakers": ["matches_won"],
             "auto_register_players_on_match": False,
         }
@@ -101,7 +101,7 @@ class TestLeagueCreate:
     def test_creates_league_with_empty_roster(self) -> None:
         league = _league()
         assert league.players == []
-        assert league.teams == []
+        assert league.pairs == []
 
     def test_stores_title_as_provided(self) -> None:
         league = _league("My League")
@@ -168,9 +168,9 @@ class TestLeagueCreate:
         with pytest.raises(ValueError):
             League.create("   ", None, "token", host_email=_TEST_HOST_EMAIL)
 
-    def test_pending_deleted_team_ids_initialised_empty(self) -> None:
+    def test_pending_deleted_pair_ids_initialised_empty(self) -> None:
         league = _league()
-        assert league.pending_deleted_team_ids == []
+        assert league.pending_deleted_pair_ids == []
 
     def test_pending_deleted_player_ids_initialised_empty(self) -> None:
         league = _league()
@@ -183,130 +183,130 @@ class TestLeagueCreate:
 
 
 # ---------------------------------------------------------------------------
-# League.register_players_and_team
+# League.register_players_and_pair
 # ---------------------------------------------------------------------------
 
 
-class TestRegisterPlayersAndTeam:
-    def test_two_new_players_create_two_players_and_one_team(self) -> None:
+class TestRegisterPlayersAndPair:
+    def test_two_new_players_create_two_players_and_one_pair(self) -> None:
         league = _league()
-        new_players, team = league.register_players_and_team("Alice", "Bob")
+        new_players, pair = league.register_players_and_pair("Alice", "Bob")
         assert len(new_players) == 2
         assert len(league.players) == 2
-        assert len(league.teams) == 1
-        assert team in league.teams
+        assert len(league.pairs) == 1
+        assert pair in league.pairs
 
     def test_nicknames_are_normalised_to_lowercase(self) -> None:
         league = _league()
-        league.register_players_and_team("ALICE", "BOB")
+        league.register_players_and_pair("ALICE", "BOB")
         nicknames = {p.nickname.value for p in league.players}
         assert nicknames == {"alice", "bob"}
 
     def test_same_player_listed_twice_raises_same_player_error(self) -> None:
         league = _league()
-        with pytest.raises(SamePlayerWithinSingleTeamError):
-            league.register_players_and_team("alice", "alice")
+        with pytest.raises(SamePlayerWithinSinglePairError):
+            league.register_players_and_pair("alice", "alice")
 
     def test_same_player_case_insensitive_raises(self) -> None:
         league = _league()
-        with pytest.raises(SamePlayerWithinSingleTeamError):
-            league.register_players_and_team("Alice", "ALICE")
+        with pytest.raises(SamePlayerWithinSinglePairError):
+            league.register_players_and_pair("Alice", "ALICE")
 
-    def test_repeat_call_with_same_pair_returns_existing_team(self) -> None:
+    def test_repeat_call_with_same_pair_returns_existing_pair(self) -> None:
         league = _league()
-        _, team1 = league.register_players_and_team("alice", "bob")
-        new_players, team2 = league.register_players_and_team("alice", "bob")
-        assert team1.team_id == team2.team_id
+        _, pair1 = league.register_players_and_pair("alice", "bob")
+        new_players, pair2 = league.register_players_and_pair("alice", "bob")
+        assert pair1.pair_id == pair2.pair_id
         assert new_players == []
-        assert len(league.teams) == 1
+        assert len(league.pairs) == 1
 
     def test_existing_player_paired_with_existing_partner_no_new_players(self) -> None:
         league = _league()
-        league.register_players_and_team("alice", "bob")
-        new_players, _ = league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
+        new_players, _ = league.register_players_and_pair("alice", "bob")
         assert new_players == []
 
-    def test_player_on_existing_team_cannot_join_new_team(self) -> None:
+    def test_player_on_existing_pair_cannot_join_new_pair(self) -> None:
         league = _league()
-        league.register_players_and_team("alice", "bob")
-        with pytest.raises(TeamConflictError):
-            league.register_players_and_team("alice", "charlie")
+        league.register_players_and_pair("alice", "bob")
+        with pytest.raises(PairConflictError):
+            league.register_players_and_pair("alice", "charlie")
 
-    def test_both_players_on_different_teams_raises_conflict(self) -> None:
+    def test_both_players_on_different_pairs_raises_conflict(self) -> None:
         league = _league()
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("charlie", "diana")
-        with pytest.raises(TeamConflictError):
-            league.register_players_and_team("alice", "charlie")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("charlie", "diana")
+        with pytest.raises(PairConflictError):
+            league.register_players_and_pair("alice", "charlie")
 
     def test_new_player_paired_with_existing_free_player_succeeds(self) -> None:
         league = _league()
-        _, team1 = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team1.team_id.value))
-        new_players, team2 = league.register_players_and_team("alice", "charlie")
-        assert len(league.teams) == 1
+        _, pair1 = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair1.pair_id.value))
+        new_players, pair2 = league.register_players_and_pair("alice", "charlie")
+        assert len(league.pairs) == 1
         assert len(new_players) == 1
 
-    def test_team_id_is_unique_per_new_team(self) -> None:
+    def test_pair_id_is_unique_per_new_pair(self) -> None:
         league = _league()
-        _, team1 = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team1.team_id.value))
-        _, team2 = league.register_players_and_team("charlie", "diana")
-        assert team1.team_id != team2.team_id
+        _, pair1 = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair1.pair_id.value))
+        _, pair2 = league.register_players_and_pair("charlie", "diana")
+        assert pair1.pair_id != pair2.pair_id
 
-    def test_player1_in_team_is_alphabetically_first_by_nickname(self) -> None:
+    def test_player1_in_pair_is_alphabetically_first_by_nickname(self) -> None:
         league = _league()
-        _, team = league.register_players_and_team("alice", "bob")
-        p1 = next(p for p in league.players if p.player_id == team.player_id_1)
-        p2 = next(p for p in league.players if p.player_id == team.player_id_2)
+        _, pair = league.register_players_and_pair("alice", "bob")
+        p1 = next(p for p in league.players if p.player_id == pair.player_id_1)
+        p2 = next(p for p in league.players if p.player_id == pair.player_id_2)
         assert p1.nickname.value <= p2.nickname.value
 
     def test_player_order_is_alphabetical_regardless_of_input_order(self) -> None:
         league1 = _league("L1")
-        _, team1 = league1.register_players_and_team("zed", "aime")
+        _, pair1 = league1.register_players_and_pair("zed", "aime")
 
         league2 = League.create("L2", None, "token", host_email=_TEST_HOST_EMAIL)
-        _, team2 = league2.register_players_and_team("aime", "zed")
+        _, pair2 = league2.register_players_and_pair("aime", "zed")
 
-        p1_league1 = next(p for p in league1.players if p.player_id == team1.player_id_1)
-        p1_league2 = next(p for p in league2.players if p.player_id == team2.player_id_1)
+        p1_league1 = next(p for p in league1.players if p.player_id == pair1.player_id_1)
+        p1_league2 = next(p for p in league2.players if p.player_id == pair2.player_id_1)
         assert p1_league1.nickname.value == "aime"
         assert p1_league2.nickname.value == "aime"
 
 
 # ---------------------------------------------------------------------------
-# v3: register_players_and_team under one_team_per_player=False
+# v3: register_players_and_pair under one_pair_per_player=False
 # ---------------------------------------------------------------------------
 
 
-class TestRegisterPlayersAndTeamOTPPFalse:
-    def test_player_can_join_second_team_when_otpp_false(self) -> None:
+class TestRegisterPlayersAndPairOTPPFalse:
+    def test_player_can_join_second_pair_when_otpp_false(self) -> None:
         league = _league_otpp_false()
-        _, team_ab = league.register_players_and_team("alice", "bob")
-        new_players, team_ac = league.register_players_and_team("alice", "charlie")
+        _, pair_ab = league.register_players_and_pair("alice", "bob")
+        new_players, pair_ac = league.register_players_and_pair("alice", "charlie")
 
-        assert team_ab.team_id != team_ac.team_id
-        assert len(league.teams) == 2
+        assert pair_ab.pair_id != pair_ac.pair_id
+        assert len(league.pairs) == 2
         assert len(new_players) == 1
         assert new_players[0].nickname.value == "charlie"
 
-    def test_player_on_three_teams_when_otpp_false(self) -> None:
+    def test_player_on_three_pairs_when_otpp_false(self) -> None:
         league = _league_otpp_false()
-        league.register_players_and_team("alice", "bob")
-        league.register_players_and_team("alice", "charlie")
-        league.register_players_and_team("alice", "diana")
+        league.register_players_and_pair("alice", "bob")
+        league.register_players_and_pair("alice", "charlie")
+        league.register_players_and_pair("alice", "diana")
 
-        assert len(league.teams) == 3
+        assert len(league.pairs) == 3
         nicknames = [p.nickname.value for p in league.players]
         assert nicknames.count("alice") == 1
         assert {"alice", "bob", "charlie", "diana"} == set(nicknames)
 
-    def test_otpp_true_still_rejects_second_team_for_same_player(self) -> None:
+    def test_otpp_true_still_rejects_second_pair_for_same_player(self) -> None:
         """Regression: OTPP=true is still the default for new leagues."""
         league = _league()
-        league.register_players_and_team("alice", "bob")
-        with pytest.raises(TeamConflictError):
-            league.register_players_and_team("alice", "charlie")
+        league.register_players_and_pair("alice", "bob")
+        with pytest.raises(PairConflictError):
+            league.register_players_and_pair("alice", "charlie")
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +317,7 @@ class TestRegisterPlayersAndTeamOTPPFalse:
 class TestEditPlayerNickname:
     def _league_with_players(self) -> League:
         league = _league()
-        league.register_players_and_team("alice", "bob")
+        league.register_players_and_pair("alice", "bob")
         return league
 
     def _get_player(self, league: League, nickname: str):  # type: ignore[return]
@@ -467,70 +467,70 @@ class TestPlayerAliases:
         with pytest.raises(NicknameAlreadyInUseError):
             league.add_players(["ALI"])
 
-    def test_same_player_with_two_aliases_on_one_team_raises(self) -> None:
+    def test_same_player_with_two_aliases_on_one_pair_raises(self) -> None:
         league = self._league_with_players()
         alice = self._get_player(league, "alice")
         league.add_alias_to_player(str(alice.player_id.value), "ali")
 
-        with pytest.raises(SamePlayerWithinSingleTeamError):
-            league.register_players_and_team("alice", "ali")
+        with pytest.raises(SamePlayerWithinSinglePairError):
+            league.register_players_and_pair("alice", "ali")
 
-    def test_same_player_via_aliases_on_both_teams_raises(self) -> None:
+    def test_same_player_via_aliases_on_both_pairs_raises(self) -> None:
         league = _league_otpp_false()
         league.add_players(["alice", "bob", "charlie"])
         alice = self._get_player(league, "alice")
         league.add_alias_to_player(str(alice.player_id.value), "ali")
 
-        _, team1 = league.register_players_and_team("ali", "bob")
-        _, team2 = league.register_players_and_team("alice", "charlie")
+        _, pair1 = league.register_players_and_pair("ali", "bob")
+        _, pair2 = league.register_players_and_pair("alice", "charlie")
 
-        with pytest.raises(SamePlayerOnBothTeamsError):
-            league.validate_teams_do_not_share_players(team1, team2)
+        with pytest.raises(SamePlayerOnBothPairsError):
+            league.validate_pairs_do_not_share_players(pair1, pair2)
 
 
 # ---------------------------------------------------------------------------
-# League.delete_team
+# League.delete_pair
 # ---------------------------------------------------------------------------
 
 
-class TestDeleteTeam:
-    def test_deletes_team_successfully(self) -> None:
+class TestDeletePair:
+    def test_deletes_pair_successfully(self) -> None:
         league = _league()
-        _, team = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team.team_id.value))
-        assert len(league.teams) == 0
+        _, pair = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair.pair_id.value))
+        assert len(league.pairs) == 0
 
-    def test_players_remain_after_team_deletion(self) -> None:
+    def test_players_remain_after_pair_deletion(self) -> None:
         league = _league()
-        _, team = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team.team_id.value))
+        _, pair = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair.pair_id.value))
         assert len(league.players) == 2
 
-    def test_deleted_team_id_added_to_pending_list(self) -> None:
+    def test_deleted_pair_id_added_to_pending_list(self) -> None:
         league = _league()
-        _, team = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team.team_id.value))
-        assert team.team_id in league.pending_deleted_team_ids
+        _, pair = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair.pair_id.value))
+        assert pair.pair_id in league.pending_deleted_pair_ids
 
-    def test_team_not_found_raises(self) -> None:
+    def test_pair_not_found_raises(self) -> None:
         league = _league()
-        with pytest.raises(TeamNotFoundError):
-            league.delete_team(str(uuid.uuid4()))
+        with pytest.raises(PairNotFoundError):
+            league.delete_pair(str(uuid.uuid4()))
 
-    def test_deletes_only_specified_team(self) -> None:
+    def test_deletes_only_specified_pair(self) -> None:
         league = _league()
-        _, team1 = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team1.team_id.value))
-        _, team2 = league.register_players_and_team("charlie", "diana")
-        assert len(league.teams) == 1
-        assert league.teams[0].team_id == team2.team_id
+        _, pair1 = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair1.pair_id.value))
+        _, pair2 = league.register_players_and_pair("charlie", "diana")
+        assert len(league.pairs) == 1
+        assert league.pairs[0].pair_id == pair2.pair_id
 
-    def test_delete_already_deleted_team_raises(self) -> None:
+    def test_delete_already_deleted_pair_raises(self) -> None:
         league = _league()
-        _, team = league.register_players_and_team("alice", "bob")
-        league.delete_team(str(team.team_id.value))
-        with pytest.raises(TeamNotFoundError):
-            league.delete_team(str(team.team_id.value))
+        _, pair = league.register_players_and_pair("alice", "bob")
+        league.delete_pair(str(pair.pair_id.value))
+        with pytest.raises(PairNotFoundError):
+            league.delete_pair(str(pair.pair_id.value))
 
 
 # ---------------------------------------------------------------------------
@@ -614,21 +614,21 @@ class TestAddPlayers:
         with pytest.raises(InvalidPlayerRatingError):
             league.add_players(["alex"], ratings=[-1.0])
 
-    def test_add_players_does_not_create_teams(self) -> None:
-        """Teams are still created only inside register_players_and_team."""
+    def test_add_players_does_not_create_pairs(self) -> None:
+        """Pairs are still created only inside register_players_and_pair."""
         league = _league()
         league.add_players(["alex", "daniel"])
-        assert league.teams == []
+        assert league.pairs == []
 
     def test_pre_registered_player_is_reused_by_match_submission(self) -> None:
         """When a host pre-registers a player and that player later submits a
-        match, register_players_and_team finds the existing Player rather
+        match, register_players_and_pair finds the existing Player rather
         than creating a duplicate."""
         league = _league()
         added = league.add_players(["alex", "daniel"])
         before_ids = {p.player_id for p in league.players}
 
-        new_players, _ = league.register_players_and_team("alex", "daniel")
+        new_players, _ = league.register_players_and_pair("alex", "daniel")
 
         assert new_players == []
         assert {p.player_id for p in league.players} == before_ids
@@ -659,21 +659,21 @@ class TestRemovePlayer:
         with pytest.raises(PlayerNotFoundError):
             league.remove_player(str(uuid.uuid4()))
 
-    def test_rejects_player_with_team_membership(self) -> None:
+    def test_rejects_player_with_pair_membership(self) -> None:
         league = _league()
-        league.register_players_and_team("alex", "daniel")
+        league.register_players_and_pair("alex", "daniel")
         alex = next(p for p in league.players if p.nickname.value == "alex")
 
         with pytest.raises(PlayerHasParticipationError) as exc:
             league.remove_player(str(alex.player_id.value))
 
-        assert exc.value.teams_count == 1
+        assert exc.value.pairs_count == 1
         assert exc.value.matches_count == 0
         assert {p.nickname.value for p in league.players} == {"alex", "daniel"}
 
     def test_rejects_player_with_match_participation(self) -> None:
-        """Even when the team is gone but match_count was loaded by the repo
-        as > 0 (defensive — in practice the FK keeps the team alive), the
+        """Even when the pair is gone but match_count was loaded by the repo
+        as > 0 (defensive — in practice the FK keeps the pair alive), the
         guard still blocks deletion."""
         league = _league()
         league.add_players(["alex"])
@@ -687,7 +687,7 @@ class TestRemovePlayer:
 
     def test_payload_carries_player_id(self) -> None:
         league = _league()
-        league.register_players_and_team("alex", "daniel")
+        league.register_players_and_pair("alex", "daniel")
         alex = next(p for p in league.players if p.nickname.value == "alex")
 
         with pytest.raises(PlayerHasParticipationError) as exc:
@@ -697,7 +697,7 @@ class TestRemovePlayer:
 
     def test_does_not_add_to_pending_when_guard_blocks(self) -> None:
         league = _league()
-        league.register_players_and_team("alex", "daniel")
+        league.register_players_and_pair("alex", "daniel")
         alex = next(p for p in league.players if p.nickname.value == "alex")
 
         with pytest.raises(PlayerHasParticipationError):
