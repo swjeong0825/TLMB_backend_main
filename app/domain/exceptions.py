@@ -68,6 +68,10 @@ class SamePlayerOnBothPairsError(DomainError):
     pass
 
 
+class SamePlayerOnBothSidesError(DomainError):
+    pass
+
+
 class InvalidSetScoreError(DomainError):
     pass
 
@@ -81,6 +85,10 @@ class InvalidPlayerRatingError(DomainError):
 
 
 class DuplicatePairMatchupMatchError(DomainError):
+    pass
+
+
+class DuplicateSinglesMatchupMatchError(DomainError):
     pass
 
 

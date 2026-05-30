@@ -40,6 +40,7 @@ class LeagueORM(Base):
         server_default=DEFAULT_LEAGUE_TIMEZONE,
     )
     latest_match_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    latest_match_date_single: Mapped[date | None] = mapped_column(Date, nullable=True)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     rules: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -57,6 +58,9 @@ class LeagueORM(Base):
     )
     matches: Mapped[list[MatchORM]] = relationship(
         "MatchORM", back_populates="league"
+    )
+    singles_matches: Mapped[list[SinglesMatchORM]] = relationship(
+        "SinglesMatchORM", back_populates="league"
     )
 
 
@@ -194,3 +198,41 @@ class MatchORM(Base):
     )
 
     league: Mapped[LeagueORM] = relationship("LeagueORM", back_populates="matches")
+
+
+class SinglesMatchORM(Base):
+    __tablename__ = "singles_matches"
+    __table_args__ = (
+        Index("ix_singles_matches_league_created", "league_id", "created_at"),
+        Index("ix_singles_matches_player1_id", "player1_id"),
+        Index("ix_singles_matches_player2_id", "player2_id"),
+    )
+
+    match_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    league_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("leagues.league_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    player1_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.player_id"),
+        nullable=False,
+    )
+    player2_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.player_id"),
+        nullable=False,
+    )
+    player1_score: Mapped[str] = mapped_column(String, nullable=False)
+    player2_score: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=_utcnow, nullable=False
+    )
+
+    league: Mapped[LeagueORM] = relationship(
+        "LeagueORM", back_populates="singles_matches"
+    )

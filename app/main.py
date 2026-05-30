@@ -10,6 +10,7 @@ from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     CannotRemoveCanonicalNicknameError,
     DuplicatePairMatchupMatchError,
+    DuplicateSinglesMatchupMatchError,
     InvalidLeagueRulesError,
     InvalidPlayerRatingError,
     InvalidSetScoreError,
@@ -23,6 +24,7 @@ from app.domain.exceptions import (
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
+    SamePlayerOnBothSidesError,
     SamePlayerOnBothPairsError,
     SamePlayerWithinSinglePairError,
     SamePairOnBothSidesError,
@@ -143,6 +145,16 @@ async def duplicate_pair_matchup_match_handler(
     )
 
 
+@app.exception_handler(DuplicateSinglesMatchupMatchError)
+async def duplicate_singles_matchup_match_handler(
+    request: Request, exc: DuplicateSinglesMatchupMatchError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"error": "DuplicateSinglesMatchupMatchError", "detail": str(exc)},
+    )
+
+
 @app.exception_handler(SamePlayerWithinSinglePairError)
 async def same_player_single_pair_handler(request: Request, exc: SamePlayerWithinSinglePairError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "SamePlayerWithinSinglePairError", "detail": str(exc)})
@@ -151,6 +163,16 @@ async def same_player_single_pair_handler(request: Request, exc: SamePlayerWithi
 @app.exception_handler(SamePlayerOnBothPairsError)
 async def same_player_both_pairs_handler(request: Request, exc: SamePlayerOnBothPairsError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "SamePlayerOnBothPairsError", "detail": str(exc)})
+
+
+@app.exception_handler(SamePlayerOnBothSidesError)
+async def same_player_singles_handler(
+    request: Request, exc: SamePlayerOnBothSidesError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"error": "SamePlayerOnBothSidesError", "detail": str(exc)},
+    )
 
 
 @app.exception_handler(InvalidSetScoreError)

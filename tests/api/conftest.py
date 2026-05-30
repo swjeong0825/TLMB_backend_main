@@ -22,8 +22,10 @@ from app.dependencies import (
     get_add_players_use_case,
     get_create_league_use_case,
     get_delete_match_use_case,
+    get_delete_singles_match_use_case,
     get_delete_pair_use_case,
     get_edit_match_score_use_case,
+    get_edit_singles_match_score_use_case,
     get_edit_player_nickname_use_case,
     get_get_league_admin_info_use_case,
     get_get_league_roster_use_case,
@@ -35,6 +37,7 @@ from app.dependencies import (
     get_remove_player_from_roster_use_case,
     get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
+    get_submit_singles_match_result_use_case,
 )
 from app.main import app
 
@@ -53,6 +56,11 @@ def mock_search_leagues_uc() -> AsyncMock:
 
 @pytest.fixture
 def mock_submit_match_uc() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_submit_singles_match_uc() -> AsyncMock:
     return AsyncMock()
 
 
@@ -87,7 +95,17 @@ def mock_edit_match_score_uc() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_edit_singles_match_score_uc() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
 def mock_delete_match_uc() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_delete_singles_match_uc() -> AsyncMock:
     return AsyncMock()
 
 
@@ -131,13 +149,16 @@ async def client(
     mock_create_league_uc: AsyncMock,
     mock_search_leagues_uc: AsyncMock,
     mock_submit_match_uc: AsyncMock,
+    mock_submit_singles_match_uc: AsyncMock,
     mock_get_standings_uc: AsyncMock,
     mock_get_match_history_uc: AsyncMock,
     mock_get_roster_uc: AsyncMock,
     mock_edit_player_nickname_uc: AsyncMock,
     mock_delete_pair_uc: AsyncMock,
     mock_edit_match_score_uc: AsyncMock,
+    mock_edit_singles_match_score_uc: AsyncMock,
     mock_delete_match_uc: AsyncMock,
+    mock_delete_singles_match_uc: AsyncMock,
     mock_get_match_history_by_player_uc: AsyncMock,
     mock_get_standings_by_player_uc: AsyncMock,
     mock_add_players_uc: AsyncMock,
@@ -151,6 +172,9 @@ async def client(
         lambda: mock_search_leagues_uc
     )
     app.dependency_overrides[get_submit_match_result_use_case] = lambda: mock_submit_match_uc
+    app.dependency_overrides[get_submit_singles_match_result_use_case] = (
+        lambda: mock_submit_singles_match_uc
+    )
     app.dependency_overrides[get_get_standings_use_case] = lambda: mock_get_standings_uc
     app.dependency_overrides[get_get_match_history_use_case] = lambda: mock_get_match_history_uc
     app.dependency_overrides[get_get_league_roster_use_case] = lambda: mock_get_roster_uc
@@ -159,7 +183,13 @@ async def client(
     )
     app.dependency_overrides[get_delete_pair_use_case] = lambda: mock_delete_pair_uc
     app.dependency_overrides[get_edit_match_score_use_case] = lambda: mock_edit_match_score_uc
+    app.dependency_overrides[get_edit_singles_match_score_use_case] = (
+        lambda: mock_edit_singles_match_score_uc
+    )
     app.dependency_overrides[get_delete_match_use_case] = lambda: mock_delete_match_uc
+    app.dependency_overrides[get_delete_singles_match_use_case] = (
+        lambda: mock_delete_singles_match_uc
+    )
     app.dependency_overrides[get_get_match_history_by_player_use_case] = (
         lambda: mock_get_match_history_by_player_uc
     )

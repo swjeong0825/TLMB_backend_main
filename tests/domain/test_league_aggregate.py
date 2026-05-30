@@ -187,6 +187,28 @@ class TestLeagueCreate:
 # ---------------------------------------------------------------------------
 
 
+class TestRegisterSinglePlayer:
+    def test_creates_player_without_creating_pair(self) -> None:
+        league = _league()
+
+        player = league.register_single_player("Alice")
+
+        assert player.nickname.value == "alice"
+        assert len(league.players) == 1
+        assert league.pairs == []
+
+    def test_reuses_existing_player_by_alias_or_canonical_nickname(self) -> None:
+        league = _league()
+        player = league.add_players(["Alice"])[0]
+        league.add_alias_to_player(str(player.player_id.value), "Ace")
+
+        found = league.register_single_player("ACE")
+
+        assert found.player_id == player.player_id
+        assert len(league.players) == 1
+        assert league.pairs == []
+
+
 class TestRegisterPlayersAndPair:
     def test_two_new_players_create_two_players_and_one_pair(self) -> None:
         league = _league()

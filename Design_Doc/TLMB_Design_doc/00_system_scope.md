@@ -4,7 +4,7 @@
 - Tennis League Manager (TLM)
 
 ## One-sentence Product Summary
-- A lightweight backend service that lets a host run a recreational tennis doubles league — players are auto-registered when the host adds an allowed nickname OR on first match submission, pairs are auto-registered on first match submission, scores are recorded, and standings are always visible.
+- A lightweight backend service that lets a host run a recreational tennis league with doubles and singles results — players are auto-registered when the host adds an allowed nickname OR on first match submission, pairs are auto-registered on first doubles submission, scores are recorded, and standings are always visible.
 
 ## System Context Overview
 
@@ -17,7 +17,7 @@ flowchart TD
     DB[("PostgreSQL")]
 
     HOST -->|"POST /leagues\nX-Host-Token admin routes"| TLM
-    PLAYER -->|"POST …/matches\nGET standings / matches / roster"| TLM
+    PLAYER -->|"POST …/matches or …/singles-matches\nGET standings / matches / roster"| TLM
     CHATBOT -. "pre-fills match form;\nclient submits confirmed structured command" .-> TLM
     TLM <--> DB
 
@@ -31,17 +31,18 @@ flowchart TD
 - Players (participants whose match results are submitted as confirmed structured commands; they are auto-registered on first submission)
 
 ## Main Business Goal
-- Give a small recreational tennis group a dead-simple way to track doubles match results and maintain an up-to-date standings table, with no login system and no complex manual registration.
+- Give a small recreational tennis group a dead-simple way to track doubles and singles match results and maintain up-to-date standings tables, with no login system and no complex manual registration.
 
 ## In Scope
 - League creation with a unique title (case-insensitive) and optional description (host receives a hostToken and a leagueId on creation)
 - Match result submission: the client calls the backend with a confirmed structured command after the player reviews and confirms a match form pre-filled by the external AI chatbot
+- Singles match submission: the frontend can post two-player singles results directly to `/singles-matches`; the chat write intent remains doubles-only in this release.
 - Implicit player and pair creation on first match submission: if any player nickname in the submitted match is new to the league, the system registers all new players and their pair(s) atomically alongside the match record
 - Explicit roster pre-registration: when the host calls `POST /leagues` with `initial_players` or `POST /admin/leagues/{league_id}/players`, the system creates one `Player` row per input nickname in the same transaction. No pair is created at pre-registration time. Pre-registered players that have not yet played a match can be hard-deleted via `DELETE /admin/leagues/{league_id}/players/{player_id}`. See [20_roster_pre_registration.md](20_roster_pre_registration.md).
 - Rejection of a match submission if a player is already recorded as a member of a different pair in the same league (a player can belong to at most one pair per league)
 - Case-insensitive player nickname matching within a league (enforced by the backend)
-- Standings view (win/loss based, derived from match records; tied pairs share the same rank with no tiebreaker in V1)
-- Match history view (list of all recorded results in a league)
+- Standings view (derived from match records; supports doubles, singles, and combined player scopes)
+- Match history view (list of recorded doubles and/or singles results in a league)
 - League roster view (list of all auto-registered players and pairs in a league)
 - Separate admin router/interface for host operations (requires hostToken), separate from player-facing routes
 - Host has full admin rights over league data: can edit player nicknames, reassign pairs, edit match scores, and delete matches. Pairs may be deleted only if they have no associated matches; existing matches must be removed first.

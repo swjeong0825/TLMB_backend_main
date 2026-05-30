@@ -10,6 +10,8 @@ from starlette.requests import Request
 from app.api.schemas.admin_schemas import (
     EditMatchScoreRequest,
     EditMatchScoreResponse,
+    EditSinglesMatchScoreRequest,
+    EditSinglesMatchScoreResponse,
 )
 from app.api.schemas.league_schemas import (
     CreateLeagueRequest,
@@ -25,6 +27,8 @@ from app.api.schemas.league_schemas import (
     SearchLeaguesResponse,
     SubmitMatchResultRequest,
     SubmitMatchResultResponse,
+    SubmitSinglesMatchResultRequest,
+    SubmitSinglesMatchResultResponse,
     PairEntrySchema,
 )
 from app.config import player_match_delete_window_seconds, player_score_edit_window_seconds
@@ -36,9 +40,17 @@ from app.application.use_cases.delete_match_use_case import (
     DeleteMatchCommand,
     DeleteMatchUseCase,
 )
+from app.application.use_cases.delete_singles_match_use_case import (
+    DeleteSinglesMatchCommand,
+    DeleteSinglesMatchUseCase,
+)
 from app.application.use_cases.edit_match_score_use_case import (
     EditMatchScoreCommand,
     EditMatchScoreUseCase,
+)
+from app.application.use_cases.edit_singles_match_score_use_case import (
+    EditSinglesMatchScoreCommand,
+    EditSinglesMatchScoreUseCase,
 )
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterQuery, GetLeagueRosterUseCase
 from app.application.use_cases.get_match_history_use_case import GetMatchHistoryQuery, GetMatchHistoryUseCase
@@ -59,10 +71,16 @@ from app.application.use_cases.submit_match_result_use_case import (
     SubmitMatchResultCommand,
     SubmitMatchResultUseCase,
 )
+from app.application.use_cases.submit_singles_match_result_use_case import (
+    SubmitSinglesMatchResultCommand,
+    SubmitSinglesMatchResultUseCase,
+)
 from app.dependencies import (
     get_create_league_use_case,
     get_delete_match_use_case,
+    get_delete_singles_match_use_case,
     get_edit_match_score_use_case,
+    get_edit_singles_match_score_use_case,
     get_get_league_roster_use_case,
     get_get_match_history_by_player_use_case,
     get_get_match_history_use_case,
@@ -70,10 +88,12 @@ from app.dependencies import (
     get_get_standings_use_case,
     get_search_leagues_by_title_prefix_use_case,
     get_submit_match_result_use_case,
+    get_submit_singles_match_result_use_case,
 )
 from app.rate_limit import limiter
 
 router = APIRouter(tags=["leagues"])
+MatchScope = Literal["doubles", "singles", "both"]
 
 
 @router.post("/leagues", status_code=status.HTTP_201_CREATED, response_model=CreateLeagueResponse)
@@ -142,6 +162,35 @@ async def submit_match_result(
         )
     )
     return SubmitMatchResultResponse(
+        match_id=result.match_id,
+        created_at=result.created_at,
+    )
+
+
+@router.post(
+    "/leagues/{league_id}/singles-matches",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SubmitSinglesMatchResultResponse,
+)
+@limiter.limit("30/minute")
+async def submit_singles_match_result(
+    request: Request,
+    league_id: str,
+    body: SubmitSinglesMatchResultRequest,
+    use_case: SubmitSinglesMatchResultUseCase = Depends(
+        get_submit_singles_match_result_use_case
+    ),
+) -> SubmitSinglesMatchResultResponse:
+    result = await use_case.execute(
+        SubmitSinglesMatchResultCommand(
+            league_id=league_id,
+            player1_nickname=body.player1_nickname,
+            player2_nickname=body.player2_nickname,
+            player1_score=body.player1_score,
+            player2_score=body.player2_score,
+        )
+    )
+    return SubmitSinglesMatchResultResponse(
         match_id=result.match_id,
         created_at=result.created_at,
     )
@@ -220,6 +269,57 @@ async def delete_match_by_player(
     )
 
 
+@router.patch(
+    "/leagues/{league_id}/singles-matches/{match_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=EditSinglesMatchScoreResponse,
+)
+@limiter.limit("60/minute")
+async def edit_singles_match_score_by_player(
+    request: Request,
+    league_id: str,
+    match_id: str,
+    body: EditSinglesMatchScoreRequest,
+    use_case: EditSinglesMatchScoreUseCase = Depends(
+        get_edit_singles_match_score_use_case
+    ),
+) -> EditSinglesMatchScoreResponse:
+    result = await use_case.execute(
+        EditSinglesMatchScoreCommand(
+            host_token=None,
+            league_id=league_id,
+            match_id=match_id,
+            player1_score=body.player1_score,
+            player2_score=body.player2_score,
+        )
+    )
+    return EditSinglesMatchScoreResponse(
+        match_id=result.match_id,
+        player1_score=result.player1_score,
+        player2_score=result.player2_score,
+    )
+
+
+@router.delete(
+    "/leagues/{league_id}/singles-matches/{match_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@limiter.limit("60/minute")
+async def delete_singles_match_by_player(
+    request: Request,
+    league_id: str,
+    match_id: str,
+    use_case: DeleteSinglesMatchUseCase = Depends(get_delete_singles_match_use_case),
+) -> None:
+    await use_case.execute(
+        DeleteSinglesMatchCommand(
+            host_token=None,
+            league_id=league_id,
+            match_id=match_id,
+        )
+    )
+
+
 @router.get(
     "/leagues/{league_id}/standings",
     status_code=status.HTTP_200_OK,
@@ -227,6 +327,10 @@ async def delete_match_by_player(
 )
 async def get_standings(
     league_id: str,
+    scope: MatchScope = Query(
+        "doubles",
+        description="Standings source scope. Defaults to doubles for compatibility.",
+    ),
     subject: Literal["pair", "player"] | None = Query(
         None,
         description=(
@@ -242,6 +346,7 @@ async def get_standings(
     ),
     use_case: GetStandingsUseCase = Depends(get_get_standings_use_case),
 ) -> GetStandingsResponse:
+    _validate_standings_scope(subject, scope)
     if start_date is not None and end_date is not None and start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -253,6 +358,7 @@ async def get_standings(
             start_date=start_date,
             end_date=end_date,
             subject=subject,
+            scope=scope,
         )
     )
     return GetStandingsResponse(
@@ -269,6 +375,10 @@ async def get_standings(
 async def get_standings_by_player(
     league_id: str,
     player_name: str = Query(..., description="Player nickname (case-insensitive)"),
+    scope: MatchScope = Query(
+        "doubles",
+        description="Standings source scope. Defaults to doubles for compatibility.",
+    ),
     start_date: date | None = Query(
         None, description="Inclusive league-local start date (YYYY-MM-DD)"
     ),
@@ -288,6 +398,7 @@ async def get_standings_by_player(
             player_name=player_name,
             start_date=start_date,
             end_date=end_date,
+            scope=scope,
         )
     )
     return GetStandingsResponse(
@@ -323,23 +434,15 @@ def _to_standings_entry_schema(entry) -> StandingsEntrySchema:
 )
 async def get_match_history(
     league_id: str,
+    scope: MatchScope = Query(
+        "doubles",
+        description="History source scope. Defaults to doubles for compatibility.",
+    ),
     use_case: GetMatchHistoryUseCase = Depends(get_get_match_history_use_case),
 ) -> GetMatchHistoryResponse:
-    records = await use_case.execute(GetMatchHistoryQuery(league_id=league_id))
+    records = await use_case.execute(GetMatchHistoryQuery(league_id=league_id, scope=scope))
     return GetMatchHistoryResponse(
-        matches=[
-            MatchHistoryRecordSchema(
-                match_id=r.match_id,
-                pair1_player1_nickname=r.pair1_player1_nickname,
-                pair1_player2_nickname=r.pair1_player2_nickname,
-                pair2_player1_nickname=r.pair2_player1_nickname,
-                pair2_player2_nickname=r.pair2_player2_nickname,
-                pair1_score=r.pair1_score,
-                pair2_score=r.pair2_score,
-                created_at=r.created_at,
-            )
-            for r in records
-        ]
+        matches=[_to_match_history_record_schema(r) for r in records]
     )
 
 
@@ -351,25 +454,21 @@ async def get_match_history(
 async def get_match_history_by_player(
     league_id: str,
     player_name: str = Query(..., description="Player nickname (case-insensitive)"),
+    scope: MatchScope = Query(
+        "doubles",
+        description="History source scope. Defaults to doubles for compatibility.",
+    ),
     use_case: GetMatchHistoryByPlayerUseCase = Depends(get_get_match_history_by_player_use_case),
 ) -> GetMatchHistoryResponse:
     records = await use_case.execute(
-        GetMatchHistoryByPlayerQuery(league_id=league_id, player_name=player_name)
+        GetMatchHistoryByPlayerQuery(
+            league_id=league_id,
+            player_name=player_name,
+            scope=scope,
+        )
     )
     return GetMatchHistoryResponse(
-        matches=[
-            MatchHistoryRecordSchema(
-                match_id=r.match_id,
-                pair1_player1_nickname=r.pair1_player1_nickname,
-                pair1_player2_nickname=r.pair1_player2_nickname,
-                pair2_player1_nickname=r.pair2_player1_nickname,
-                pair2_player2_nickname=r.pair2_player2_nickname,
-                pair1_score=r.pair1_score,
-                pair2_score=r.pair2_score,
-                created_at=r.created_at,
-            )
-            for r in records
-        ]
+        matches=[_to_match_history_record_schema(r) for r in records]
     )
 
 
@@ -387,6 +486,8 @@ async def get_league_roster(
         title=roster.title,
         league_timezone=roster.league_timezone,
         latest_match_date=roster.latest_match_date,
+        latest_match_date_single=roster.latest_match_date_single,
+        latest_activity_date=roster.latest_activity_date,
         rules=LeagueRulesResponseSchema(**roster.rules),
         players=[
             PlayerEntrySchema(
@@ -409,4 +510,33 @@ async def get_league_roster(
         ],
         player_score_edit_window_seconds=player_score_edit_window_seconds(),
         player_match_delete_window_seconds=player_match_delete_window_seconds(),
+    )
+
+
+def _validate_standings_scope(
+    subject: Literal["pair", "player"] | None,
+    scope: MatchScope,
+) -> None:
+    if subject == "pair" and scope != "doubles":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="subject=pair is valid only with scope=doubles",
+        )
+
+
+def _to_match_history_record_schema(record) -> MatchHistoryRecordSchema:
+    return MatchHistoryRecordSchema(
+        match_id=record.match_id,
+        match_format=record.match_format,
+        pair1_player1_nickname=record.pair1_player1_nickname,
+        pair1_player2_nickname=record.pair1_player2_nickname,
+        pair2_player1_nickname=record.pair2_player1_nickname,
+        pair2_player2_nickname=record.pair2_player2_nickname,
+        pair1_score=record.pair1_score,
+        pair2_score=record.pair2_score,
+        player1_nickname=record.player1_nickname,
+        player2_nickname=record.player2_nickname,
+        player1_score=record.player1_score,
+        player2_score=record.player2_score,
+        created_at=record.created_at,
     )

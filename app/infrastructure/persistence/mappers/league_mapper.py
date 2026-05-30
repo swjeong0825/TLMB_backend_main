@@ -42,6 +42,7 @@ def league_to_domain(
         host_email=HostEmail(value=orm.host_email),
         league_timezone=LeagueTimezone(value=orm.league_timezone),
         latest_match_date=orm.latest_match_date,
+        latest_match_date_single=orm.latest_match_date_single,
         title=orm.title,
         description=orm.description,
         rules=LeagueRules.from_dict(orm.rules),
@@ -61,6 +62,7 @@ def league_to_orm(domain: League) -> LeagueORM:
         host_email=domain.host_email.value,
         league_timezone=domain.league_timezone.value,
         latest_match_date=domain.latest_match_date,
+        latest_match_date_single=domain.latest_match_date_single,
         description=domain.description,
         rules=domain.rules.to_dict(),
     )

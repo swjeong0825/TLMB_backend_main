@@ -126,6 +126,25 @@ class SubmitMatchResultResponse(BaseModel):
     created_at: datetime
 
 
+class SubmitSinglesMatchResultRequest(BaseModel):
+    player1_nickname: str
+    player2_nickname: str
+    player1_score: str
+    player2_score: str
+
+    @field_validator("player1_nickname", "player2_nickname")
+    @classmethod
+    def nickname_must_not_be_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("player nickname must not be blank")
+        return v
+
+
+class SubmitSinglesMatchResultResponse(BaseModel):
+    match_id: str
+    created_at: datetime
+
+
 class StandingsEntrySchema(BaseModel):
     """Polymorphic standings row.
 
@@ -171,12 +190,17 @@ class GetStandingsResponse(BaseModel):
 
 class MatchHistoryRecordSchema(BaseModel):
     match_id: str
-    pair1_player1_nickname: str
-    pair1_player2_nickname: str
-    pair2_player1_nickname: str
-    pair2_player2_nickname: str
-    pair1_score: str
-    pair2_score: str
+    match_format: Literal["doubles", "singles"] = "doubles"
+    pair1_player1_nickname: str | None = None
+    pair1_player2_nickname: str | None = None
+    pair2_player1_nickname: str | None = None
+    pair2_player2_nickname: str | None = None
+    pair1_score: str | None = None
+    pair2_score: str | None = None
+    player1_nickname: str | None = None
+    player2_nickname: str | None = None
+    player1_score: str | None = None
+    player2_score: str | None = None
     created_at: datetime | None
 
 
@@ -240,6 +264,8 @@ class GetLeagueRosterResponse(BaseModel):
     title: str
     league_timezone: str
     latest_match_date: date | None = None
+    latest_match_date_single: date | None = None
+    latest_activity_date: date | None = None
     rules: LeagueRulesResponseSchema
     players: list[PlayerEntrySchema]
     pairs: list[PairEntrySchema]

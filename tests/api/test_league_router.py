@@ -16,12 +16,19 @@ from app.application.use_cases.get_league_roster_use_case import PlayerEntry, Ro
 from app.application.use_cases.get_match_history_use_case import MatchHistoryRecord
 from app.application.use_cases.get_standings_use_case import GetStandingsUseCase, StandingsView
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultResult
+from app.application.use_cases.submit_singles_match_result_use_case import (
+    SubmitSinglesMatchResultResult,
+)
+from app.application.use_cases.edit_singles_match_score_use_case import (
+    UpdatedSinglesMatchResult,
+)
 from app.domain.exceptions import (
     DuplicatePairMatchupMatchError,
     LeagueNotFoundError,
     LeagueTitleAlreadyExistsError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
+    SamePlayerOnBothSidesError,
     SamePlayerOnBothPairsError,
     SamePlayerWithinSinglePairError,
     PairConflictError,
@@ -324,6 +331,82 @@ class TestSubmitMatchResult:
 
 
 # ---------------------------------------------------------------------------
+# POST/PATCH/DELETE /leagues/{league_id}/singles-matches
+# ---------------------------------------------------------------------------
+
+
+class TestSinglesMatchRoutes:
+    _VALID_PAYLOAD = {
+        "player1_nickname": "alice",
+        "player2_nickname": "bob",
+        "player1_score": "6",
+        "player2_score": "3",
+    }
+
+    _FAKE_CREATED_AT = datetime(2026, 5, 24, 12, 0, 0, tzinfo=timezone.utc)
+
+    async def test_submit_singles_returns_201(
+        self, client: AsyncClient, mock_submit_singles_match_uc: AsyncMock
+    ) -> None:
+        mock_submit_singles_match_uc.execute.return_value = (
+            SubmitSinglesMatchResultResult(
+                match_id="singles-match-id",
+                created_at=self._FAKE_CREATED_AT,
+            )
+        )
+
+        response = await client.post(
+            "/leagues/league-id/singles-matches",
+            json=self._VALID_PAYLOAD,
+        )
+
+        assert response.status_code == 201
+        assert response.json()["match_id"] == "singles-match-id"
+
+    async def test_submit_singles_same_player_returns_422(
+        self, client: AsyncClient, mock_submit_singles_match_uc: AsyncMock
+    ) -> None:
+        mock_submit_singles_match_uc.execute.side_effect = SamePlayerOnBothSidesError(
+            "same player"
+        )
+
+        response = await client.post(
+            "/leagues/league-id/singles-matches",
+            json=self._VALID_PAYLOAD,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["error"] == "SamePlayerOnBothSidesError"
+
+    async def test_edit_singles_player_route_returns_updated_scores(
+        self, client: AsyncClient, mock_edit_singles_match_score_uc: AsyncMock
+    ) -> None:
+        mock_edit_singles_match_score_uc.execute.return_value = (
+            UpdatedSinglesMatchResult(
+                match_id="match-id",
+                player1_score="4",
+                player2_score="6",
+            )
+        )
+
+        response = await client.patch(
+            "/leagues/league-id/singles-matches/match-id",
+            json={"player1_score": "4", "player2_score": "6"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["player1_score"] == "4"
+
+    async def test_delete_singles_player_route_returns_204(
+        self, client: AsyncClient, mock_delete_singles_match_uc: AsyncMock
+    ) -> None:
+        response = await client.delete("/leagues/league-id/singles-matches/match-id")
+
+        assert response.status_code == 204
+        mock_delete_singles_match_uc.execute.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # GET /leagues/{league_id}/standings
 # ---------------------------------------------------------------------------
 
@@ -405,6 +488,29 @@ class TestGetStandings:
         call_args = mock_get_standings_uc.execute.call_args[0][0]
         assert call_args.league_id == "lid"
         assert call_args.subject == "player"
+
+    async def test_passes_optional_scope_to_use_case(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_uc.execute.return_value = StandingsView(
+            entries=[],
+            tie_breakers=("matches_won",),
+        )
+
+        response = await client.get("/leagues/lid/standings?subject=player&scope=both")
+
+        assert response.status_code == 200
+        call_args = mock_get_standings_uc.execute.call_args[0][0]
+        assert call_args.subject == "player"
+        assert call_args.scope == "both"
+
+    async def test_pair_subject_with_non_doubles_scope_returns_422(
+        self, client: AsyncClient, mock_get_standings_uc: AsyncMock
+    ) -> None:
+        response = await client.get("/leagues/lid/standings?subject=pair&scope=singles")
+
+        assert response.status_code == 422
+        mock_get_standings_uc.execute.assert_not_awaited()
 
     async def test_passes_subject_with_date_filters_to_use_case(
         self, client: AsyncClient, mock_get_standings_uc: AsyncMock
@@ -564,6 +670,16 @@ class TestGetStandingsByPlayer:
         assert call_args.start_date == date(2026, 5, 24)
         assert call_args.end_date == date(2026, 5, 25)
 
+    async def test_passes_scope_to_use_case(
+        self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_standings_by_player_uc.execute.return_value = StandingsView(
+            entries=[], tie_breakers=("matches_won",)
+        )
+        await client.get("/leagues/lid/standings/by-player?player_name=alice&scope=singles")
+        call_args = mock_get_standings_by_player_uc.execute.call_args[0][0]
+        assert call_args.scope == "singles"
+
     async def test_passes_one_sided_date_filter_to_use_case(
         self, client: AsyncClient, mock_get_standings_by_player_uc: AsyncMock
     ) -> None:
@@ -663,6 +779,15 @@ class TestGetMatchHistory:
         assert response.status_code == 200
         assert response.json()["matches"] == []
 
+    async def test_passes_scope_to_use_case(
+        self, client: AsyncClient, mock_get_match_history_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_uc.execute.return_value = []
+        response = await client.get("/leagues/lid/matches?scope=both")
+        assert response.status_code == 200
+        call_args = mock_get_match_history_uc.execute.call_args[0][0]
+        assert call_args.scope == "both"
+
 
 # ---------------------------------------------------------------------------
 # GET /leagues/{league_id}/roster
@@ -704,6 +829,14 @@ class TestGetMatchHistoryByPlayer:
         call_args = mock_get_match_history_by_player_uc.execute.call_args[0][0]
         assert call_args.player_name == "alice"
         assert call_args.league_id == "lid"
+
+    async def test_passes_scope_to_use_case(
+        self, client: AsyncClient, mock_get_match_history_by_player_uc: AsyncMock
+    ) -> None:
+        mock_get_match_history_by_player_uc.execute.return_value = []
+        await client.get("/leagues/lid/matches/by-player?player_name=alice&scope=singles")
+        call_args = mock_get_match_history_by_player_uc.execute.call_args[0][0]
+        assert call_args.scope == "singles"
 
     async def test_missing_player_name_returns_422(self, client: AsyncClient) -> None:
         response = await client.get("/leagues/lid/matches/by-player")
@@ -756,6 +889,8 @@ class TestGetLeagueRoster:
             title="Summer Cup",
             league_timezone="America/Los_Angeles",
             latest_match_date=date(2026, 5, 24),
+            latest_match_date_single=date(2026, 5, 25),
+            latest_activity_date=date(2026, 5, 25),
             rules=dict(_DEFAULT_ROSTER_RULES),
             players=[
                 PlayerEntry(
@@ -773,6 +908,8 @@ class TestGetLeagueRoster:
         assert data["title"] == "Summer Cup"
         assert data["league_timezone"] == "America/Los_Angeles"
         assert data["latest_match_date"] == "2026-05-24"
+        assert data["latest_match_date_single"] == "2026-05-25"
+        assert data["latest_activity_date"] == "2026-05-25"
         assert len(data["players"]) == 1
         assert data["players"][0]["nickname"] == "alice"
         assert data["players"][0]["aliases"] == ["ali"]

@@ -2,7 +2,13 @@
 
 ## Purpose
 
-Leagues differ in how strictly they treat **repeat matchups** (same doubles pair vs same doubles pair) and, in the future, **roster constraints** (who may play, whether a player may appear on more than one pair). This document defines a **versioned, per-league rules document** stored with the league, how it is set, and how **submit match** consults it—without requiring a new DB column for every new policy.
+Leagues differ in how strictly they treat **repeat matchups** (same
+doubles pair vs same doubles pair, and singles player vs singles player)
+and, in the future, **roster constraints** (who may play, whether a
+player may appear on more than one pair). This document defines a
+**versioned, per-league rules document** stored with the league, how it
+is set, and how **submit match** consults it—without requiring a new DB
+column for every new policy.
 
 **Scope in the first implementation (v1 of `LeagueRules`):** persist rules on the league; enforce **pair matchup idempotency** (`none` vs `once_per_league`).
 
@@ -15,6 +21,11 @@ Leagues differ in how strictly they treat **repeat matchups** (same doubles pair
 **Scope added in v7 of `LeagueRules`:** `pair_matchup_idempotency: "once_per_day"`. The daily rule blocks duplicate unordered pair matchups only within the league-local calendar day of match submission. The league-local day is computed from the top-level `League.league_timezone` field, stored as `leagues.league_timezone` and defaulting existing/omitted values to `America/Los_Angeles`.
 
 **Scope added in v8 of `LeagueRules`:** persisted rule names and values use pair terminology: `pair_matchup_idempotency`, `one_pair_per_player`, and `ranking_subject = "pair"`.
+
+**Singles match extension:** Singles submissions reuse
+`pair_matchup_idempotency` as the league's repeat-matchup policy. For
+singles, the same `none` / `once_per_league` / `once_per_day` values are
+applied to an unordered pair of `PlayerId`s.
 
 **Out of scope until specified:** head-to-head tie-breakers, multi-set scoring.
 
@@ -34,7 +45,7 @@ Leagues differ in how strictly they treat **repeat matchups** (same doubles pair
 | Field | Type (logical) | Meaning |
 |-------|----------------|---------|
 | `version` | int | Schema version; current is `8`. |
-| `pair_matchup_idempotency` | enum string | `none`: allow multiple matches between the same two pairs. `once_per_league`: at most one match row per **unordered** pair matchup in the league. `once_per_day`: at most one match row per unordered pair matchup per league-local calendar day. |
+| `pair_matchup_idempotency` | enum string | `none`: allow multiple matches between the same two competitors. `once_per_league`: at most one match row per **unordered** doubles pair matchup or singles player matchup in the league. `once_per_day`: at most one match row per unordered matchup per league-local calendar day. |
 | `one_pair_per_player` | bool | `true` (default for new leagues): a player may belong to at most one pair in the league; [`OnePairPerPlayerPolicy`](05_aggregate_designs/league.md) is applied on `register_players_and_pair`. `false`: a player may belong to multiple pairs (e.g. partnered with Bob in one pair and Charlie in another); the policy is skipped. The cross-rule below constrains which `(ranking_subject, one_pair_per_player)` combos are legal. |
 | `ranking_subject` | enum string (v2+) | `"pair"` (default): rank one row per pair. `"player"`: rank one row per player. **v3 cross-rule:** `ranking_subject = "player"` requires `one_pair_per_player = false`. Equivalently, `one_pair_per_player = true` forces `ranking_subject = "pair"`. The combo `(player, OTPP=true)` is rejected with `InvalidLeagueRulesError`. See [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md). |
 | `tie_breakers` | list[enum string] (v2+) | Ordered, non-empty, no duplicates. Each entry is one of `matches_won`, `match_diff`, `games_won`, `games_lost`, `games_diff`, `win_pct`. The first entry is the primary metric; subsequent entries break ties. Default: `["matches_won"]`. |
@@ -46,6 +57,10 @@ Leagues differ in how strictly they treat **repeat matchups** (same doubles pair
 
 - After `register_players_and_pair`, each side is a `PairId`. Two pairs form an **unordered pair**: the same matchup is `(pair_a, pair_b)` regardless of whether `pair_a` was submitted as pair1 or pair2.
 - Idempotency checks use **pair IDs**, not nicknames, so implicit registration remains consistent with persisted pairs.
+- For singles, after `register_single_player`, each side is a `PlayerId`.
+  The same matchup is `(player_a, player_b)` regardless of whether that
+  player was submitted as player1 or player2. Checks use **player IDs**,
+  not nicknames or aliases.
 
 ### Where enforcement lives
 
@@ -53,6 +68,16 @@ Leagues differ in how strictly they treat **repeat matchups** (same doubles pair
 - **Application layer** (`SubmitMatchResultUseCase`), after pairs are resolved and **before** `Match.create`, when rules require it:
   - `once_per_league`: call `MatchRepository.exists_match_for_pair_matchup(league_id, pair1_id, pair2_id)`.
   - `once_per_day`: compute the current date in `league.league_timezone`, convert local midnight bounds to UTC `[start, end)`, then call `MatchRepository.exists_match_for_pair_matchup_between(league_id, pair1_id, pair2_id, start, end)`.
+- **Singles application layer** (`SubmitSinglesMatchResultUseCase`),
+  after players are resolved and before `SinglesMatch.create`, when
+  rules require it:
+  - `once_per_league`: call
+    `SinglesMatchRepository.exists_match_for_player_matchup(league_id,
+    player1_id, player2_id)`.
+  - `once_per_day`: compute the same league-local UTC day bounds, then
+    call
+    `SinglesMatchRepository.exists_match_for_player_matchup_between(league_id,
+    player1_id, player2_id, start, end)`.
 - **Concurrency:** The use case already loads the league with `get_by_id_with_lock`, serializing concurrent submits for the same league; the existence check runs in the same transaction.
 
 ---
@@ -81,7 +106,9 @@ See [12_persistence_strategy.md](12_persistence_strategy.md) for the `leagues.ru
 
 ## API and errors
 
-See [13_api_contracts.md](13_api_contracts.md) for optional `rules` on `POST /leagues` and the HTTP mapping for duplicate pair matchup submission.
+See [13_api_contracts.md](13_api_contracts.md) for optional `rules` on
+`POST /leagues` and the HTTP mapping for duplicate doubles/singles
+matchup submission.
 
 ---
 

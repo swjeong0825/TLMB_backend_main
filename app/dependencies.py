@@ -10,8 +10,10 @@ from app.application.use_cases.add_players_use_case import AddPlayersUseCase
 from app.application.use_cases.add_alias_to_player_use_case import AddAliasToPlayerUseCase
 from app.application.use_cases.create_league_use_case import CreateLeagueUseCase
 from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
+from app.application.use_cases.delete_singles_match_use_case import DeleteSinglesMatchUseCase
 from app.application.use_cases.delete_pair_use_case import DeletePairUseCase
 from app.application.use_cases.edit_match_score_use_case import EditMatchScoreUseCase
+from app.application.use_cases.edit_singles_match_score_use_case import EditSinglesMatchScoreUseCase
 from app.application.use_cases.edit_player_nickname_use_case import EditPlayerNicknameUseCase
 from app.application.use_cases.get_league_admin_info_use_case import GetLeagueAdminInfoUseCase
 from app.application.use_cases.get_league_roster_use_case import GetLeagueRosterUseCase
@@ -25,12 +27,21 @@ from app.application.use_cases.search_leagues_by_title_prefix_use_case import (
     SearchLeaguesByTitlePrefixUseCase,
 )
 from app.application.use_cases.submit_match_result_use_case import SubmitMatchResultUseCase
+from app.application.use_cases.submit_singles_match_result_use_case import (
+    SubmitSinglesMatchResultUseCase,
+)
 from app.config import player_match_delete_window_seconds, player_score_edit_window_seconds
 from app.infrastructure.config.database import AsyncSessionFactory
 from app.infrastructure.persistence.repositories.league_repository import SqlAlchemyLeagueRepository
 from app.infrastructure.persistence.repositories.match_repository import SqlAlchemyMatchRepository
+from app.infrastructure.persistence.repositories.singles_match_repository import (
+    SqlAlchemySinglesMatchRepository,
+)
 from app.infrastructure.persistence.unit_of_work.submit_match_result_uow import (
     SqlAlchemySubmitMatchResultUnitOfWork,
+)
+from app.infrastructure.persistence.unit_of_work.submit_singles_match_result_uow import (
+    SqlAlchemySubmitSinglesMatchResultUnitOfWork,
 )
 
 
@@ -56,6 +67,12 @@ def get_match_repo(
     return SqlAlchemyMatchRepository(session)
 
 
+def get_singles_match_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> SqlAlchemySinglesMatchRepository:
+    return SqlAlchemySinglesMatchRepository(session)
+
+
 def get_create_league_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
 ) -> CreateLeagueUseCase:
@@ -73,32 +90,43 @@ def get_submit_match_result_use_case() -> SubmitMatchResultUseCase:
     return SubmitMatchResultUseCase(uow_factory)
 
 
+def get_submit_singles_match_result_use_case() -> SubmitSinglesMatchResultUseCase:
+    uow_factory = partial(
+        SqlAlchemySubmitSinglesMatchResultUnitOfWork, AsyncSessionFactory
+    )
+    return SubmitSinglesMatchResultUseCase(uow_factory)
+
+
 def get_get_standings_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
+    singles_match_repo: SqlAlchemySinglesMatchRepository = Depends(get_singles_match_repo),
 ) -> GetStandingsUseCase:
-    return GetStandingsUseCase(league_repo, match_repo)
+    return GetStandingsUseCase(league_repo, match_repo, singles_match_repo)
 
 
 def get_get_standings_by_player_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
+    singles_match_repo: SqlAlchemySinglesMatchRepository = Depends(get_singles_match_repo),
 ) -> GetStandingsByPlayerUseCase:
-    return GetStandingsByPlayerUseCase(league_repo, match_repo)
+    return GetStandingsByPlayerUseCase(league_repo, match_repo, singles_match_repo)
 
 
 def get_get_match_history_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
+    singles_match_repo: SqlAlchemySinglesMatchRepository = Depends(get_singles_match_repo),
 ) -> GetMatchHistoryUseCase:
-    return GetMatchHistoryUseCase(league_repo, match_repo)
+    return GetMatchHistoryUseCase(league_repo, match_repo, singles_match_repo)
 
 
 def get_get_match_history_by_player_use_case(
     league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
     match_repo: SqlAlchemyMatchRepository = Depends(get_match_repo),
+    singles_match_repo: SqlAlchemySinglesMatchRepository = Depends(get_singles_match_repo),
 ) -> GetMatchHistoryByPlayerUseCase:
-    return GetMatchHistoryByPlayerUseCase(league_repo, match_repo)
+    return GetMatchHistoryByPlayerUseCase(league_repo, match_repo, singles_match_repo)
 
 
 def get_get_league_roster_use_case(
@@ -144,6 +172,28 @@ def get_delete_match_use_case(
     return DeleteMatchUseCase(
         league_repo,
         match_repo,
+        window_seconds=player_match_delete_window_seconds(),
+    )
+
+
+def get_edit_singles_match_score_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+    singles_match_repo: SqlAlchemySinglesMatchRepository = Depends(get_singles_match_repo),
+) -> EditSinglesMatchScoreUseCase:
+    return EditSinglesMatchScoreUseCase(
+        league_repo,
+        singles_match_repo,
+        window_seconds=player_score_edit_window_seconds(),
+    )
+
+
+def get_delete_singles_match_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+    singles_match_repo: SqlAlchemySinglesMatchRepository = Depends(get_singles_match_repo),
+) -> DeleteSinglesMatchUseCase:
+    return DeleteSinglesMatchUseCase(
+        league_repo,
+        singles_match_repo,
         window_seconds=player_match_delete_window_seconds(),
     )
 
