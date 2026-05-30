@@ -88,6 +88,10 @@ class DuplicatePairMatchupMatchError(DomainError):
     pass
 
 
+class DuplicateSinglesMatchupMatchError(DomainError):
+    pass
+
+
 class RosterMembershipRequiredError(DomainError):
     """Raised by `League.validate_match_participants_on_roster` when match
     submission contains a nickname not present on the league's roster and

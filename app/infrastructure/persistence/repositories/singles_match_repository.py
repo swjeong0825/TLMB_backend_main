@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.aggregates.league.value_objects import LeagueId, PlayerId
@@ -81,6 +81,59 @@ class SqlAlchemySinglesMatchRepository(SinglesMatchRepository):
             .order_by(SinglesMatchORM.created_at.desc())
         )
         return [singles_match_to_domain(row) for row in result.scalars().all()]
+
+    async def exists_match_for_player_matchup(
+        self, league_id: LeagueId, player1_id: PlayerId, player2_id: PlayerId
+    ) -> bool:
+        player1_uuid, player2_uuid = player1_id.value, player2_id.value
+        result = await self._session.execute(
+            select(SinglesMatchORM.match_id)
+            .where(
+                SinglesMatchORM.league_id == league_id.value,
+                or_(
+                    and_(
+                        SinglesMatchORM.player1_id == player1_uuid,
+                        SinglesMatchORM.player2_id == player2_uuid,
+                    ),
+                    and_(
+                        SinglesMatchORM.player1_id == player2_uuid,
+                        SinglesMatchORM.player2_id == player1_uuid,
+                    ),
+                ),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def exists_match_for_player_matchup_between(
+        self,
+        league_id: LeagueId,
+        player1_id: PlayerId,
+        player2_id: PlayerId,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> bool:
+        player1_uuid, player2_uuid = player1_id.value, player2_id.value
+        result = await self._session.execute(
+            select(SinglesMatchORM.match_id)
+            .where(
+                SinglesMatchORM.league_id == league_id.value,
+                SinglesMatchORM.created_at >= start_at,
+                SinglesMatchORM.created_at < end_at,
+                or_(
+                    and_(
+                        SinglesMatchORM.player1_id == player1_uuid,
+                        SinglesMatchORM.player2_id == player2_uuid,
+                    ),
+                    and_(
+                        SinglesMatchORM.player1_id == player2_uuid,
+                        SinglesMatchORM.player2_id == player1_uuid,
+                    ),
+                ),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
 
     async def save(self, match: SinglesMatch) -> None:
         match_orm = await self._session.get(SinglesMatchORM, match.match_id.value)

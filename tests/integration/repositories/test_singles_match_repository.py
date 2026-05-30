@@ -1,7 +1,7 @@
 """Integration tests for SqlAlchemySinglesMatchRepository."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import update
@@ -142,6 +142,56 @@ async def test_get_all_by_player_matches_either_side(session: AsyncSession) -> N
     assert {m.match_id for m in matches} == {match1.match_id, match2.match_id}
 
 
+async def test_exists_match_for_player_matchup_matches_either_side(
+    session: AsyncSession,
+) -> None:
+    league, alice_id, bob_id, charlie_id = await _seed_league_with_players(session)
+    repo = SqlAlchemySinglesMatchRepository(session)
+    match = _make_match(league, alice_id, bob_id)
+    await repo.save(match)
+    await session.commit()
+    session.expire_all()
+
+    assert await repo.exists_match_for_player_matchup(
+        league.league_id, alice_id, bob_id
+    )
+    assert await repo.exists_match_for_player_matchup(
+        league.league_id, bob_id, alice_id
+    )
+    assert not await repo.exists_match_for_player_matchup(
+        league.league_id, alice_id, charlie_id
+    )
+
+
+async def test_exists_match_for_player_matchup_between_respects_window(
+    session: AsyncSession,
+) -> None:
+    league, alice_id, bob_id, _ = await _seed_league_with_players(session)
+    repo = SqlAlchemySinglesMatchRepository(session)
+    match = _make_match(league, alice_id, bob_id)
+    created_at = datetime(2026, 5, 30, 15, 0, tzinfo=timezone.utc)
+    await repo.save(match)
+    await session.commit()
+    await _set_created_at(session, match.match_id, created_at)
+    await session.commit()
+    session.expire_all()
+
+    assert await repo.exists_match_for_player_matchup_between(
+        league.league_id,
+        bob_id,
+        alice_id,
+        created_at - timedelta(hours=1),
+        created_at + timedelta(hours=1),
+    )
+    assert not await repo.exists_match_for_player_matchup_between(
+        league.league_id,
+        alice_id,
+        bob_id,
+        created_at - timedelta(hours=3),
+        created_at - timedelta(hours=1),
+    )
+
+
 async def test_save_updates_existing_score(session: AsyncSession) -> None:
     league, alice_id, bob_id, _ = await _seed_league_with_players(session)
     match = _make_match(league, alice_id, bob_id)
@@ -171,4 +221,3 @@ async def test_delete_removes_match(session: AsyncSession) -> None:
     await session.commit()
 
     assert await repo.get_by_id(match.match_id, league.league_id) is None
-

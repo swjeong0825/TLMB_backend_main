@@ -6,10 +6,12 @@ from datetime import datetime, timezone
 from app.application.unit_of_work.submit_singles_match_result_uow import (
     SubmitSinglesMatchResultUnitOfWork,
 )
+from app.application.use_cases.league_day import league_local_day_utc_bounds
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.aggregates.singles_match.aggregate_root import SinglesMatch
 from app.domain.exceptions import (
+    DuplicateSinglesMatchupMatchError,
     LeagueNotFoundError,
     SamePlayerOnBothSidesError,
 )
@@ -67,6 +69,35 @@ class SubmitSinglesMatchResultUseCase:
                 raise SamePlayerOnBothSidesError(
                     "Both nicknames resolve to the same player"
                 )
+
+            if league.rules.pair_matchup_idempotency == "once_per_league":
+                match_exists = (
+                    await uow.singles_match_repo.exists_match_for_player_matchup(
+                        league_id, player1.player_id, player2.player_id
+                    )
+                )
+                if match_exists:
+                    raise DuplicateSinglesMatchupMatchError(
+                        "A singles match between these two players already exists in this league"
+                    )
+            elif league.rules.pair_matchup_idempotency == "once_per_day":
+                now_utc = datetime.now(timezone.utc)
+                day_start_utc, next_day_start_utc = league_local_day_utc_bounds(
+                    now_utc, league.league_timezone.value
+                )
+                match_exists = (
+                    await uow.singles_match_repo.exists_match_for_player_matchup_between(
+                        league_id,
+                        player1.player_id,
+                        player2.player_id,
+                        day_start_utc,
+                        next_day_start_utc,
+                    )
+                )
+                if match_exists:
+                    raise DuplicateSinglesMatchupMatchError(
+                        "A singles match between these two players already exists today"
+                    )
 
             match = SinglesMatch.create(
                 league_id,

@@ -54,6 +54,7 @@ flowchart LR
 | PairHasMatchesError | 409 |
 | SamePairOnBothSidesError | 409 |
 | DuplicatePairMatchupMatchError (pair matchup idempotency) | 409 |
+| DuplicateSinglesMatchupMatchError (singles player matchup idempotency) | 409 |
 | SamePlayerWithinSinglePairError | 422 |
 | SamePlayerOnBothPairsError | 422 |
 | SamePlayerOnBothSidesError (same player submitted on both sides of a singles match) | 422 |
@@ -74,7 +75,7 @@ flowchart LR
 - Purpose: Create a new league and receive access credentials. Optionally pre-register a starting roster of players in the same transaction.
 - Request shape: `{ "title": "str", "host_email": "str (RFC-compliant email)", "description": "str | null", "league_timezone": "str", "rules": { ... } | null, "initial_players": ["str", ...] }`
   - **`host_email` required.** Mandatory contact email for the league host, validated at the API edge by Pydantic `EmailStr` (RFC-compliant). Stored on the `League` aggregate as the `HostEmail` value object (stripped + lowercased). **Immutable after creation in this API version** — no admin endpoint updates it. The value is **not returned on player-facing read endpoints**; it is exposed only via `GET /admin/leagues/{league_id}` when the caller presents a valid `X-Host-Token`. Reserved for future notification features (sending the player/admin page links, new-match notifications); no notifications are sent today.
-  - **`league_timezone` optional**, default `"America/Los_Angeles"`. Must be a valid IANA timezone string; it is stored on `leagues.league_timezone` and used to compute the league-local calendar day for `pair_matchup_idempotency = "once_per_day"`.
+  - **`league_timezone` optional**, default `"America/Los_Angeles"`. Must be a valid IANA timezone string; it is stored on `leagues.league_timezone` and used to compute the league-local calendar day for `pair_matchup_idempotency = "once_per_day"` on doubles and singles submissions.
   - **`rules` optional.** When omitted, the server applies **product defaults** for new leagues. When present, it must use the v8 pair-shaped rules object (see [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md), [17_configurable_ranking.md](17_configurable_ranking.md), [18_configurable_ranking_v3.md](18_configurable_ranking_v3.md), and [20_roster_pre_registration.md](20_roster_pre_registration.md)). Rules are **not** mutable after creation in this API version.
   - **`initial_players` optional**, default `[]`. When non-empty, each entry must be a non-blank string; one `Player` row per entry is inserted in the same DB transaction that creates the league row (see [20_roster_pre_registration.md](20_roster_pre_registration.md) → "Modified use case: `CreateLeagueUseCase`"). The list may be supplied independently of `rules.auto_register_players_on_match` — strict-roster leagues will typically supply it; open leagues may also supply it as a seeding convenience. In-batch duplicates (after `PlayerNickname` normalization) reject the entire request with 409 and no league row or player rows are persisted.
 - Example `rules` (v8): `{ "version": 8, "pair_matchup_idempotency": "once_per_day", "one_pair_per_player": true, "ranking_subject": "pair", "tie_breakers": ["matches_won", "games_diff"], "auto_register_players_on_match": true }`
@@ -173,6 +174,7 @@ flowchart LR
   - 422 SamePlayerOnBothSidesError
   - 422 InvalidSetScoreError
   - 422 RosterMembershipRequiredError (only when `LeagueRules.auto_register_players_on_match = false`)
+  - 409 DuplicateSinglesMatchupMatchError (league rules reject another singles match for this unordered player matchup: either globally under `once_per_league`, or within today in the league timezone under `once_per_day`)
 - Auth notes: `league_id` in URL path — possession is sufficient
 
 ---

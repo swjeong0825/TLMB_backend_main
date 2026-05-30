@@ -10,6 +10,7 @@ from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     CannotRemoveCanonicalNicknameError,
     DuplicatePairMatchupMatchError,
+    DuplicateSinglesMatchupMatchError,
     InvalidLeagueRulesError,
     InvalidPlayerRatingError,
     InvalidSetScoreError,
@@ -141,6 +142,16 @@ async def duplicate_pair_matchup_match_handler(
     return JSONResponse(
         status_code=409,
         content={"error": "DuplicatePairMatchupMatchError", "detail": str(exc)},
+    )
+
+
+@app.exception_handler(DuplicateSinglesMatchupMatchError)
+async def duplicate_singles_matchup_match_handler(
+    request: Request, exc: DuplicateSinglesMatchupMatchError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"error": "DuplicateSinglesMatchupMatchError", "detail": str(exc)},
     )
 
 

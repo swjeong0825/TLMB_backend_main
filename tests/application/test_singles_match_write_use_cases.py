@@ -26,6 +26,7 @@ from app.domain.aggregates.league.value_objects import LeagueId, PlayerId
 from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.aggregates.singles_match.aggregate_root import SinglesMatch
 from app.domain.exceptions import (
+    DuplicateSinglesMatchupMatchError,
     LeagueNotFoundError,
     MatchDeleteWindowExpiredError,
     MatchEditWindowExpiredError,
@@ -35,6 +36,26 @@ from app.domain.exceptions import (
     UnauthorizedError,
 )
 from tests.application.conftest import make_league
+
+
+def _league_with_matchup_idempotency(idempotency: str) -> League:
+    rules = LeagueRules.from_dict(
+        {
+            "version": 8,
+            "pair_matchup_idempotency": idempotency,
+            "one_pair_per_player": True,
+            "ranking_subject": "pair",
+            "tie_breakers": ["matches_won"],
+            "auto_register_players_on_match": True,
+        }
+    )
+    return League.create(
+        title=f"Singles {idempotency} League",
+        description=None,
+        host_token="test-host-token",
+        host_email="host@example.com",
+        rules=rules,
+    )
 
 
 def _league_require_roster() -> League:
@@ -76,6 +97,12 @@ def _make_submit_uow_factory(league: League | None):
     uow.league_repo.get_by_id_with_lock = AsyncMock(return_value=league)
     uow.league_repo.save = AsyncMock(return_value=None)
     uow.singles_match_repo = AsyncMock()
+    uow.singles_match_repo.exists_match_for_player_matchup = AsyncMock(
+        return_value=False
+    )
+    uow.singles_match_repo.exists_match_for_player_matchup_between = AsyncMock(
+        return_value=False
+    )
     uow.singles_match_repo.save = AsyncMock(return_value=None)
     uow.commit = AsyncMock(return_value=None)
     uow.rollback = AsyncMock(return_value=None)
@@ -115,6 +142,10 @@ class TestSubmitSinglesMatchResultUseCase:
         assert league.pairs == []
         assert league.latest_match_date_single is not None
         assert league.latest_match_date is None
+        (
+            uow.singles_match_repo.exists_match_for_player_matchup_between
+            .assert_awaited_once()
+        )
         assert uow.league_repo.save.await_count == 2
         uow.singles_match_repo.save.assert_awaited_once()
         uow.commit.assert_awaited_once()
@@ -185,6 +216,84 @@ class TestSubmitSinglesMatchResultUseCase:
                     player2_score="3",
                 )
             )
+
+    async def test_once_per_day_rejects_duplicate_player_matchup(self) -> None:
+        league = make_league()
+        league.add_players(["alice", "bob"])
+        factory, uow = _make_submit_uow_factory(league)
+        duplicate_check = (
+            uow.singles_match_repo.exists_match_for_player_matchup_between
+        )
+        duplicate_check.return_value = True
+        use_case = SubmitSinglesMatchResultUseCase(factory)
+
+        with pytest.raises(DuplicateSinglesMatchupMatchError):
+            await use_case.execute(
+                SubmitSinglesMatchResultCommand(
+                    league_id=str(league.league_id),
+                    player1_nickname="alice",
+                    player2_nickname="bob",
+                    player1_score="6",
+                    player2_score="3",
+                )
+            )
+
+        (
+            uow.singles_match_repo.exists_match_for_player_matchup_between
+            .assert_awaited_once()
+        )
+        uow.singles_match_repo.save.assert_not_awaited()
+        uow.commit.assert_not_awaited()
+
+    async def test_once_per_league_rejects_duplicate_player_matchup(self) -> None:
+        league = _league_with_matchup_idempotency("once_per_league")
+        league.add_players(["alice", "bob"])
+        factory, uow = _make_submit_uow_factory(league)
+        uow.singles_match_repo.exists_match_for_player_matchup.return_value = True
+        use_case = SubmitSinglesMatchResultUseCase(factory)
+
+        with pytest.raises(DuplicateSinglesMatchupMatchError):
+            await use_case.execute(
+                SubmitSinglesMatchResultCommand(
+                    league_id=str(league.league_id),
+                    player1_nickname="alice",
+                    player2_nickname="bob",
+                    player1_score="6",
+                    player2_score="3",
+                )
+            )
+
+        uow.singles_match_repo.exists_match_for_player_matchup.assert_awaited_once()
+        (
+            uow.singles_match_repo.exists_match_for_player_matchup_between
+            .assert_not_awaited()
+        )
+        uow.singles_match_repo.save.assert_not_awaited()
+        uow.commit.assert_not_awaited()
+
+    async def test_none_idempotency_allows_repeat_player_matchup(self) -> None:
+        league = _league_with_matchup_idempotency("none")
+        league.add_players(["alice", "bob"])
+        factory, uow = _make_submit_uow_factory(league)
+        use_case = SubmitSinglesMatchResultUseCase(factory)
+
+        await use_case.execute(
+            SubmitSinglesMatchResultCommand(
+                league_id=str(league.league_id),
+                player1_nickname="alice",
+                player2_nickname="bob",
+                player1_score="6",
+                player2_score="3",
+            )
+        )
+
+        uow.singles_match_repo.exists_match_for_player_matchup.assert_not_awaited()
+        (
+            uow.singles_match_repo.exists_match_for_player_matchup_between
+            .assert_not_awaited()
+        )
+        uow.singles_match_repo.save.assert_awaited_once()
+        uow.commit.assert_awaited_once()
 
 
 class TestEditSinglesMatchScoreUseCase:
@@ -413,4 +522,3 @@ class TestDeleteSinglesMatchUseCase:
             )
 
         singles_match_repo.get_by_id.assert_not_awaited()
-

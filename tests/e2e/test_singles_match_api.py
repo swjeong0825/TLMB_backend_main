@@ -74,6 +74,31 @@ async def test_submit_singles_same_player_returns_422(client: AsyncClient) -> No
     assert resp.json()["error"] == "SamePlayerOnBothSidesError"
 
 
+async def test_submit_singles_duplicate_same_day_returns_409(
+    client: AsyncClient,
+) -> None:
+    league = await create_league(client)
+    league_id = league["league_id"]
+    await submit_singles_match(client, league_id, player1="alex", player2="bin")
+
+    resp = await client.post(
+        f"/leagues/{league_id}/singles-matches",
+        json={
+            "player1_nickname": "bin",
+            "player2_nickname": "alex",
+            "player1_score": "2",
+            "player2_score": "6",
+        },
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"] == "DuplicateSinglesMatchupMatchError"
+
+    history_resp = await client.get(f"/leagues/{league_id}/matches?scope=singles")
+    assert history_resp.status_code == 200, history_resp.text
+    assert len(history_resp.json()["matches"]) == 1
+
+
 async def test_singles_standings_and_history_scopes(client: AsyncClient) -> None:
     league = await create_league(client)
     league_id = league["league_id"]
@@ -157,4 +182,3 @@ async def test_admin_edit_and_delete_singles_match(client: AsyncClient) -> None:
     history_resp = await client.get(f"/leagues/{league_id}/matches?scope=singles")
     assert history_resp.status_code == 200, history_resp.text
     assert history_resp.json()["matches"] == []
-

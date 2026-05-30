@@ -33,6 +33,21 @@ class SinglesMatchRepository(ABC):
     ) -> list[SinglesMatch]: ...
 
     @abstractmethod
+    async def exists_match_for_player_matchup(
+        self, league_id: LeagueId, player1_id: PlayerId, player2_id: PlayerId
+    ) -> bool: ...
+
+    @abstractmethod
+    async def exists_match_for_player_matchup_between(
+        self,
+        league_id: LeagueId,
+        player1_id: PlayerId,
+        player2_id: PlayerId,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> bool: ...
+
+    @abstractmethod
     async def save(self, match: SinglesMatch) -> None: ...
 
     @abstractmethod

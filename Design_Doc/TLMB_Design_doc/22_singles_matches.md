@@ -80,6 +80,9 @@ In-scope:
 - New `League` aggregate method `register_single_player(nickname)` —
   registers a roster `Player` without creating a `Pair`.
 - Write use case `SubmitSinglesMatchResultUseCase` (+ its Unit of Work).
+- Singles submissions reuse `LeagueRules.pair_matchup_idempotency` for
+  unordered player-vs-player matchups (`none`, `once_per_league`, or
+  `once_per_day` in the league timezone).
 - Read path: singles player standings, and a **combined** player
   standings that unions doubles + singles via `StandingsCalculator`.
 - API: player/admin submit, edit, and delete parity for singles matches;
@@ -92,8 +95,6 @@ In-scope:
 
 Out of scope (call out explicitly, decide later):
 
-- Singles idempotency rule (an "unordered player pair" analogue of
-  `pair_matchup_idempotency`). Default: none in v1.
 - Multi-set scoring (already out of scope for doubles, see
   [16_league_rules_and_match_policies.md](16_league_rules_and_match_policies.md)).
 - A new LLM/chat write intent. `SUBMIT_MATCH_RESULT` remains
@@ -197,8 +198,13 @@ registration or `validate_pairs_do_not_share_players`):
 3. `league.validate_match_participants_on_roster([n1, n2])`.
 4. `p1 = league.register_single_player(n1)`;
    `p2 = league.register_single_player(n2)`.
-5. *(Optional, if a singles idempotency rule is adopted)* check
-   `singles_match_repo.exists_match_for_player_matchup(...)`.
+5. Apply `league.rules.pair_matchup_idempotency` to the unordered
+   player matchup:
+   - `once_per_league`: check
+     `singles_match_repo.exists_match_for_player_matchup(...)`.
+   - `once_per_day`: compute the league-local day UTC bounds and check
+     `singles_match_repo.exists_match_for_player_matchup_between(...)`.
+   - `none`: skip the duplicate check.
 6. `SinglesMatch.create(league_id, p1.player_id, p2.player_id, set_score)`.
 7. Save league + singles match; update
    `league.note_singles_match_recorded_at(created_at)`; commit.
@@ -294,7 +300,7 @@ So `scope ∈ {singles, both}` implies `subject = player`.
 
 Error → HTTP mapping follows the existing table in the
 `backend-ddd-layering` rule (e.g. same-player → 422, league not found →
-404).
+404, duplicate singles matchup → 409).
 
 ## Frontend
 
@@ -338,8 +344,9 @@ the frontend submits).
 
 ## Open decisions
 
-1. **Singles idempotency** — adopt an unordered-player-pair rule, or none
-   (v1 default: none).
+1. **Singles idempotency** — resolved: reuse
+   `pair_matchup_idempotency` against unordered player-vs-player
+   matchups.
 2. **`latest_match_date`** — resolved: keep this as doubles-only; add
    `latest_match_date_single` and `latest_activity_date`.
 3. **Per-match vs per-league format** — offering a "both" board implies a
@@ -356,7 +363,7 @@ the frontend submits).
 | Layer | File(s) | Change |
 |---|---|---|
 | Domain | `aggregates/singles_match/{value_objects,aggregate_root,repository}.py` | new aggregate + port |
-| Domain | `exceptions.py` | `+ SamePlayerOnBothSidesError` |
+| Domain | `exceptions.py` | `+ SamePlayerOnBothSidesError`, `+ DuplicateSinglesMatchupMatchError` |
 | Domain | `aggregates/league/aggregate_root.py` | `+ register_single_player` |
 | Domain svc | `services/standings_calculator.py` | singles + combined player aggregation (reuse, no new ranking logic) |
 | Infra | `persistence/models/orm_models.py` | `+ SinglesMatchORM`, `LeagueORM.singles_matches` |

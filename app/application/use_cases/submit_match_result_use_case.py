@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 
+from app.application.use_cases.league_day import league_local_day_utc_bounds
 from app.application.unit_of_work.submit_match_result_uow import SubmitMatchResultUnitOfWork
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.match.aggregate_root import Match
@@ -29,16 +29,6 @@ class SubmitMatchResultCommand:
 class SubmitMatchResultResult:
     match_id: str
     created_at: datetime
-
-
-def _league_local_day_utc_bounds(
-    now_utc: datetime, league_timezone: str
-) -> tuple[datetime, datetime]:
-    tz = ZoneInfo(league_timezone)
-    local_day = now_utc.astimezone(tz).date()
-    start_local = datetime.combine(local_day, time.min, tzinfo=tz)
-    end_local = start_local + timedelta(days=1)
-    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
 class SubmitMatchResultUseCase:
@@ -95,7 +85,7 @@ class SubmitMatchResultUseCase:
                     )
             elif league.rules.pair_matchup_idempotency == "once_per_day":
                 now_utc = datetime.now(timezone.utc)
-                day_start_utc, next_day_start_utc = _league_local_day_utc_bounds(
+                day_start_utc, next_day_start_utc = league_local_day_utc_bounds(
                     now_utc, league.league_timezone.value
                 )
                 pair_exists = await uow.match_repo.exists_match_for_pair_matchup_between(
