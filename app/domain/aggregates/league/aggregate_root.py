@@ -45,6 +45,7 @@ class League:
     host_email: HostEmail
     league_timezone: LeagueTimezone
     latest_match_date: date | None
+    latest_match_date_single: date | None
     title: str
     description: str | None
     rules: LeagueRules
@@ -72,6 +73,7 @@ class League:
             host_email=HostEmail(value=host_email),
             league_timezone=LeagueTimezone(value=league_timezone),
             latest_match_date=None,
+            latest_match_date_single=None,
             title=title,
             description=description,
             rules=resolved_rules,
@@ -82,13 +84,27 @@ class League:
         )
 
     def note_match_recorded_at(self, created_at: datetime) -> None:
-        """Update league metadata from a persisted match timestamp."""
+        """Update doubles activity metadata from a persisted match timestamp."""
         local_date = self._local_date_for(created_at)
         if self.latest_match_date is None or local_date > self.latest_match_date:
             self.latest_match_date = local_date
 
+    def note_singles_match_recorded_at(self, created_at: datetime) -> None:
+        """Update singles activity metadata from a persisted match timestamp."""
+        local_date = self._local_date_for(created_at)
+        if (
+            self.latest_match_date_single is None
+            or local_date > self.latest_match_date_single
+        ):
+            self.latest_match_date_single = local_date
+
     def reset_latest_match_date(self, created_at: datetime | None) -> None:
         self.latest_match_date = (
+            self._local_date_for(created_at) if created_at is not None else None
+        )
+
+    def reset_latest_singles_match_date(self, created_at: datetime | None) -> None:
+        self.latest_match_date_single = (
             self._local_date_for(created_at) if created_at is not None else None
         )
 
@@ -155,6 +171,17 @@ class League:
         self.pairs.append(new_pair)
 
         return new_players, new_pair
+
+    def register_single_player(self, nickname: str) -> Player:
+        """Find or create a roster player without creating a pair."""
+        nick = PlayerNickname(nickname)
+        player = self._find_player_by_nickname(nick)
+        if player is not None:
+            return player
+
+        player = Player(player_id=PlayerId.generate(), nicknames=[nick])
+        self.players.append(player)
+        return player
 
     def edit_player_nickname(self, player_id: str, new_nickname: str) -> Player:
         pid = PlayerId.from_str(player_id)

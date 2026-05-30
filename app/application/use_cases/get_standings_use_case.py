@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.domain.aggregates.league.league_rules import RankingMetric, RankingSubject
 from app.domain.aggregates.league.repository import LeagueRepository
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.match.repository import MatchRepository
+from app.domain.aggregates.singles_match.repository import SinglesMatchRepository
 from app.domain.exceptions import LeagueNotFoundError
 from app.domain.services.standings_calculator import StandingsCalculator, StandingsEntry
+
+StandingsScope = Literal["doubles", "singles", "both"]
 
 
 @dataclass
@@ -18,6 +22,7 @@ class GetStandingsQuery:
     start_date: date | None = None
     end_date: date | None = None
     subject: RankingSubject | None = None
+    scope: StandingsScope = "doubles"
 
 
 @dataclass(frozen=True)
@@ -41,9 +46,11 @@ class GetStandingsUseCase:
         self,
         league_repo: LeagueRepository,
         match_repo: MatchRepository,
+        singles_match_repo: SinglesMatchRepository | None = None,
     ) -> None:
         self._league_repo = league_repo
         self._match_repo = match_repo
+        self._singles_match_repo = singles_match_repo
         self._calculator = StandingsCalculator()
 
     async def execute(self, query: GetStandingsQuery) -> StandingsView:
@@ -58,21 +65,62 @@ class GetStandingsUseCase:
             query.end_date,
             league.league_timezone.value,
         )
-        if start_at is None and end_at is None:
-            matches = await self._match_repo.get_all_by_league(league_id)
-        else:
-            matches = await self._match_repo.get_all_by_league(
-                league_id, start_at=start_at, end_at=end_at
-            )
+        matches = []
+        singles_matches = []
+        if query.scope in ("doubles", "both"):
+            matches = await self._get_doubles_matches(league_id, start_at, end_at)
+        if query.scope in ("singles", "both"):
+            singles_matches = await self._get_singles_matches(league_id, start_at, end_at)
 
-        entries = self._calculator.compute(
-            matches,
-            league.pairs,
-            league.players,
-            league.rules,
-            subject=query.subject,
-        )
+        if query.scope == "singles":
+            entries = self._calculator.compute_singles(
+                singles_matches,
+                league.players,
+                league.rules,
+            )
+        elif query.scope == "both":
+            entries = self._calculator.compute_combined(
+                matches,
+                league.pairs,
+                singles_matches,
+                league.players,
+                league.rules,
+            )
+        else:
+            entries = self._calculator.compute(
+                matches,
+                league.pairs,
+                league.players,
+                league.rules,
+                subject=query.subject,
+            )
         return StandingsView(entries=entries, tie_breakers=league.rules.tie_breakers)
+
+    async def _get_doubles_matches(
+        self,
+        league_id: LeagueId,
+        start_at: datetime | None,
+        end_at: datetime | None,
+    ):
+        if start_at is None and end_at is None:
+            return await self._match_repo.get_all_by_league(league_id)
+        return await self._match_repo.get_all_by_league(
+            league_id, start_at=start_at, end_at=end_at
+        )
+
+    async def _get_singles_matches(
+        self,
+        league_id: LeagueId,
+        start_at: datetime | None,
+        end_at: datetime | None,
+    ):
+        if self._singles_match_repo is None:
+            return []
+        if start_at is None and end_at is None:
+            return await self._singles_match_repo.get_all_by_league(league_id)
+        return await self._singles_match_repo.get_all_by_league(
+            league_id, start_at=start_at, end_at=end_at
+        )
 
 
 def league_date_filter_to_utc_bounds(

@@ -17,6 +17,7 @@ from app.domain.aggregates.league.value_objects import (
 )
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.value_objects import SetScore
+from app.domain.aggregates.singles_match.aggregate_root import SinglesMatch
 from app.domain.services.standings_calculator import StandingsCalculator
 
 
@@ -38,6 +39,12 @@ def _pair(p1: Player, p2: Player) -> Pair:
 
 def _match(league_id: LeagueId, t1: Pair, t2: Pair, s1: str, s2: str) -> Match:
     return Match.create(league_id, t1.pair_id, t2.pair_id, SetScore(s1, s2))
+
+
+def _singles_match(
+    league_id: LeagueId, p1: Player, p2: Player, s1: str, s2: str
+) -> SinglesMatch:
+    return SinglesMatch.create(league_id, p1.player_id, p2.player_id, SetScore(s1, s2))
 
 
 def _rules(
@@ -150,6 +157,57 @@ class TestStandingsCalculatorBasic:
         assert draws[str(pair_ab.pair_id.value)] == 1
         assert draws[str(pair_ef.pair_id.value)] == 1
         assert draws[str(pair_cd.pair_id.value)] == 0
+
+
+class TestSinglesStandings:
+    def test_singles_standings_credit_players_directly(self) -> None:
+        alice, bob = _player("alice"), _player("bob")
+        match = _singles_match(LEAGUE, alice, bob, "6", "3")
+
+        entries = StandingsCalculator().compute_singles(
+            [match],
+            [alice, bob],
+            DEFAULT_RULES,
+        )
+
+        alice_row = next(e for e in entries if e.player_id == str(alice.player_id.value))
+        bob_row = next(e for e in entries if e.player_id == str(bob.player_id.value))
+        assert alice_row.subject_kind == "player"
+        assert alice_row.wins == 1
+        assert alice_row.games_won == 6
+        assert bob_row.losses == 1
+        assert bob_row.games_lost == 6
+
+    def test_combined_standings_merge_doubles_and_singles_player_credit(self) -> None:
+        alice, bob = _player("alice"), _player("bob")
+        charlie, diana = _player("charlie"), _player("diana")
+        pair_ab = _pair(alice, bob)
+        pair_cd = _pair(charlie, diana)
+        doubles = _match(LEAGUE, pair_ab, pair_cd, "6", "3")
+        singles = _singles_match(LEAGUE, charlie, alice, "6", "1")
+
+        entries = StandingsCalculator().compute_combined(
+            [doubles],
+            [pair_ab, pair_cd],
+            [singles],
+            [alice, bob, charlie, diana],
+            DEFAULT_RULES,
+        )
+
+        alice_row = next(e for e in entries if e.player_id == str(alice.player_id.value))
+        charlie_row = next(
+            e for e in entries if e.player_id == str(charlie.player_id.value)
+        )
+        assert alice_row.matches_played == 2
+        assert alice_row.wins == 1
+        assert alice_row.losses == 1
+        assert alice_row.games_won == 7
+        assert alice_row.games_lost == 9
+        assert charlie_row.matches_played == 2
+        assert charlie_row.wins == 1
+        assert charlie_row.losses == 1
+        assert charlie_row.games_won == 9
+        assert charlie_row.games_lost == 7
 
 
 class TestStandingsRanking:

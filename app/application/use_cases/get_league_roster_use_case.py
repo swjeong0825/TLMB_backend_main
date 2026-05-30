@@ -46,6 +46,8 @@ class RosterView:
     players: list[PlayerEntry]
     pairs: list[PairEntry]
     latest_match_date: date | None = None
+    latest_match_date_single: date | None = None
+    latest_activity_date: date | None = None
 
 
 class GetLeagueRosterUseCase:
@@ -96,7 +98,20 @@ class GetLeagueRosterUseCase:
             title=league.title,
             league_timezone=league.league_timezone.value,
             latest_match_date=league.latest_match_date,
+            latest_match_date_single=league.latest_match_date_single,
+            latest_activity_date=_max_date(
+                league.latest_match_date,
+                league.latest_match_date_single,
+            ),
             rules=league.rules.to_dict(),
             players=players,
             pairs=pairs,
         )
+
+
+def _max_date(first: date | None, second: date | None) -> date | None:
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return max(first, second)

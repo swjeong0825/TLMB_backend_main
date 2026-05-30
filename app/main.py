@@ -23,6 +23,7 @@ from app.domain.exceptions import (
     PlayerHasParticipationError,
     PlayerNotFoundError,
     RosterMembershipRequiredError,
+    SamePlayerOnBothSidesError,
     SamePlayerOnBothPairsError,
     SamePlayerWithinSinglePairError,
     SamePairOnBothSidesError,
@@ -151,6 +152,16 @@ async def same_player_single_pair_handler(request: Request, exc: SamePlayerWithi
 @app.exception_handler(SamePlayerOnBothPairsError)
 async def same_player_both_pairs_handler(request: Request, exc: SamePlayerOnBothPairsError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "SamePlayerOnBothPairsError", "detail": str(exc)})
+
+
+@app.exception_handler(SamePlayerOnBothSidesError)
+async def same_player_singles_handler(
+    request: Request, exc: SamePlayerOnBothSidesError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"error": "SamePlayerOnBothSidesError", "detail": str(exc)},
+    )
 
 
 @app.exception_handler(InvalidSetScoreError)

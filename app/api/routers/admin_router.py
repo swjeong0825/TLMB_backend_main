@@ -9,6 +9,8 @@ from app.api.schemas.admin_schemas import (
     AddPlayersResponse,
     EditMatchScoreRequest,
     EditMatchScoreResponse,
+    EditSinglesMatchScoreRequest,
+    EditSinglesMatchScoreResponse,
     EditPlayerNicknameRequest,
     EditPlayerNicknameResponse,
     GetLeagueAdminInfoResponse,
@@ -24,10 +26,18 @@ from app.application.use_cases.add_players_use_case import (
     AddPlayersUseCase,
 )
 from app.application.use_cases.delete_match_use_case import DeleteMatchCommand, DeleteMatchUseCase
+from app.application.use_cases.delete_singles_match_use_case import (
+    DeleteSinglesMatchCommand,
+    DeleteSinglesMatchUseCase,
+)
 from app.application.use_cases.delete_pair_use_case import DeletePairCommand, DeletePairUseCase
 from app.application.use_cases.edit_match_score_use_case import (
     EditMatchScoreCommand,
     EditMatchScoreUseCase,
+)
+from app.application.use_cases.edit_singles_match_score_use_case import (
+    EditSinglesMatchScoreCommand,
+    EditSinglesMatchScoreUseCase,
 )
 from app.application.use_cases.edit_player_nickname_use_case import (
     EditPlayerNicknameCommand,
@@ -49,8 +59,10 @@ from app.dependencies import (
     get_add_alias_to_player_use_case,
     get_add_players_use_case,
     get_delete_match_use_case,
+    get_delete_singles_match_use_case,
     get_delete_pair_use_case,
     get_edit_match_score_use_case,
+    get_edit_singles_match_score_use_case,
     get_edit_player_nickname_use_case,
     get_get_league_admin_info_use_case,
     get_remove_alias_from_player_use_case,
@@ -178,6 +190,59 @@ async def delete_match(
 ) -> None:
     await use_case.execute(
         DeleteMatchCommand(
+            host_token=x_host_token,
+            league_id=league_id,
+            match_id=match_id,
+        )
+    )
+
+
+@router.patch(
+    "/leagues/{league_id}/singles-matches/{match_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=EditSinglesMatchScoreResponse,
+)
+@limiter.limit("60/minute")
+async def edit_singles_match_score(
+    request: Request,
+    league_id: str,
+    match_id: str,
+    body: EditSinglesMatchScoreRequest,
+    x_host_token: str = Header(..., alias="X-Host-Token"),
+    use_case: EditSinglesMatchScoreUseCase = Depends(
+        get_edit_singles_match_score_use_case
+    ),
+) -> EditSinglesMatchScoreResponse:
+    result = await use_case.execute(
+        EditSinglesMatchScoreCommand(
+            host_token=x_host_token,
+            league_id=league_id,
+            match_id=match_id,
+            player1_score=body.player1_score,
+            player2_score=body.player2_score,
+        )
+    )
+    return EditSinglesMatchScoreResponse(
+        match_id=result.match_id,
+        player1_score=result.player1_score,
+        player2_score=result.player2_score,
+    )
+
+
+@router.delete(
+    "/leagues/{league_id}/singles-matches/{match_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@limiter.limit("60/minute")
+async def delete_singles_match(
+    request: Request,
+    league_id: str,
+    match_id: str,
+    x_host_token: str = Header(..., alias="X-Host-Token"),
+    use_case: DeleteSinglesMatchUseCase = Depends(get_delete_singles_match_use_case),
+) -> None:
+    await use_case.execute(
+        DeleteSinglesMatchCommand(
             host_token=x_host_token,
             league_id=league_id,
             match_id=match_id,

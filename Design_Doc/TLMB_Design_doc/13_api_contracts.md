@@ -15,8 +15,11 @@ flowchart LR
         P1["POST /leagues"]
         P1b["GET /leagues?title_prefix=str"]
         P2["POST /leagues/{league_id}/matches"]
+        P2s["POST /leagues/{league_id}/singles-matches"]
         P2b["PATCH /leagues/{league_id}/matches/{match_id} (within edit window)"]
         P2c["DELETE /leagues/{league_id}/matches/{match_id} (within delete window)"]
+        P2sb["PATCH /leagues/{league_id}/singles-matches/{match_id} (within edit window)"]
+        P2sc["DELETE /leagues/{league_id}/singles-matches/{match_id} (within delete window)"]
         P3["GET /leagues/{league_id}/standings"]
         P3b["GET /leagues/{league_id}/standings/by-player?player_name=str"]
         P4["GET /leagues/{league_id}/matches"]
@@ -29,6 +32,8 @@ flowchart LR
         A2["DELETE /admin/leagues/{league_id}/pairs/{pair_id}"]
         A3["PATCH /admin/leagues/{league_id}/matches/{match_id}"]
         A4["DELETE /admin/leagues/{league_id}/matches/{match_id}"]
+        A3s["PATCH /admin/leagues/{league_id}/singles-matches/{match_id}"]
+        A4s["DELETE /admin/leagues/{league_id}/singles-matches/{match_id}"]
         A5["POST /admin/leagues/{league_id}/players"]
         A6["DELETE /admin/leagues/{league_id}/players/{player_id}"]
     end
@@ -51,6 +56,7 @@ flowchart LR
 | DuplicatePairMatchupMatchError (pair matchup idempotency) | 409 |
 | SamePlayerWithinSinglePairError | 422 |
 | SamePlayerOnBothPairsError | 422 |
+| SamePlayerOnBothSidesError (same player submitted on both sides of a singles match) | 422 |
 | InvalidSetScoreError | 422 |
 | InvalidPlayerRatingError (admin supplied a negative or non-finite player rating) | 422 |
 | InvalidLeagueRulesError (invalid v8 rules body, invalid `league_timezone`, or v3 ranking config violations such as the `(ranking_subject="player", one_pair_per_player=true)` cross-rule rejection) | 422 |
@@ -145,12 +151,38 @@ flowchart LR
 
 ---
 
+## Endpoint: Submit Singles Match Result
+
+- Method: POST
+- Path: `/leagues/{league_id}/singles-matches`
+- Purpose: Record a confirmed singles match result; implicitly registers
+  any new players without creating a pair.
+- Request shape:
+  ```json
+  {
+    "player1_nickname": "str",
+    "player2_nickname": "str",
+    "player1_score": "str",
+    "player2_score": "str"
+  }
+  ```
+- Response shape: `{ "match_id": "uuid", "created_at": "ISO 8601 datetime (UTC)" }`
+- Use case called: SubmitSinglesMatchResultUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 422 SamePlayerOnBothSidesError
+  - 422 InvalidSetScoreError
+  - 422 RosterMembershipRequiredError (only when `LeagueRules.auto_register_players_on_match = false`)
+- Auth notes: `league_id` in URL path — possession is sufficient
+
+---
+
 ## Endpoint: Get Standings
 
 - Method: GET
 - Path: `/leagues/{league_id}/standings`
 - Purpose: Get the current standings for the league. By default this uses the league's configured `ranking_subject`; callers may request a read-only pair/player projection with `subject=pair|player`. Ordering still uses the league's configured `tie_breakers` list (see [17_configurable_ranking.md](17_configurable_ranking.md)).
-- Request shape: optional query params `subject=pair|player`, `start_date=YYYY-MM-DD`, `end_date=YYYY-MM-DD`
+- Request shape: optional query params `subject=pair|player`, `scope=doubles|singles|both`, `start_date=YYYY-MM-DD`, `end_date=YYYY-MM-DD`. `scope` defaults to `doubles`. `subject=pair` is valid only with `scope=doubles`; `scope=singles|both` returns player rows.
 - Response shape: **polymorphic on `subject_kind`**. Every row carries `subject_kind`, `rank`, `matches_played`, `wins`, `losses`, `games_won`, `games_lost`, `games_diff`, `win_pct`. Pair variants additionally carry `pair_id`, `player1_nickname`, `player2_nickname`. Player variants additionally carry `player_id`, `nickname`. The top-level `tie_breakers` field echoes the league's ordered ranking metrics (a copy of `LeagueRules.tie_breakers`) so clients can label the displayed metric column to match the league's primary tie-breaker — e.g. a league configured with `tie_breakers=["games_won", ...]` shows a "Games won" column rather than a generic "Games ±".
   ```json
   {
@@ -187,7 +219,7 @@ flowchart LR
   }
   ```
 - Use case called: GetStandingsUseCase
-- Error responses: 404 LeagueNotFoundError; 422 invalid `subject` or invalid date range
+- Error responses: 404 LeagueNotFoundError; 422 invalid `subject`, invalid `scope`, invalid `(subject=pair, scope!=doubles)`, or invalid date range
 - Auth notes: `league_id` in URL path — possession is sufficient
 - Notes: For a single response, every row's `subject_kind` is identical because the request chooses one projection subject. The discriminator is included on every row so individual rows are still self-describing for downstream consumers (chat handlers, render loops). Old clients reading only `pair_id` / `player1_nickname` / `player2_nickname` / `wins` / `losses` will silently break for player-subject responses — coordinate frontend + backend rollouts.
 
@@ -198,7 +230,7 @@ flowchart LR
 - Method: GET
 - Path: `/leagues/{league_id}/standings/by-player`
 - Purpose: Get the standings entry for the pair or player identified by a nickname. Under `ranking_subject == "pair"`, returns the row for the player's pair. Under `ranking_subject == "player"`, returns that player's own row.
-- Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
+- Request shape: `?player_name=str&scope=doubles|singles|both` (`player_name` is case-insensitive; `scope` defaults to `doubles`). `scope=singles|both` always returns player rows.
 - Response shape: identical polymorphic shape to `GET /leagues/{league_id}/standings`. Under `(pair, OTPP=true)` and `(player, OTPP=false)`, the `standings` array has at most one element. Under `(pair, OTPP=false)`, the array contains one element per pair the resolved player belongs to. An empty array is returned if the player exists but has no pair (e.g. all of their pairs have been deleted).
 - Use case called: GetStandingsByPlayerUseCase
 - Error responses:
@@ -212,20 +244,30 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/matches`
-- Purpose: Get the chronological list of all recorded match results in the league
-- Request shape: —
+- Purpose: Get the chronological list of recorded match results in the league.
+- Request shape: optional query param `scope=doubles|singles|both`; default `doubles` preserves the historical doubles-only response.
 - Response shape:
   ```json
   {
     "matches": [
       {
         "match_id": "uuid",
+        "match_format": "doubles",
         "pair1_player1_nickname": "str",
         "pair1_player2_nickname": "str",
         "pair2_player1_nickname": "str",
         "pair2_player2_nickname": "str",
         "pair1_score": "str",
         "pair2_score": "str",
+        "created_at": "ISO 8601 datetime (UTC)"
+      },
+      {
+        "match_id": "uuid",
+        "match_format": "singles",
+        "player1_nickname": "str",
+        "player2_nickname": "str",
+        "player1_score": "str",
+        "player2_score": "str",
         "created_at": "ISO 8601 datetime (UTC)"
       }
     ]
@@ -234,7 +276,7 @@ flowchart LR
 - Use case called: GetMatchHistoryUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: Sorted by `created_at` descending (most recent first). Player nicknames reflect current state — admin nickname edits retroactively affect display.
+- Notes: Sorted by `created_at` descending (most recent first). `scope=both` returns one newest-first timeline with `match_format` discriminating row shape. Player nicknames reflect current state — admin nickname edits retroactively affect display.
 
 ---
 
@@ -249,6 +291,9 @@ flowchart LR
   {
     "title": "str",
     "league_timezone": "America/Los_Angeles",
+    "latest_match_date": "YYYY-MM-DD | null",
+    "latest_match_date_single": "YYYY-MM-DD | null",
+    "latest_activity_date": "YYYY-MM-DD | null",
     "rules": {
       "version": 8,
       "pair_matchup_idempotency": "none | once_per_league | once_per_day",
@@ -270,7 +315,7 @@ flowchart LR
 - Use case called: GetLeagueRosterUseCase
 - Error responses: 404 LeagueNotFoundError
 - Auth notes: `league_id` in URL path — possession is sufficient
-- Notes: `rules` mirrors `LeagueRules.to_dict()`; responses use the current v8 pair-shaped rules contract. `league_timezone` is top-level league metadata, not a `rules` key. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
+- Notes: `rules` mirrors `LeagueRules.to_dict()`; responses use the current v8 pair-shaped rules contract. `league_timezone` is top-level league metadata, not a `rules` key. `latest_match_date` remains the latest doubles date; `latest_match_date_single` is the latest singles date; `latest_activity_date` is the max of the two. The `players` array includes every roster player, including those pre-registered via `POST /admin/leagues/{league_id}/players` who have not yet appeared on a match. `player_score_edit_window_seconds` and `player_match_delete_window_seconds` are **server-wide config** (not per-league rules), surfaced here so the frontend can fetch league title + rules + both windows in the single roster trip it already makes on chat-page boot. They power the per-row Update / Delete button enable/disable matrix on the match-history panel.
   `rating` is nullable; unrated players return `"rating": null`.
 
 ---
@@ -279,8 +324,8 @@ flowchart LR
 
 - Method: GET
 - Path: `/leagues/{league_id}/matches/by-player`
-- Purpose: Get the match history for a specific player, identified by nickname. Under `one_pair_per_player = true` resolves the player's single pair and returns its matches. Under `one_pair_per_player = false` returns the union of matches across every pair the player belongs to (deduped by `match_id`).
-- Request shape: `?player_name=str` (query parameter, case-insensitive — normalized to lowercase)
+- Purpose: Get the match history for a specific player, identified by nickname. Under doubles scope, `one_pair_per_player = true` resolves the player's single pair and returns its matches; `one_pair_per_player = false` returns the union of matches across every pair the player belongs to (deduped by `match_id`). Singles scope matches the player directly.
+- Request shape: `?player_name=str&scope=doubles|singles|both` (`player_name` is case-insensitive; `scope` defaults to `doubles`)
 - Response shape: same as Get Match History
   ```json
   {
@@ -437,6 +482,72 @@ Likely candidates (not implemented; listed for orientation):
   - 404 MatchNotFoundError
   - 401 UnauthorizedError
 - Auth notes: `league_id` (URL path) + `X-Host-Token` header
+
+---
+
+## Endpoint: Edit Singles Match Score (Admin)
+
+- Method: PATCH
+- Path: `/admin/leagues/{league_id}/singles-matches/{match_id}`
+- Purpose: Correct the set score of a previously recorded singles match
+- Request shape: `{ "player1_score": "str", "player2_score": "str" }`
+- Response shape: `{ "match_id": "uuid", "player1_score": "str", "player2_score": "str" }`
+- Use case called: EditSinglesMatchScoreUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 MatchNotFoundError
+  - 401 UnauthorizedError
+  - 422 InvalidSetScoreError
+- Auth notes: `league_id` (URL path) + `X-Host-Token` header
+
+---
+
+## Endpoint: Delete Singles Match (Admin)
+
+- Method: DELETE
+- Path: `/admin/leagues/{league_id}/singles-matches/{match_id}`
+- Purpose: Permanently remove a singles match record from the league and recompute `latest_match_date_single`
+- Request shape: —
+- Response shape: 204 No Content
+- Use case called: DeleteSinglesMatchUseCase
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 MatchNotFoundError
+  - 401 UnauthorizedError
+- Auth notes: `league_id` (URL path) + `X-Host-Token` header
+
+---
+
+## Endpoint: Edit Singles Match Score (Player)
+
+- Method: PATCH
+- Path: `/leagues/{league_id}/singles-matches/{match_id}`
+- Purpose: Allow a non-admin caller to correct a singles score within `PLAYER_SCORE_EDIT_WINDOW_SECONDS`
+- Request shape: `{ "player1_score": "str", "player2_score": "str" }`
+- Response shape: `{ "match_id": "uuid", "player1_score": "str", "player2_score": "str" }`
+- Use case called: EditSinglesMatchScoreUseCase (with `host_token=None`)
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 MatchNotFoundError
+  - 422 InvalidSetScoreError
+  - 422 MatchEditWindowExpiredError
+- Auth notes: Player-facing — `league_id` in the URL is the only access check, no `X-Host-Token` required.
+
+---
+
+## Endpoint: Delete Singles Match (Player)
+
+- Method: DELETE
+- Path: `/leagues/{league_id}/singles-matches/{match_id}`
+- Purpose: Allow a non-admin caller to delete a singles match within `PLAYER_MATCH_DELETE_WINDOW_SECONDS`; recomputes `latest_match_date_single`
+- Request shape: —
+- Response shape: 204 No Content
+- Use case called: DeleteSinglesMatchUseCase (with `host_token=None`)
+- Error responses:
+  - 404 LeagueNotFoundError
+  - 404 MatchNotFoundError
+  - 422 MatchDeleteWindowExpiredError
+- Auth notes: Player-facing — `league_id` in the URL is the only access check, no `X-Host-Token` required.
 
 ---
 

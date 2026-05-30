@@ -15,6 +15,9 @@ from app.application.use_cases.add_players_use_case import (
 )
 from app.application.use_cases.add_alias_to_player_use_case import PlayerAliasResult
 from app.application.use_cases.edit_match_score_use_case import UpdatedMatchResult
+from app.application.use_cases.edit_singles_match_score_use_case import (
+    UpdatedSinglesMatchResult,
+)
 from app.application.use_cases.edit_player_nickname_use_case import UpdatedPlayerResult
 from app.application.use_cases.get_league_admin_info_use_case import LeagueAdminInfoView
 from app.domain.exceptions import (
@@ -396,6 +399,90 @@ class TestDeleteMatch:
         mock_delete_match_uc.execute.side_effect = UnauthorizedError("unauthorized")
         response = await client.delete(self._URL, headers={"X-Host-Token": "wrong"})
         assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# PATCH /admin/leagues/{league_id}/singles-matches/{match_id}
+# ---------------------------------------------------------------------------
+
+
+class TestEditSinglesMatchScore:
+    _URL = "/admin/leagues/league-id/singles-matches/match-id"
+
+    async def test_returns_200_on_success(
+        self, client: AsyncClient, mock_edit_singles_match_score_uc: AsyncMock
+    ) -> None:
+        mock_edit_singles_match_score_uc.execute.return_value = UpdatedSinglesMatchResult(
+            match_id="match-id", player1_score="4", player2_score="6"
+        )
+        response = await client.patch(
+            self._URL,
+            json={"player1_score": "4", "player2_score": "6"},
+            headers={"X-Host-Token": "valid-token"},
+        )
+        assert response.status_code == 200
+
+    async def test_response_contains_updated_scores(
+        self, client: AsyncClient, mock_edit_singles_match_score_uc: AsyncMock
+    ) -> None:
+        mock_edit_singles_match_score_uc.execute.return_value = UpdatedSinglesMatchResult(
+            match_id="mid", player1_score="7", player2_score="5"
+        )
+        response = await client.patch(
+            self._URL,
+            json={"player1_score": "7", "player2_score": "5"},
+            headers={"X-Host-Token": "token"},
+        )
+        data = response.json()
+        assert data["player1_score"] == "7"
+        assert data["player2_score"] == "5"
+        assert data["match_id"] == "mid"
+
+    async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
+        response = await client.patch(
+            self._URL, json={"player1_score": "6", "player2_score": "3"}
+        )
+        assert response.status_code == 422
+
+    async def test_match_not_found_returns_404(
+        self, client: AsyncClient, mock_edit_singles_match_score_uc: AsyncMock
+    ) -> None:
+        mock_edit_singles_match_score_uc.execute.side_effect = MatchNotFoundError("not found")
+        response = await client.patch(
+            self._URL,
+            json={"player1_score": "6", "player2_score": "3"},
+            headers={"X-Host-Token": "token"},
+        )
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /admin/leagues/{league_id}/singles-matches/{match_id}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteSinglesMatch:
+    _URL = "/admin/leagues/league-id/singles-matches/match-id"
+
+    async def test_returns_204_on_success(
+        self, client: AsyncClient, mock_delete_singles_match_uc: AsyncMock
+    ) -> None:
+        response = await client.delete(
+            self._URL, headers={"X-Host-Token": "valid-token"}
+        )
+        assert response.status_code == 204
+        mock_delete_singles_match_uc.execute.assert_awaited_once()
+
+    async def test_missing_host_token_returns_422(self, client: AsyncClient) -> None:
+        response = await client.delete(self._URL)
+        assert response.status_code == 422
+
+    async def test_match_not_found_returns_404(
+        self, client: AsyncClient, mock_delete_singles_match_uc: AsyncMock
+    ) -> None:
+        mock_delete_singles_match_uc.execute.side_effect = MatchNotFoundError("not found")
+        response = await client.delete(self._URL, headers={"X-Host-Token": "token"})
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

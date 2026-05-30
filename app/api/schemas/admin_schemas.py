@@ -45,6 +45,17 @@ class EditMatchScoreResponse(BaseModel):
     pair2_score: str
 
 
+class EditSinglesMatchScoreRequest(BaseModel):
+    player1_score: str
+    player2_score: str
+
+
+class EditSinglesMatchScoreResponse(BaseModel):
+    match_id: str
+    player1_score: str
+    player2_score: str
+
+
 class AddPlayerInput(BaseModel):
     nickname: str
     rating: float | None = Field(default=None, ge=0, allow_inf_nan=False)

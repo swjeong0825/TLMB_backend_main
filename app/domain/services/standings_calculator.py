@@ -10,6 +10,7 @@ from app.domain.aggregates.league.league_rules import (
     RankingSubject,
 )
 from app.domain.aggregates.match.aggregate_root import Match
+from app.domain.aggregates.singles_match.aggregate_root import SinglesMatch
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,37 @@ class StandingsCalculator:
         # same metric tuple.
         return self._compute_for_players(matches, pairs, players, rules)
 
+    def compute_singles(
+        self,
+        singles_matches: list[SinglesMatch],
+        players: list[Player],
+        rules: LeagueRules,
+    ) -> list[StandingsEntry]:
+        agg_by_player = self._empty_player_aggregates(players)
+        self._credit_singles_matches_to_players(agg_by_player, singles_matches)
+        rows: list[tuple[Player, _Aggregate]] = [
+            (p, agg_by_player[str(p.player_id.value)]) for p in players
+        ]
+        rows = self._sort_by_tie_breakers(rows, rules.tie_breakers)
+        return self._assign_ranks_player(rows, rules.tie_breakers)
+
+    def compute_combined(
+        self,
+        matches: list[Match],
+        pairs: list[Pair],
+        singles_matches: list[SinglesMatch],
+        players: list[Player],
+        rules: LeagueRules,
+    ) -> list[StandingsEntry]:
+        agg_by_player = self._empty_player_aggregates(players)
+        self._credit_doubles_matches_to_players(agg_by_player, matches, pairs)
+        self._credit_singles_matches_to_players(agg_by_player, singles_matches)
+        rows: list[tuple[Player, _Aggregate]] = [
+            (p, agg_by_player[str(p.player_id.value)]) for p in players
+        ]
+        rows = self._sort_by_tie_breakers(rows, rules.tie_breakers)
+        return self._assign_ranks_player(rows, rules.tie_breakers)
+
     def _compute_for_pairs(
         self,
         matches: list[Match],
@@ -169,6 +201,26 @@ class StandingsCalculator:
         # `(player, OTPP=true)` cross-rule is rejected by LeagueRules), so a
         # player may belong to multiple pairs; the aggregation naturally unions
         # match outcomes across every pair they appear on.
+        agg_by_player = self._empty_player_aggregates(players)
+        self._credit_doubles_matches_to_players(agg_by_player, matches, pairs)
+
+        rows: list[tuple[Player, _Aggregate]] = [
+            (p, agg_by_player[str(p.player_id.value)]) for p in players
+        ]
+        rows = self._sort_by_tie_breakers(rows, rules.tie_breakers)
+
+        return self._assign_ranks_player(rows, rules.tie_breakers)
+
+    @staticmethod
+    def _empty_player_aggregates(players: list[Player]) -> dict[str, _Aggregate]:
+        return {str(p.player_id.value): _Aggregate() for p in players}
+
+    @staticmethod
+    def _credit_doubles_matches_to_players(
+        agg_by_player: dict[str, _Aggregate],
+        matches: list[Match],
+        pairs: list[Pair],
+    ) -> None:
         pairs_for_player: dict[str, set[str]] = {}
         for pair in pairs:
             pairs_for_player.setdefault(str(pair.player_id_1.value), set()).add(
@@ -178,10 +230,6 @@ class StandingsCalculator:
                 str(pair.pair_id.value)
             )
 
-        agg_by_player: dict[str, _Aggregate] = {
-            str(p.player_id.value): _Aggregate() for p in players
-        }
-
         for match in matches:
             pair1_key = str(match.pair1_id.value)
             pair2_key = str(match.pair2_id.value)
@@ -189,6 +237,8 @@ class StandingsCalculator:
             pair2_score = int(match.set_score.pair2_score)
             side = match.set_score.winner_side()
             for player_id, pair_ids in pairs_for_player.items():
+                if player_id not in agg_by_player:
+                    continue
                 if pair1_key in pair_ids and pair2_key in pair_ids:
                     # Pathological self-match — Match.create forbids it, but be safe.
                     continue
@@ -209,12 +259,33 @@ class StandingsCalculator:
                         opp_score=pair1_score,
                     )
 
-        rows: list[tuple[Player, _Aggregate]] = [
-            (p, agg_by_player[str(p.player_id.value)]) for p in players
-        ]
-        rows = self._sort_by_tie_breakers(rows, rules.tie_breakers)
-
-        return self._assign_ranks_player(rows, rules.tie_breakers)
+    @staticmethod
+    def _credit_singles_matches_to_players(
+        agg_by_player: dict[str, _Aggregate],
+        singles_matches: list[SinglesMatch],
+    ) -> None:
+        for match in singles_matches:
+            player1_key = str(match.player1_id.value)
+            player2_key = str(match.player2_id.value)
+            player1_score = int(match.set_score.pair1_score)
+            player2_score = int(match.set_score.pair2_score)
+            side = match.set_score.winner_side()
+            if player1_key in agg_by_player:
+                agg_by_player[player1_key] = agg_by_player[player1_key].add(
+                    won=(side == "pair1"),
+                    lost=(side == "pair2"),
+                    drew=(side == "draw"),
+                    my_score=player1_score,
+                    opp_score=player2_score,
+                )
+            if player2_key in agg_by_player:
+                agg_by_player[player2_key] = agg_by_player[player2_key].add(
+                    won=(side == "pair2"),
+                    lost=(side == "pair1"),
+                    drew=(side == "draw"),
+                    my_score=player2_score,
+                    opp_score=player1_score,
+                )
 
     @staticmethod
     def _sort_by_tie_breakers(

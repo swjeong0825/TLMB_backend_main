@@ -64,10 +64,13 @@ async def get_pair_id(
     client: AsyncClient, league_id: str, p1: str, p2: str
 ) -> str:
     roster = await get_roster(client, league_id)
-    pair = {p1, p2}
-    for pair in roster["pairs"]:
-        if {pair["player1_nickname"], pair["player2_nickname"]} == pair:
-            return pair["pair_id"]
+    expected_pair = {p1, p2}
+    for roster_pair in roster["pairs"]:
+        if {
+            roster_pair["player1_nickname"],
+            roster_pair["player2_nickname"],
+        } == expected_pair:
+            return roster_pair["pair_id"]
     raise AssertionError(f"Pair ({p1}, {p2}) not found in roster")
 
 

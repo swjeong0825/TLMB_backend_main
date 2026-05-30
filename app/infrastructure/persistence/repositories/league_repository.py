@@ -19,6 +19,7 @@ from app.infrastructure.persistence.models.orm_models import (
     PlayerAliasORM,
     PlayerORM,
     PairORM,
+    SinglesMatchORM,
 )
 
 
@@ -100,6 +101,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
                 host_email=league.host_email.value,
                 league_timezone=league.league_timezone.value,
                 latest_match_date=league.latest_match_date,
+                latest_match_date_single=league.latest_match_date_single,
                 description=league.description,
                 rules=league.rules.to_dict(),
             )
@@ -109,6 +111,7 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             league_orm.title_normalized = league.title.lower().strip()
             league_orm.league_timezone = league.league_timezone.value
             league_orm.latest_match_date = league.latest_match_date
+            league_orm.latest_match_date_single = league.latest_match_date_single
             league_orm.description = league.description
             league_orm.rules = league.rules.to_dict()
             league_orm.updated_at = _utcnow()
@@ -208,12 +211,10 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
         summing per-pair match counts across a player's pairs is correct —
         no double-counting is possible.
         """
-        if not league_orm.pairs:
-            return {}
-
         result = await self._session.execute(
-            select(MatchORM.pair1_id, MatchORM.pair2_id)
-            .where(MatchORM.league_id == league_id.value)
+            select(MatchORM.pair1_id, MatchORM.pair2_id).where(
+                MatchORM.league_id == league_id.value
+            )
         )
         match_count_by_pair: dict[uuid.UUID, int] = {}
         for row in result:
@@ -232,4 +233,17 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
                 counts_by_player[pair.player_id_2] = (
                     counts_by_player.get(pair.player_id_2, 0) + cnt
                 )
+
+        singles_result = await self._session.execute(
+            select(SinglesMatchORM.player1_id, SinglesMatchORM.player2_id).where(
+                SinglesMatchORM.league_id == league_id.value
+            )
+        )
+        for row in singles_result:
+            counts_by_player[row.player1_id] = (
+                counts_by_player.get(row.player1_id, 0) + 1
+            )
+            counts_by_player[row.player2_id] = (
+                counts_by_player.get(row.player2_id, 0) + 1
+            )
         return counts_by_player
