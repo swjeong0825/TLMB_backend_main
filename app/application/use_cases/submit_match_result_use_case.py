@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from app.application.use_cases.league_day import league_local_day_utc_bounds
 from app.application.unit_of_work.submit_match_result_uow import SubmitMatchResultUnitOfWork
-from app.domain.aggregates.league.value_objects import LeagueId
+from app.domain.aggregates.league.value_objects import LeagueId, PlayerNickname
 from app.domain.aggregates.match.aggregate_root import Match
 from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.exceptions import (
@@ -36,10 +36,10 @@ class SubmitMatchResultUseCase:
         self._uow_factory = uow_factory
 
     async def execute(self, command: SubmitMatchResultCommand) -> SubmitMatchResultResult:
-        pair1_nickname1 = command.pair1_nicknames[0].lower().strip()
-        pair1_nickname2 = command.pair1_nicknames[1].lower().strip()
-        pair2_nickname1 = command.pair2_nicknames[0].lower().strip()
-        pair2_nickname2 = command.pair2_nicknames[1].lower().strip()
+        pair1_nickname1 = PlayerNickname(command.pair1_nicknames[0]).value
+        pair1_nickname2 = PlayerNickname(command.pair1_nicknames[1]).value
+        pair2_nickname1 = PlayerNickname(command.pair2_nicknames[0]).value
+        pair2_nickname2 = PlayerNickname(command.pair2_nicknames[1]).value
 
         if pair1_nickname1 == pair1_nickname2:
             raise SamePlayerWithinSinglePairError(

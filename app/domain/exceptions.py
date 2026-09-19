@@ -2,6 +2,14 @@ class DomainError(Exception):
     pass
 
 
+class InvalidPlayerNicknameError(DomainError, ValueError):
+    pass
+
+
+class InvalidPlannedMatchError(DomainError, ValueError):
+    pass
+
+
 class LeagueNotFoundError(DomainError):
     pass
 

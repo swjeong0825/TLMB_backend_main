@@ -11,7 +11,7 @@ def player_to_domain(orm: PlayerORM) -> Player:
     return Player(
         player_id=PlayerId(value=orm.player_id),
         nicknames=[
-            PlayerNickname(alias.alias_normalized)
+            PlayerNickname.from_persisted(alias.alias_normalized)
             for alias in orm.aliases
         ],
         rating=orm.rating,

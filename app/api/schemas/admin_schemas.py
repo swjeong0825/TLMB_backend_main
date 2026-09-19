@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.api.schemas.league_schemas import PlayerEntrySchema
+from app.domain.nicknames import validate_nickname
 
 
 class EditPlayerNicknameRequest(BaseModel):
@@ -12,9 +13,7 @@ class EditPlayerNicknameRequest(BaseModel):
     @field_validator("new_nickname")
     @classmethod
     def must_not_be_blank(cls, v: str | None) -> str | None:
-        if v is not None and not v.strip():
-            raise ValueError("new_nickname must not be blank")
-        return v
+        return validate_nickname(v) if v is not None else None
 
     @model_validator(mode="after")
     def must_include_at_least_one_field(self) -> "EditPlayerNicknameRequest":
@@ -63,9 +62,7 @@ class AddPlayerInput(BaseModel):
     @field_validator("nickname")
     @classmethod
     def nickname_must_not_be_blank(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("player nickname must not be blank")
-        return v
+        return validate_nickname(v)
 
 
 class AddPlayersRequest(BaseModel):
@@ -79,10 +76,7 @@ class AddPlayersRequest(BaseModel):
             return v
         if not v:
             raise ValueError("nicknames must be a non-empty list")
-        for entry in v:
-            if not isinstance(entry, str) or not entry.strip():
-                raise ValueError("nicknames entries must be non-blank strings")
-        return v
+        return [validate_nickname(entry) for entry in v]
 
     @field_validator("players")
     @classmethod
@@ -112,9 +106,7 @@ class AddPlayerAliasRequest(BaseModel):
     @field_validator("alias")
     @classmethod
     def alias_must_not_be_blank(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("alias must not be blank")
-        return v
+        return validate_nickname(v)
 
 
 class PlayerAliasResponse(BaseModel):

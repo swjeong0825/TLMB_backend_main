@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from app.domain.nicknames import validate_nickname
 
 
 RankingMetricLiteral = Literal[
@@ -78,10 +79,7 @@ class CreateLeagueRequest(BaseModel):
     @field_validator("initial_players")
     @classmethod
     def initial_players_must_be_non_blank(cls, v: list[str]) -> list[str]:
-        for entry in v:
-            if not isinstance(entry, str) or not entry.strip():
-                raise ValueError("initial_players entries must be non-blank strings")
-        return v
+        return [validate_nickname(entry) for entry in v]
 
 
 class CreateLeagueResponse(BaseModel):
@@ -109,7 +107,7 @@ class SubmitMatchResultRequest(BaseModel):
     def must_have_exactly_two(cls, v: list[str]) -> list[str]:
         if len(v) != 2:
             raise ValueError("Each pair must have exactly 2 player nicknames")
-        return v
+        return [validate_nickname(entry) for entry in v]
 
 
 class SubmitMatchResultResponse(BaseModel):
@@ -135,9 +133,7 @@ class SubmitSinglesMatchResultRequest(BaseModel):
     @field_validator("player1_nickname", "player2_nickname")
     @classmethod
     def nickname_must_not_be_blank(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("player nickname must not be blank")
-        return v
+        return validate_nickname(v)
 
 
 class SubmitSinglesMatchResultResponse(BaseModel):

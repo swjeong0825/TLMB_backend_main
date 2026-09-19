@@ -7,6 +7,8 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.use_cases.add_players_use_case import AddPlayersUseCase
+from app.application.use_cases.get_planned_matches_use_case import GetPlannedMatchesUseCase
+from app.application.use_cases.upload_planned_matches_use_case import UploadPlannedMatchesUseCase
 from app.application.use_cases.add_alias_to_player_use_case import AddAliasToPlayerUseCase
 from app.application.use_cases.create_league_use_case import CreateLeagueUseCase
 from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
@@ -34,6 +36,8 @@ from app.config import player_match_delete_window_seconds, player_score_edit_win
 from app.infrastructure.config.database import AsyncSessionFactory
 from app.infrastructure.persistence.repositories.league_repository import SqlAlchemyLeagueRepository
 from app.infrastructure.persistence.repositories.match_repository import SqlAlchemyMatchRepository
+from app.infrastructure.persistence.repositories.planned_match_repository import SqlAlchemyPlannedMatchRepository
+from app.infrastructure.persistence.unit_of_work.upload_planned_matches_uow import SqlAlchemyUploadPlannedMatchesUnitOfWork
 from app.infrastructure.persistence.repositories.singles_match_repository import (
     SqlAlchemySinglesMatchRepository,
 )
@@ -59,6 +63,25 @@ def get_league_repo(
     session: AsyncSession = Depends(get_db_session),
 ) -> SqlAlchemyLeagueRepository:
     return SqlAlchemyLeagueRepository(session)
+
+
+def get_planned_match_repo(
+    session: AsyncSession = Depends(get_db_session),
+) -> SqlAlchemyPlannedMatchRepository:
+    return SqlAlchemyPlannedMatchRepository(session)
+
+
+def get_upload_planned_matches_use_case() -> UploadPlannedMatchesUseCase:
+    return UploadPlannedMatchesUseCase(
+        partial(SqlAlchemyUploadPlannedMatchesUnitOfWork, AsyncSessionFactory)
+    )
+
+
+def get_get_planned_matches_use_case(
+    league_repo: SqlAlchemyLeagueRepository = Depends(get_league_repo),
+    planned_match_repo: SqlAlchemyPlannedMatchRepository = Depends(get_planned_match_repo),
+) -> GetPlannedMatchesUseCase:
+    return GetPlannedMatchesUseCase(league_repo, planned_match_repo)
 
 
 def get_match_repo(

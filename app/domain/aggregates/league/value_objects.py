@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.domain.exceptions import InvalidLeagueRulesError
+from app.domain.nicknames import NICKNAME_WHITESPACE, validate_nickname
 
 
 DEFAULT_LEAGUE_TIMEZONE = "America/Los_Angeles"
@@ -101,9 +102,30 @@ class PlayerNickname:
     value: str
 
     def __post_init__(self) -> None:
-        if not self.value or not self.value.strip():
-            raise ValueError("PlayerNickname cannot be empty")
-        object.__setattr__(self, "value", self.value.lower().strip())
+        object.__setattr__(self, "value", validate_nickname(self.value).lower())
+
+    @classmethod
+    def from_persisted(cls, value: str) -> PlayerNickname:
+        """Restore a stored name verbatim, including names predating the grammar."""
+        nickname = object.__new__(cls)
+        object.__setattr__(nickname, "value", value)
+        return nickname
+
+    @classmethod
+    def for_lookup(cls, value: str) -> PlayerNickname:
+        """Use historical normalization for identifying, never writing, names."""
+        return cls.from_persisted(value.lower().strip())
+
+    @classmethod
+    def lookup_candidates(cls, value: str) -> tuple[PlayerNickname, ...]:
+        """Prefer an exact stored name, then current and historical trimming.
+
+        ECMAScript and Python disagree about BOM and U+0085, so neither trim
+        convention alone can identify every old and newly valid nickname.
+        """
+        lowered = value.lower()
+        values = dict.fromkeys((lowered, lowered.strip(NICKNAME_WHITESPACE), lowered.strip()))
+        return tuple(cls.from_persisted(candidate) for candidate in values)
 
     def __str__(self) -> str:
         return self.value

@@ -36,6 +36,13 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def exists(self, league_id: LeagueId) -> bool:
+        return bool(await self._session.scalar(
+            select(select(LeagueORM.league_id).where(
+                LeagueORM.league_id == league_id.value
+            ).exists())
+        ))
+
     _LEAGUE_LOAD_OPTIONS = (
         selectinload(LeagueORM.players).selectinload(PlayerORM.aliases),
         selectinload(LeagueORM.pairs),

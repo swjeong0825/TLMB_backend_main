@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -62,6 +63,18 @@ class LeagueORM(Base):
     singles_matches: Mapped[list[SinglesMatchORM]] = relationship(
         "SinglesMatchORM", back_populates="league"
     )
+
+
+class PlannedMatchORM(Base):
+    __tablename__ = "planned_matches"
+
+    league_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("leagues.league_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class PlayerORM(Base):
