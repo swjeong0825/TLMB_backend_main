@@ -50,9 +50,15 @@ erDiagram
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
     }
+    planned_matches {
+        UUID league_id PK,FK
+        UUID id PK
+        TEXT value
+    }
     leagues ||--o{ players : "has"
     leagues ||--o{ pairs : "has"
     leagues ||--o{ matches : "has"
+    leagues ||--o{ planned_matches : "has"
     players ||--o{ pairs : "player_id_1"
     players ||--o{ pairs : "player_id_2"
     pairs ||--o{ matches : "pair1_id"
@@ -99,10 +105,25 @@ erDiagram
 - Notes: player_id_1 and player_id_2 are stored in the order they were registered. The unique constraint uses both orderings implicitly only if the application always stores them in a canonical order (lower UUID first). Enforce canonical ordering at the aggregate root level on pair creation.
 
 **Value object mapping (League aggregate)**
-- `PlayerNickname` → `nickname_normalized TEXT` — reconstructed through the PlayerNickname validator on load (which enforces lowercase and non-empty); never stored as raw input
+- `PlayerNickname` → `player_aliases.alias_normalized TEXT` (since migration `012`) — new writes trim, validate, and lowercase; loads use `from_persisted` to retain legacy names verbatim without applying new-write constraints.
 - `Player.rating` → `rating FLOAT NULL` — copied through as nullable numeric metadata; domain validation rejects negative or non-finite values before save.
 - `LeagueId`, `PlayerId`, `PairId` → PostgreSQL `UUID` type
 - `HostToken` → `host_token TEXT` (plaintext UUID string)
+
+### Aggregate: PlannedMatch
+
+Migration `015` adds `planned_matches` with exactly three non-null columns:
+`league_id UUID`, `id UUID`, and `value TEXT`. The composite primary key is
+`(league_id, id)`; `league_id` references `leagues.league_id ON DELETE CASCADE`.
+There are no timestamps, generated IDs, participant columns, or format columns.
+
+`SqlAlchemyPlannedMatchRepository` uses PostgreSQL `ON CONFLICT (league_id, id)
+DO UPDATE SET value = excluded.value`. It never commits. A dedicated upload Unit
+of Work checks league existence and commits the entire batch before returning.
+Rows are written in UUID order to give overlapping requests a consistent lock
+order; upload responses retain request order. GET orders by UUID in SQL.
+The primary-key index also covers league-scoped listing. No `League` aggregate
+save, nickname resolution, or player/match repository writes occur.
 - `HostEmail` → `host_email TEXT` — reconstructed through the `HostEmail` validator on load (strip + lowercase + non-blank)
 - `LeagueRules` → `rules JSONB` — parse/validate on load; serialize on save
 

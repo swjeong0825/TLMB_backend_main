@@ -587,9 +587,9 @@ class TestAddPlayers:
 
     def test_normalizes_to_lowercase(self) -> None:
         league = _league()
-        league.add_players(["Alex Kim", "DANIEL"])
+        league.add_players(["Alex-Kim", "DANIEL"])
         nicks = {p.nickname.value for p in league.players}
-        assert nicks == {"alex kim", "daniel"}
+        assert nicks == {"alex-kim", "daniel"}
 
     def test_each_player_gets_unique_id(self) -> None:
         league = _league()

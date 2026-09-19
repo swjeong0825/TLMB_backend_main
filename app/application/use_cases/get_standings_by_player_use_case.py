@@ -44,9 +44,9 @@ class GetStandingsByPlayerUseCase:
         if league is None:
             raise LeagueNotFoundError(f"League '{query.league_id}' not found")
 
-        normalized_name = PlayerNickname(query.player_name)
         player = next(
-            (p for p in league.players if p.has_nickname(normalized_name)),
+            (p for candidate in PlayerNickname.lookup_candidates(query.player_name)
+             for p in league.players if p.has_nickname(candidate)),
             None,
         )
         if player is None:

@@ -27,6 +27,7 @@ from app.infrastructure.persistence.models.orm_models import (  # noqa: F401  # 
     MatchORM,
     PairORM,
     PlayerORM,
+    PlannedMatchORM,
     SinglesMatchORM,
 )
 

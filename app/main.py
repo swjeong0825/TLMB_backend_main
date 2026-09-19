@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routers.admin_router import router as admin_router
 from app.api.routers.league_router import router as league_router
+from app.api.routers.planned_match_router import router as planned_match_router
 from app.rate_limit import register_rate_limit_middleware
 from app.domain.exceptions import (
     CannotRemoveCanonicalNicknameError,
@@ -13,6 +14,8 @@ from app.domain.exceptions import (
     DuplicateSinglesMatchupMatchError,
     InvalidLeagueRulesError,
     InvalidPlayerRatingError,
+    InvalidPlayerNicknameError,
+    InvalidPlannedMatchError,
     InvalidSetScoreError,
     LastNicknameError,
     LeagueNotFoundError,
@@ -54,6 +57,17 @@ register_rate_limit_middleware(app)
 
 app.include_router(league_router)
 app.include_router(admin_router)
+app.include_router(planned_match_router)
+
+
+@app.exception_handler(InvalidPlayerNicknameError)
+@app.exception_handler(InvalidPlannedMatchError)
+async def invalid_nickname_or_plan_handler(
+    request: Request, exc: InvalidPlayerNicknameError | InvalidPlannedMatchError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422, content={"error": type(exc).__name__, "detail": str(exc)}
+    )
 
 
 @app.exception_handler(LeagueNotFoundError)

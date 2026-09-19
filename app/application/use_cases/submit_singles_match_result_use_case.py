@@ -7,7 +7,7 @@ from app.application.unit_of_work.submit_singles_match_result_uow import (
     SubmitSinglesMatchResultUnitOfWork,
 )
 from app.application.use_cases.league_day import league_local_day_utc_bounds
-from app.domain.aggregates.league.value_objects import LeagueId
+from app.domain.aggregates.league.value_objects import LeagueId, PlayerNickname
 from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.aggregates.singles_match.aggregate_root import SinglesMatch
 from app.domain.exceptions import (
@@ -41,8 +41,8 @@ class SubmitSinglesMatchResultUseCase:
     async def execute(
         self, command: SubmitSinglesMatchResultCommand
     ) -> SubmitSinglesMatchResultResult:
-        player1_nickname = command.player1_nickname.lower().strip()
-        player2_nickname = command.player2_nickname.lower().strip()
+        player1_nickname = PlayerNickname(command.player1_nickname).value
+        player2_nickname = PlayerNickname(command.player2_nickname).value
 
         if player1_nickname == player2_nickname:
             raise SamePlayerOnBothSidesError(

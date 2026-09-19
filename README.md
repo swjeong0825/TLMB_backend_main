@@ -38,6 +38,8 @@ Base URL: `http://localhost:8000`
 |---|---|---|
 | `POST` | `/leagues` | Create a new league → returns `league_id` + `host_token`. Requires `title` and `host_email` (RFC-compliant email; immutable; never echoed on read endpoints). |
 | `POST` | `/leagues/{league_id}/matches` | Submit a confirmed match result (auto-registers new players/pairs) |
+| `POST` | `/leagues/{league_id}/planned-matches` | Atomically upsert proposed matchups by client UUID; no host token required |
+| `GET` | `/leagues/{league_id}/planned-matches` | All shared plans, ordered by UUID; no host token required |
 | `GET` | `/leagues/{league_id}/standings` | Ranked win/loss standings |
 | `GET` | `/leagues/{league_id}/matches` | Match history (most recent first) |
 | `GET` | `/leagues/{league_id}/roster` | All registered players and pairs |
@@ -60,6 +62,31 @@ Base URL: `http://localhost:8000`
 | Unauthorized (`host_token` mismatch or missing) | 401 |
 | Duplicate (title, nickname, pair conflict) | 409 |
 | Structural validation (same player, invalid score) | 422 |
+| Invalid nickname or planned matchup; invalid/duplicate planned-match IDs | 422 |
+
+### Planned matches and nickname grammar
+
+Planned-match requests and responses use
+`{"matches": [{"id": "d315f636-10e5-4265-9b19-fc260e1ed224", "value": "Alice Bob"}]}`.
+POST requires at least one record, rejects duplicate IDs and unexpected item fields,
+and returns HTTP 200 in request order. Retrying is idempotent; an existing ID updates
+only that plan, and omitted plans remain. GET returns all records in ascending UUID
+order, including `{"matches": []}` for an empty league. Unknown leagues return 404.
+
+Values are `player1 player2` for singles or `player1,player2 player3,player4` for
+doubles, with exactly one ASCII space between equally sized sides. Nicknames must
+be nonempty and contain no whitespace or comma. Values retain case, Unicode, and
+order exactly. Unknown/repeated names are valid; uploads never resolve participants,
+register players/pairs, record results, or change standings or league activity dates.
+
+Player and alias writes share the same nickname character rule, trim surrounding
+ECMAScript whitespace, and retain the backend's existing lowercase normalization.
+Existing legacy names remain readable and removable under the usual participation
+rules, and can be corrected by renaming. No existing names are migrated.
+See [planned-match design](Design_Doc/TLMB_Design_doc/23_planned_matches.md) and
+[API contracts](Design_Doc/TLMB_Design_doc/13_api_contracts.md).
+
+Apply migration `015` with `alembic upgrade head` before serving the new endpoints.
 
 ## Setup
 

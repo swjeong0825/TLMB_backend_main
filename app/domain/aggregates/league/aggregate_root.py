@@ -230,7 +230,10 @@ class League:
         if player is None:
             raise PlayerNotFoundError(f"Player '{player_id}' not found in this league")
 
-        alias_nick = PlayerNickname(alias)
+        alias_nick = next(
+            (nick for nick in PlayerNickname.lookup_candidates(alias) if player.has_nickname(nick)),
+            PlayerNickname.for_lookup(alias),
+        )
         if alias_nick == player.canonical_nickname:
             raise CannotRemoveCanonicalNicknameError(
                 (

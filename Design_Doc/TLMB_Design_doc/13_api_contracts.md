@@ -16,6 +16,7 @@ flowchart LR
         P1b["GET /leagues?title_prefix=str"]
         P2["POST /leagues/{league_id}/matches"]
         P2s["POST /leagues/{league_id}/singles-matches"]
+        Plans["POST / GET /leagues/{league_id}/planned-matches"]
         P2b["PATCH /leagues/{league_id}/matches/{match_id} (within edit window)"]
         P2c["DELETE /leagues/{league_id}/matches/{match_id} (within delete window)"]
         P2sb["PATCH /leagues/{league_id}/singles-matches/{match_id} (within edit window)"]
@@ -59,6 +60,8 @@ flowchart LR
 | SamePlayerOnBothPairsError | 422 |
 | SamePlayerOnBothSidesError (same player submitted on both sides of a singles match) | 422 |
 | InvalidSetScoreError | 422 |
+| InvalidPlayerNicknameError | 422 |
+| InvalidPlannedMatchError | 422 |
 | InvalidPlayerRatingError (admin supplied a negative or non-finite player rating) | 422 |
 | InvalidLeagueRulesError (invalid v8 rules body, invalid `league_timezone`, or v3 ranking config violations such as the `(ranking_subject="player", one_pair_per_player=true)` cross-rule rejection) | 422 |
 | PlayerHasParticipationError (DELETE on `/admin/.../players/{player_id}` rejected because the player belongs to a pair or appears on a match; body carries `pairs_count`, `matches_count`) | 409 |
@@ -67,6 +70,53 @@ flowchart LR
 | MatchDeleteWindowExpiredError (non-admin player tried to DELETE a match older than `PLAYER_MATCH_DELETE_WINDOW_SECONDS`; body carries `match_id`, `window_seconds`, `age_seconds`) | 422 |
 
 ---
+
+## Endpoints: Planned Matches
+
+- **POST `/leagues/{league_id}/planned-matches`** accepts a nonempty
+  `{"matches": [{"id": "uuid", "value": "Alice Bob"}]}` batch and returns the
+  accepted records in request order with **200**. Item fields other than `id` and
+  `value` are rejected. IDs are parsed as UUIDs; duplicates are detected by UUID
+  identity even if their string casing differs. UUIDs use canonical response strings.
+- Upsert key: `(league_id, id)`. Existing IDs replace only their value; new IDs
+  append records; omitted records remain. The complete request is transactional,
+  including updates. Storage or commit failures roll back rather than returning
+  partial success.
+- **GET `/leagues/{league_id}/planned-matches`** returns **200** with the same
+  record shape in ascending UUID order, or `{"matches": []}`. All plans are
+  returned; no pagination, filters, or metadata are included.
+- Both endpoints are public via the league link, use existing CORS/rate limiting,
+  and require no `X-Host-Token`. Invalid request shapes, UUIDs, duplicate request
+  IDs, and invalid values return **422**. A missing league returns **404**.
+  Unexpected storage failures return **5xx**. Clients should use status codes,
+  not depend on specific error messages.
+- Grammar: singles `player1 player2`, doubles `player1,player2 player3,player4`.
+  Exactly one ASCII space separates sides; each side contains one or two nonempty
+  nicknames and both sides have equal size. Names contain no comma or ECMAScript
+  whitespace. No quoting/escaping is supported. Values are stored verbatim:
+  no trimming, lowercasing, or reordering.
+- Unknown/repeated names and matchups are allowed regardless of roster, pair,
+  or rematch rules. Plans never alter players, aliases, pairs, recorded matches,
+  standings, or activity metadata. No delete or result-conversion endpoint exists.
+
+## Shared Nickname Validation
+
+Initial league players, roster additions (both payload shapes), new nicknames,
+aliases, and singles/doubles submissions trim surrounding whitespace, require a
+nonempty name without internal whitespace or commas, and retain existing lowercase
+normalization. Invalid characters are rejected, never deleted to repair input.
+List entries are validated individually; the API does not split a nickname string.
+
+Whitespace is exactly U+0009–000D, U+0020, U+00A0, U+1680, U+2000–200A,
+U+2028, U+2029, U+202F, U+205F, U+3000, and U+FEFF, matching JavaScript.
+Examples: `Alice`, `민수`, `A-1`, `B_2`, `C.3`, and `  Alice  ` are valid;
+`Alice Smith`, `Alice,Bob`, or internal tabs/newlines/NBSP are invalid.
+
+Persisted names are not migrated or revalidated on load. Legacy names remain
+queryable and aliases removable; existing player IDs still support renaming,
+rating updates, and deletion under the usual participation restrictions.
+Lookup prefers an exact stored name, then current and historical trimming.
+Only newly supplied names on write paths receive the stricter grammar.
 
 ## Endpoint: Create League
 
