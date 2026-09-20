@@ -14,7 +14,7 @@ from app.domain.exceptions import InvalidPlannedMatchError, LeagueNotFoundError
 def upload_setup():
     uow = AsyncMock()
     uow.__aenter__.return_value = uow
-    uow.league_repo.exists.return_value = True
+    uow.league_repo.lock_by_id.return_value = True
     factory = Mock(return_value=uow)
     return UploadPlannedMatchesUseCase(factory), uow, factory
 
@@ -26,7 +26,10 @@ async def test_upload_commits_and_returns_input_order_without_loading_roster():
     assert await use_case.execute(command) == records
     uow.commit.assert_awaited_once()
     uow.league_repo.get_by_id.assert_not_called()
+    uow.league_repo.get_by_id_with_lock.assert_not_called()
     uow.league_repo.save.assert_not_called()
+    calls = [call[0] for call in uow.mock_calls]
+    assert calls.index("league_repo.lock_by_id") < calls.index("planned_match_repo.upsert_many")
     assert [m.id for m in uow.planned_match_repo.upsert_many.call_args.args[0]] == [m.id for m in records]
 
 
@@ -43,7 +46,7 @@ async def test_invalid_batch_never_enters_transaction(kind):
 
 async def test_missing_league_does_not_write():
     use_case, uow, _ = upload_setup()
-    uow.league_repo.exists.return_value = False
+    uow.league_repo.lock_by_id.return_value = False
     with pytest.raises(LeagueNotFoundError):
         await use_case.execute(UploadPlannedMatchesCommand(str(uuid4()), [PlannedMatchRecord(uuid4(), "A B")]))
     uow.planned_match_repo.upsert_many.assert_not_called()

@@ -29,7 +29,7 @@ class UploadPlannedMatchesUseCase:
             for record in command.matches
         ]
         async with self._uow_factory() as uow:
-            if not await uow.league_repo.exists(league_id):
+            if not await uow.league_repo.lock_by_id(league_id):
                 raise LeagueNotFoundError(f"League '{league_id}' not found")
             await uow.planned_match_repo.upsert_many(matches)
             await uow.commit()

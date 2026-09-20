@@ -11,8 +11,9 @@ scores. Its only invariant is the lightweight text grammar described in
    and value grammar with Pydantic schemas backed by the pure domain validator.
 2. `UploadPlannedMatchesUseCase` validates the whole batch and constructs aggregate
    instances before opening its dedicated `UploadPlannedMatchesUnitOfWork`.
-3. `LeagueRepository.exists` checks only the league row; it does not hydrate players,
-   aliases, pairs, or rules. A missing league raises `LeagueNotFoundError`.
+3. `LeagueRepository.lock_by_id` locks only the league row before upserts; it does
+   not hydrate players, aliases, pairs, or rules. A missing league raises
+   `LeagueNotFoundError`. Listing uses the unlocked `exists` query.
 4. The planned-match repository upserts all records using the Unit of Work's shared
    session. The use case commits before producing its response; any exception
    rolls back and closes the session. Repositories never own commits.
@@ -24,6 +25,33 @@ case loads or saves the `League` aggregate, resolves participant identities, cal
 registration methods, creates recorded matches, nor recalculates standings.
 Current league registration/pair/rematch settings have no effect on planning.
 No domain events or external integrations are needed for this version.
+
+## Recording and consuming a plan
+
+The existing singles and doubles result commands accept optional
+`planned_match_id: UUID | None = None`. Their current participant and score fields
+remain required, and their 201 `{match_id, created_at}` responses remain unchanged.
+Omitted/null IDs use manual recording without reading or deleting any plan.
+
+For a supplied ID, the existing recording Unit of Work locks the league first,
+then reads the scoped plan with `SELECT ... FOR UPDATE`. A missing plan raises
+`PlannedMatchNotFoundError` (404). `PlannedMatchValue.validate_participants` checks
+the format (422 `InvalidPlannedMatchError`) and normalized names per side (409
+`PlannedMatchMismatchError`). Comparison trims/lowercases with `PlayerNickname`;
+teammate ordering may differ, side ordering may not. It does not resolve aliases
+to substitute different names, and it never changes the saved value.
+
+The same use case then applies normal nickname, score, roster, alias resolution,
+pair membership, and rematch rules. It saves the actual result and league activity,
+deletes exactly `(league_id, planned_match_id)`, and commits once. The plan repository
+shares the existing UoW session. Validation, save, deletion, or commit errors cannot
+leave partial result-related changes; a rolled-back transaction retains the plan.
+
+Uploads take the same league-before-plan lock order using the lightweight league
+lock. Concurrent recordings of one pending plan produce one result and a 404 for
+the later request. No consumption receipt or result-to-plan link is stored: retries
+after consumption return 404, and later uploads (including queued uploads) may
+recreate the deleted UUID. Preventing recreation is outside this feature.
 
 ## Nicknames and legacy data
 
@@ -47,6 +75,8 @@ table described in [persistence strategy](12_persistence_strategy.md). Downgrade
 drops this table and its plans, leaving league/player/match data unchanged.
 Apply the migration before running the new backend version. Deployment and
 frontend upload/UI integration are separate work.
+
+Recording/consumption uses these existing tables and requires no new migration.
 
 Tests cover pure grammar and nickname invariants, use-case orchestration, HTTP
 validation, real PostgreSQL upserts and concurrency, complete rollback on storage

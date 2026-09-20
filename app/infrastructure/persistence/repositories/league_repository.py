@@ -43,6 +43,13 @@ class SqlAlchemyLeagueRepository(LeagueRepository):
             ).exists())
         ))
 
+    async def lock_by_id(self, league_id: LeagueId) -> bool:
+        return await self._session.scalar(
+            select(LeagueORM.league_id)
+            .where(LeagueORM.league_id == league_id.value)
+            .with_for_update()
+        ) is not None
+
     _LEAGUE_LOAD_OPTIONS = (
         selectinload(LeagueORM.players).selectinload(PlayerORM.aliases),
         selectinload(LeagueORM.pairs),

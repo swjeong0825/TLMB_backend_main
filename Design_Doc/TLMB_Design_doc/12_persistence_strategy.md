@@ -119,11 +119,20 @@ There are no timestamps, generated IDs, participant columns, or format columns.
 
 `SqlAlchemyPlannedMatchRepository` uses PostgreSQL `ON CONFLICT (league_id, id)
 DO UPDATE SET value = excluded.value`. It never commits. A dedicated upload Unit
-of Work checks league existence and commits the entire batch before returning.
+of Work checks and locks the league row without roster hydration, then commits
+the entire batch before returning.
 Rows are written in UUID order to give overlapping requests a consistent lock
 order; upload responses retain request order. GET orders by UUID in SQL.
 The primary-key index also covers league-scoped listing. No `League` aggregate
 save, nickname resolution, or player/match repository writes occur.
+
+When a result submission includes `planned_match_id`, its existing recording UoW
+locks the league, locks the scoped plan with `SELECT ... FOR UPDATE`, saves the
+result and league changes, and deletes the plan with a scoped `DELETE ... RETURNING`
+before committing once. Plan lookup/deletion and result writes share the session;
+rollback restores the plan. No receipt, result-to-plan column, or extra migration
+is added. The same ID may be uploaded again after deletion.
+
 - `HostEmail` → `host_email TEXT` — reconstructed through the `HostEmail` validator on load (strip + lowercase + non-blank)
 - `LeagueRules` → `rules JSONB` — parse/validate on load; serialize on save
 

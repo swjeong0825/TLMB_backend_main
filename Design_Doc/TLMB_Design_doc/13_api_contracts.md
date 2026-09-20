@@ -97,7 +97,8 @@ flowchart LR
   no trimming, lowercasing, or reordering.
 - Unknown/repeated names and matchups are allowed regardless of roster, pair,
   or rematch rules. Plans never alter players, aliases, pairs, recorded matches,
-  standings, or activity metadata. No delete or result-conversion endpoint exists.
+  standings, or activity metadata. Results can consume plans through the existing
+  result endpoints below; there is no standalone plan-delete endpoint.
 
 ## Shared Nickname Validation
 
@@ -184,13 +185,18 @@ Only newly supplied names on write paths receive the stricter grammar.
     "pair1_nicknames": ["str", "str"],
     "pair2_nicknames": ["str", "str"],
     "pair1_score": "str",
-    "pair2_score": "str"
+    "pair2_score": "str",
+    "planned_match_id": null
   }
   ```
-- Response shape: `{ "match_id": "uuid" }`
+- `planned_match_id` is an optional UUID or null; see planned consumption below.
+- Response: **201**, `{ "match_id": "uuid", "created_at": "ISO 8601 datetime (UTC)" }`
 - Use case called: SubmitMatchResultUseCase
 - Error responses:
   - 404 LeagueNotFoundError
+  - 404 PlannedMatchNotFoundError (supplied plan ID is absent in this league)
+  - 409 PlannedMatchMismatchError (submitted names do not match the planned sides)
+  - 422 malformed planned-match UUID or InvalidPlannedMatchError (plan format differs)
   - 422 SamePlayerWithinSinglePairError (same player listed twice on one pair)
   - 422 SamePlayerOnBothPairsError (same player appears on both pairs)
   - 422 InvalidSetScoreError (non-integer or negative score)
@@ -214,18 +220,57 @@ Only newly supplied names on write paths receive the stricter grammar.
     "player1_nickname": "str",
     "player2_nickname": "str",
     "player1_score": "str",
-    "player2_score": "str"
+    "player2_score": "str",
+    "planned_match_id": null
   }
   ```
-- Response shape: `{ "match_id": "uuid", "created_at": "ISO 8601 datetime (UTC)" }`
+- `planned_match_id` is an optional UUID or null; see planned consumption below.
+- Response: **201**, `{ "match_id": "uuid", "created_at": "ISO 8601 datetime (UTC)" }`
 - Use case called: SubmitSinglesMatchResultUseCase
 - Error responses:
   - 404 LeagueNotFoundError
+  - 404 PlannedMatchNotFoundError (supplied plan ID is absent in this league)
+  - 409 PlannedMatchMismatchError (submitted names do not match the planned sides)
+  - 422 malformed planned-match UUID or InvalidPlannedMatchError (plan format differs)
   - 422 SamePlayerOnBothSidesError
   - 422 InvalidSetScoreError
   - 422 RosterMembershipRequiredError (only when `LeagueRules.auto_register_players_on_match = false`)
   - 409 DuplicateSinglesMatchupMatchError (league rules reject another singles match for this unordered player matchup: either globally under `once_per_league`, or within today in the league timezone under `once_per_day`)
 - Auth notes: `league_id` in URL path — possession is sufficient
+
+---
+
+## Planned consumption on result submission
+
+For the existing frontend stub, see the [frontend integration guide](../../docs/planned-match-recording-frontend-guide.md).
+
+Both result endpoints retain all required participant and score fields and their
+existing public access and 30/minute rate limit. Omit `planned_match_id` or pass null
+to record manually. For example, a planned singles result sends:
+
+```json
+{
+  "player1_nickname": "Alice",
+  "player2_nickname": "Bob",
+  "player1_score": "6",
+  "player2_score": "0",
+  "planned_match_id": "719e28b2-bce7-4e48-92a7-204711504dc8"
+}
+```
+
+The supplied plan must belong to the URL's league and match the endpoint's format.
+After normal nickname trimming and lowercase normalization, names must match each
+stored side. Doubles teammate order may differ; swapping sides or using a different
+alias instead of the planned name is a mismatch. Normal alias resolution and all
+recording rules run afterward. The request cannot overwrite the planned matchup.
+
+One transaction saves the result, roster/pair changes and activity metadata,
+hard-deletes the plan, and commits before responding. Failed recording or deletion
+rolls back all writes and leaves the plan pending. Successful consumption removes
+the row from GET planned matches and gives the result its normal history/standings
+effects. A subsequent recording request for that ID returns 404; no retry receipt
+exists. Uploading the same UUID afterward can recreate a plan. No schema change
+beyond migration 015 is required.
 
 ---
 

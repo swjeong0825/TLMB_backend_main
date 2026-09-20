@@ -94,3 +94,50 @@ async def test_concurrent_upserts_do_not_create_duplicates(session_factory, pers
         assert len(plans) == 1
         assert plans[0].id == id
         assert plans[0].value.value in values
+
+
+async def test_locked_lookup_and_delete_are_scoped_and_transactional(session_factory, persisted_league):
+    from app.domain.exceptions import PlannedMatchNotFoundError
+
+    league_id, plan_id = persisted_league.league_id, uuid4()
+    other = League.create("Other deletion league", None, "token", "host@example.com")
+    async with session_factory() as session:
+        await SqlAlchemyLeagueRepository(session).save(other)
+        await session.flush()
+        repo = SqlAlchemyPlannedMatchRepository(session)
+        await repo.upsert_many([
+            PlannedMatch.create(league_id, plan_id, "Alice Bob"),
+            PlannedMatch.create(other.league_id, plan_id, "Other League"),
+        ])
+        await session.commit()
+    async with session_factory() as session:
+        repo = SqlAlchemyPlannedMatchRepository(session)
+        assert (await repo.get_by_id_with_lock(league_id, plan_id)).value.value == "Alice Bob"
+        assert await repo.get_by_id_with_lock(LeagueId.generate(), plan_id) is None
+        with pytest.raises(PlannedMatchNotFoundError):
+            await repo.delete(LeagueId.generate(), plan_id)
+        await repo.delete(league_id, plan_id)
+        assert await repo.get_by_id_with_lock(league_id, plan_id) is None
+        assert (await repo.get_by_id_with_lock(other.league_id, plan_id)).value.value == "Other League"
+        await session.rollback()
+    async with session_factory() as session:
+        repo = SqlAlchemyPlannedMatchRepository(session)
+        assert await repo.get_by_id_with_lock(league_id, plan_id) is not None
+        await repo.delete(league_id, plan_id)
+        await session.commit()
+    async with session_factory() as session:
+        repo = SqlAlchemyPlannedMatchRepository(session)
+        assert await repo.get_by_id_with_lock(league_id, plan_id) is None
+        assert await repo.get_by_id_with_lock(other.league_id, plan_id) is not None
+
+
+async def test_lightweight_league_lock_does_not_load_roster(session, persisted_league, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    repo = SqlAlchemyLeagueRepository(session)
+    load_counts = AsyncMock(side_effect=AssertionError("roster hydration is not allowed"))
+    monkeypatch.setattr(repo, "_load_match_counts_by_player", load_counts)
+    assert await repo.lock_by_id(persisted_league.league_id)
+    assert not await repo.lock_by_id(LeagueId.generate())
+    assert not session.identity_map
+    load_counts.assert_not_called()

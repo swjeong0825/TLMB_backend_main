@@ -5,6 +5,8 @@ from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.infrastructure.persistence.repositories.planned_match_repository import SqlAlchemyPlannedMatchRepository
+
 from app.application.unit_of_work.submit_singles_match_result_uow import (
     SubmitSinglesMatchResultUnitOfWork,
 )
@@ -26,6 +28,7 @@ class SqlAlchemySubmitSinglesMatchResultUnitOfWork(
     async def __aenter__(self) -> Self:
         self._session = self._session_factory()
         self.league_repo = SqlAlchemyLeagueRepository(self._session)
+        self.planned_match_repo = SqlAlchemyPlannedMatchRepository(self._session)
         self.singles_match_repo = SqlAlchemySinglesMatchRepository(self._session)
         return self
 

@@ -101,4 +101,5 @@ async def test_repositories_share_the_same_session(
 ) -> None:
     async with SqlAlchemySubmitSinglesMatchResultUnitOfWork(session_factory) as uow:
         assert uow.league_repo._session is uow.singles_match_repo._session
+        assert uow.planned_match_repo._session is uow.league_repo._session
 
