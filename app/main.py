@@ -16,6 +16,8 @@ from app.domain.exceptions import (
     InvalidPlayerRatingError,
     InvalidPlayerNicknameError,
     InvalidPlannedMatchError,
+    PlannedMatchNotFoundError,
+    PlannedMatchMismatchError,
     InvalidSetScoreError,
     LastNicknameError,
     LeagueNotFoundError,
@@ -67,6 +69,24 @@ async def invalid_nickname_or_plan_handler(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=422, content={"error": type(exc).__name__, "detail": str(exc)}
+    )
+
+
+@app.exception_handler(PlannedMatchNotFoundError)
+async def planned_match_not_found_handler(
+    request: Request, exc: PlannedMatchNotFoundError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404, content={"error": type(exc).__name__, "detail": str(exc)}
+    )
+
+
+@app.exception_handler(PlannedMatchMismatchError)
+async def planned_match_mismatch_handler(
+    request: Request, exc: PlannedMatchMismatchError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409, content={"error": type(exc).__name__, "detail": str(exc)}
     )
 
 

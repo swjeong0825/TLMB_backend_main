@@ -92,6 +92,7 @@ async def test_league_repo_and_match_repo_share_the_same_session(
     """Both repos must operate on the same session to ensure atomicity."""
     async with SqlAlchemySubmitMatchResultUnitOfWork(session_factory) as uow:
         assert uow.league_repo._session is uow.match_repo._session
+        assert uow.planned_match_repo._session is uow.league_repo._session
 
 
 async def test_without_commit_changes_are_not_visible(

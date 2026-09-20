@@ -159,6 +159,7 @@ async def submit_match_result(
             pair2_nicknames=(body.pair2_nicknames[0], body.pair2_nicknames[1]),
             pair1_score=body.pair1_score,
             pair2_score=body.pair2_score,
+            planned_match_id=body.planned_match_id,
         )
     )
     return SubmitMatchResultResponse(
@@ -188,6 +189,7 @@ async def submit_singles_match_result(
             player2_nickname=body.player2_nickname,
             player1_score=body.player1_score,
             player2_score=body.player2_score,
+            planned_match_id=body.planned_match_id,
         )
     )
     return SubmitSinglesMatchResultResponse(

@@ -4,11 +4,13 @@ from abc import abstractmethod
 
 from app.application.unit_of_work.base import BaseUnitOfWork
 from app.domain.aggregates.league.repository import LeagueRepository
+from app.domain.aggregates.planned_match.repository import PlannedMatchRepository
 from app.domain.aggregates.match.repository import MatchRepository
 
 
 class SubmitMatchResultUnitOfWork(BaseUnitOfWork):
     league_repo: LeagueRepository
+    planned_match_repo: PlannedMatchRepository
     match_repo: MatchRepository
 
     @abstractmethod

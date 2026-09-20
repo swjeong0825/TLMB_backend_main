@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.domain.nicknames import validate_nickname
@@ -101,6 +102,7 @@ class SubmitMatchResultRequest(BaseModel):
     pair2_nicknames: list[str]
     pair1_score: str
     pair2_score: str
+    planned_match_id: UUID | None = None
 
     @field_validator("pair1_nicknames", "pair2_nicknames")
     @classmethod
@@ -129,6 +131,7 @@ class SubmitSinglesMatchResultRequest(BaseModel):
     player2_nickname: str
     player1_score: str
     player2_score: str
+    planned_match_id: UUID | None = None
 
     @field_validator("player1_nickname", "player2_nickname")
     @classmethod

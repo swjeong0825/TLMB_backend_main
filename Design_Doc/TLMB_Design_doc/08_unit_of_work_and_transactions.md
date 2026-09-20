@@ -4,8 +4,8 @@
 
 ```mermaid
 flowchart LR
-    subgraph UOW ["Requires Unit of Work\n(two repositories — must commit atomically)"]
-        SMR["SubmitMatchResult\nLeagueRepository + MatchRepository"]
+    subgraph UOW ["Requires Unit of Work\n(repositories commit atomically)"]
+        SMR["SubmitMatchResult / SubmitSinglesMatchResult\nLeague + Result + optional PlannedMatch"]
     end
     subgraph SINGLE ["Single Repository Write\n(no UoW — inherently atomic)"]
         CL["CreateLeague → LeagueRepo"]
@@ -39,6 +39,24 @@ flowchart LR
 - Commit scope: LeagueRepository.save(league) — persists updated roster with any new players/pairs — and MatchRepository.save(match) — persists the new match record — within a single DB transaction
 - Rollback trigger: any domain error (invariant violation, pair conflict), save error, or DB constraint violation; entire transaction is rolled back
 - Notes: When all players are already known and the pair already exists, the League save is still issued but results in no-ops (upsert with no changes). The transaction boundary is the same regardless of whether implicit registration occurred.
+
+---
+
+## Optional planned-match consumption
+
+Both existing result Units of Work also expose `PlannedMatchRepository`, using the
+same SQLAlchemy session as the league and result repositories. With a non-null
+`planned_match_id`, lock the league first, then lock the plan scoped by league/ID.
+The plan validates submitted format and names before normal result recording.
+After result and league writes, hard-delete the plan and commit once. Any failure
+rolls back the result, registrations, activity metadata, and plan deletion together.
+
+Planned uploads acquire a lightweight league-row lock before their batch upserts,
+so both workflows lock league then plans. No roster hydration or league save is
+needed during uploads. A recording queued behind consumption finds no plan and
+returns 404. An upload queued behind consumption can recreate that UUID: no receipt
+table or consumed-ID check is maintained. Manual result submissions skip plan reads
+and deletion. See [planned matches](23_planned_matches.md).
 
 ---
 

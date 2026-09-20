@@ -5,7 +5,7 @@ import pytest
 from app.domain.aggregates.league.value_objects import LeagueId
 from app.domain.aggregates.planned_match.aggregate_root import PlannedMatch
 from app.domain.aggregates.planned_match.value_objects import PlannedMatchValue
-from app.domain.exceptions import InvalidPlannedMatchError
+from app.domain.exceptions import InvalidPlannedMatchError, PlannedMatchMismatchError
 from app.domain.nicknames import NICKNAME_WHITESPACE
 
 
@@ -34,3 +34,36 @@ def test_rejects_invalid_grammar(value):
 def test_rejects_all_javascript_whitespace_inside_or_around_names(space, template):
     with pytest.raises(InvalidPlannedMatchError):
         PlannedMatchValue(template.format(space))
+
+
+@pytest.mark.parametrize("value,side1,side2", [
+    ("Alice Bob", (" ALICE\ufeff",), ("bob",)),
+    ("민수 지수", ("민수",), ("지수",)),
+    ("Alice,Bob Charlie,Diana", ("BOB", "alice"), ("diana", "charlie")),
+    ("Alice,Alice Bob,Bob", ("alice", "ALICE"), ("bob", "BOB")),
+])
+def test_participant_comparison_preserves_value(value, side1, side2):
+    plan = PlannedMatchValue(value)
+    plan.validate_participants(side1, side2)
+    assert plan.value == value
+
+
+@pytest.mark.parametrize("value,side1,side2", [
+    ("Alice Bob", ("bob",), ("alice",)),
+    ("Ace Bob", ("alice",), ("bob",)),
+    ("Alice,Bob Charlie,Diana", ("alice", "charlie"), ("bob", "diana")),
+    ("Alice,Bob Charlie,Diana", ("charlie", "diana"), ("alice", "bob")),
+    ("Alice,Bob Charlie,Diana", ("alice", "alice"), ("charlie", "diana")),
+])
+def test_different_participants_or_sides_are_a_conflict(value, side1, side2):
+    with pytest.raises(PlannedMatchMismatchError):
+        PlannedMatchValue(value).validate_participants(side1, side2)
+
+
+@pytest.mark.parametrize("value,side1,side2", [
+    ("Alice Bob", ("alice", "bob"), ("charlie", "diana")),
+    ("Alice,Bob Charlie,Diana", ("alice",), ("charlie",)),
+])
+def test_wrong_result_format_is_invalid(value, side1, side2):
+    with pytest.raises(InvalidPlannedMatchError):
+        PlannedMatchValue(value).validate_participants(side1, side2)

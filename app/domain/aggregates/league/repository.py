@@ -11,6 +11,11 @@ class LeagueRepository(ABC):
     async def exists(self, league_id: LeagueId) -> bool: ...
 
     @abstractmethod
+    async def lock_by_id(self, league_id: LeagueId) -> bool:
+        """Lock an existing league without hydrating its roster; return whether it exists."""
+        ...
+
+    @abstractmethod
     async def get_by_id(self, league_id: LeagueId) -> League | None: ...
 
     @abstractmethod

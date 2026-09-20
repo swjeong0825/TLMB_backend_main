@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from uuid import UUID
 
 from app.application.use_cases.league_day import league_local_day_utc_bounds
 from app.application.unit_of_work.submit_match_result_uow import SubmitMatchResultUnitOfWork
@@ -11,6 +12,7 @@ from app.domain.aggregates.match.value_objects import SetScore
 from app.domain.exceptions import (
     DuplicatePairMatchupMatchError,
     LeagueNotFoundError,
+    PlannedMatchNotFoundError,
     SamePlayerOnBothPairsError,
     SamePlayerWithinSinglePairError,
 )
@@ -23,6 +25,7 @@ class SubmitMatchResultCommand:
     pair2_nicknames: tuple[str, str]
     pair1_score: str
     pair2_score: str
+    planned_match_id: UUID | None = None
 
 
 @dataclass
@@ -36,32 +39,32 @@ class SubmitMatchResultUseCase:
         self._uow_factory = uow_factory
 
     async def execute(self, command: SubmitMatchResultCommand) -> SubmitMatchResultResult:
-        pair1_nickname1 = PlayerNickname(command.pair1_nicknames[0]).value
-        pair1_nickname2 = PlayerNickname(command.pair1_nicknames[1]).value
-        pair2_nickname1 = PlayerNickname(command.pair2_nicknames[0]).value
-        pair2_nickname2 = PlayerNickname(command.pair2_nicknames[1]).value
-
-        if pair1_nickname1 == pair1_nickname2:
-            raise SamePlayerWithinSinglePairError(
-                "Pair 1 has the same player listed twice"
-            )
-        if pair2_nickname1 == pair2_nickname2:
-            raise SamePlayerWithinSinglePairError(
-                "Pair 2 has the same player listed twice"
-            )
-
-        if {pair1_nickname1, pair1_nickname2} & {pair2_nickname1, pair2_nickname2}:
-            raise SamePlayerOnBothPairsError(
-                "The same player appears on both pairs"
-            )
-
-        set_score = SetScore(pair1_score=command.pair1_score, pair2_score=command.pair2_score)
+        # Preserve early validation for manual submissions; planned submissions
+        # must resolve their pending plan before applying recording rules.
+        validated = self._validate_result(command) if command.planned_match_id is None else None
 
         async with self._uow_factory() as uow:
             league_id = LeagueId.from_str(command.league_id)
             league = await uow.league_repo.get_by_id_with_lock(league_id)
             if league is None:
                 raise LeagueNotFoundError(f"League '{command.league_id}' not found")
+
+            if command.planned_match_id is not None:
+                plan = await uow.planned_match_repo.get_by_id_with_lock(
+                    league_id, command.planned_match_id
+                )
+                if plan is None:
+                    raise PlannedMatchNotFoundError(
+                        f"Planned match '{command.planned_match_id}' not found in this league"
+                    )
+                plan.value.validate_participants(
+                    command.pair1_nicknames, command.pair2_nicknames
+                )
+
+            (
+                pair1_nickname1, pair1_nickname2,
+                pair2_nickname1, pair2_nickname2, set_score,
+            ) = validated or self._validate_result(command)
 
             league.validate_match_participants_on_roster(
                 [pair1_nickname1, pair1_nickname2, pair2_nickname1, pair2_nickname2]
@@ -110,9 +113,37 @@ class SubmitMatchResultUseCase:
             created_at = match.created_at or datetime.now(timezone.utc)
             league.note_match_recorded_at(created_at)
             await uow.league_repo.save(league)
+            if command.planned_match_id is not None:
+                await uow.planned_match_repo.delete(league_id, command.planned_match_id)
             await uow.commit()
 
         return SubmitMatchResultResult(
             match_id=str(match.match_id.value),
             created_at=created_at,
         )
+
+    @staticmethod
+    def _validate_result(
+        command: SubmitMatchResultCommand,
+    ) -> tuple[str, str, str, str, SetScore]:
+        pair1_nickname1 = PlayerNickname(command.pair1_nicknames[0]).value
+        pair1_nickname2 = PlayerNickname(command.pair1_nicknames[1]).value
+        pair2_nickname1 = PlayerNickname(command.pair2_nicknames[0]).value
+        pair2_nickname2 = PlayerNickname(command.pair2_nicknames[1]).value
+
+        if pair1_nickname1 == pair1_nickname2:
+            raise SamePlayerWithinSinglePairError(
+                "Pair 1 has the same player listed twice"
+            )
+        if pair2_nickname1 == pair2_nickname2:
+            raise SamePlayerWithinSinglePairError(
+                "Pair 2 has the same player listed twice"
+            )
+
+        if {pair1_nickname1, pair1_nickname2} & {pair2_nickname1, pair2_nickname2}:
+            raise SamePlayerOnBothPairsError(
+                "The same player appears on both pairs"
+            )
+
+        set_score = SetScore(pair1_score=command.pair1_score, pair2_score=command.pair2_score)
+        return pair1_nickname1, pair1_nickname2, pair2_nickname1, pair2_nickname2, set_score

@@ -58,9 +58,10 @@ Base URL: `http://localhost:8000`
 
 | Error | Status |
 |---|---|
-| Not found (League / Player / Pair / Match) | 404 |
+| Not found (League / Player / Pair / Match / Planned Match) | 404 |
 | Unauthorized (`host_token` mismatch or missing) | 401 |
 | Duplicate (title, nickname, pair conflict) | 409 |
+| Submitted names do not match the planned sides (`PlannedMatchMismatchError`) | 409 |
 | Structural validation (same player, invalid score) | 422 |
 | Invalid nickname or planned matchup; invalid/duplicate planned-match IDs | 422 |
 
@@ -78,6 +79,22 @@ doubles, with exactly one ASCII space between equally sized sides. Nicknames mus
 be nonempty and contain no whitespace or comma. Values retain case, Unicode, and
 order exactly. Unknown/repeated names are valid; uploads never resolve participants,
 register players/pairs, record results, or change standings or league activity dates.
+
+To record a plan, include optional `planned_match_id` (UUID) in the existing
+`POST /leagues/{league_id}/matches` or `/singles-matches` request. All current names
+and score fields remain required. The backend checks the plan belongs to the league,
+checks its format and normalized names per side, then records the result and
+hard-deletes the plan in one transaction. Doubles teammate order may differ; sides
+cannot be swapped. Existing recording rules still apply. Missing plans return 404,
+format errors return 422, and different participants return 409. Failures roll back
+all writes. Success remains 201 with `match_id` and `created_at`.
+
+Omitting the ID or passing null records manually. A retry after successful
+consumption returns 404; uploading the deleted ID can recreate it. This recording
+option adds no table or migration beyond the existing planned-match migration 015.
+
+Frontend wiring, request examples, UI recovery, and stub replacement are covered in
+the [planned-match recording integration guide](docs/planned-match-recording-frontend-guide.md).
 
 Player and alias writes share the same nickname character rule, trim surrounding
 ECMAScript whitespace, and retain the backend's existing lowercase normalization.

@@ -10,6 +10,14 @@ class InvalidPlannedMatchError(DomainError, ValueError):
     pass
 
 
+class PlannedMatchNotFoundError(DomainError):
+    pass
+
+
+class PlannedMatchMismatchError(DomainError):
+    pass
+
+
 class LeagueNotFoundError(DomainError):
     pass
 
