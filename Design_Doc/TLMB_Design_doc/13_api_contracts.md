@@ -98,7 +98,28 @@ flowchart LR
 - Unknown/repeated names and matchups are allowed regardless of roster, pair,
   or rematch rules. Plans never alter players, aliases, pairs, recorded matches,
   standings, or activity metadata. Results can consume plans through the existing
-  result endpoints below; there is no standalone plan-delete endpoint.
+  result endpoints below; pending plans can also be deleted independently.
+
+## Endpoint: Delete Planned Match
+
+- Method: DELETE
+- Path: `/leagues/{league_id}/planned-matches/{planned_match_id}`
+- Purpose: Hard-delete one pending plan without recording a result. No player,
+  alias, pair, recorded-match, standings, or league activity changes occur.
+- Request: both path IDs are UUIDs; no body, names, scores, or value precondition.
+- Response: **204 No Content**, empty body; do not parse success as JSON.
+- Use case called: DeletePlannedMatchUseCase
+- Auth: public league-link access, no host token and no result-delete time window.
+- Rate limit: 60/minute, using the existing limiter and CORS configuration.
+- Errors: 404 `LeagueNotFoundError`, 404 `PlannedMatchNotFoundError` (including a
+  repeated deletion), 422 malformed UUIDs, 429 rate limit, 5xx storage failure.
+- Transaction: lock only the league row, then delete by `(league_id, id)` and commit
+  once. The row deletion takes the plan lock; errors roll back. This uses the same
+  league-before-plan lock order as upload and recording, without roster hydration.
+- A recording/deletion race gives the later operation a missing-plan 404. This
+  endpoint never removes the recorded result. Uploading the same ID afterward can
+  recreate a pending plan; no tombstone or migration is added.
+- Frontend integration: [deletion guide](../../docs/planned-match-deletion-frontend-guide.md).
 
 ## Shared Nickname Validation
 

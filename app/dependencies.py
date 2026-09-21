@@ -12,6 +12,7 @@ from app.application.use_cases.upload_planned_matches_use_case import UploadPlan
 from app.application.use_cases.add_alias_to_player_use_case import AddAliasToPlayerUseCase
 from app.application.use_cases.create_league_use_case import CreateLeagueUseCase
 from app.application.use_cases.delete_match_use_case import DeleteMatchUseCase
+from app.application.use_cases.delete_planned_match_use_case import DeletePlannedMatchUseCase
 from app.application.use_cases.delete_singles_match_use_case import DeleteSinglesMatchUseCase
 from app.application.use_cases.delete_pair_use_case import DeletePairUseCase
 from app.application.use_cases.edit_match_score_use_case import EditMatchScoreUseCase
@@ -38,6 +39,7 @@ from app.infrastructure.persistence.repositories.league_repository import SqlAlc
 from app.infrastructure.persistence.repositories.match_repository import SqlAlchemyMatchRepository
 from app.infrastructure.persistence.repositories.planned_match_repository import SqlAlchemyPlannedMatchRepository
 from app.infrastructure.persistence.unit_of_work.upload_planned_matches_uow import SqlAlchemyUploadPlannedMatchesUnitOfWork
+from app.infrastructure.persistence.unit_of_work.delete_planned_match_uow import SqlAlchemyDeletePlannedMatchUnitOfWork
 from app.infrastructure.persistence.repositories.singles_match_repository import (
     SqlAlchemySinglesMatchRepository,
 )
@@ -74,6 +76,12 @@ def get_planned_match_repo(
 def get_upload_planned_matches_use_case() -> UploadPlannedMatchesUseCase:
     return UploadPlannedMatchesUseCase(
         partial(SqlAlchemyUploadPlannedMatchesUnitOfWork, AsyncSessionFactory)
+    )
+
+
+def get_delete_planned_match_use_case() -> DeletePlannedMatchUseCase:
+    return DeletePlannedMatchUseCase(
+        partial(SqlAlchemyDeletePlannedMatchUnitOfWork, AsyncSessionFactory)
     )
 
 

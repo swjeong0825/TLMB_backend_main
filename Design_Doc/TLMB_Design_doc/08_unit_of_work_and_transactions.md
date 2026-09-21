@@ -60,6 +60,18 @@ and deletion. See [planned matches](23_planned_matches.md).
 
 ---
 
+## Transactional Action: DeletePlannedMatch
+
+`DeletePlannedMatchUnitOfWork` locks the league row without roster hydration and
+deletes only the scoped pending plan through `PlannedMatchRepository.delete`.
+The SQL DELETE acquires the plan-row lock, preserving league-before-plan ordering
+with upload and recording. Both repositories share the session; the use case
+commits once before 204, and a failure rolls back deletion. This explicit boundary
+also keeps the league lock until deletion commits. No league aggregate is saved
+and no recorded-result or activity metadata changes occur.
+
+---
+
 ## Single-Repository Write Actions (No Unit of Work Required)
 
 ### CreateLeague
