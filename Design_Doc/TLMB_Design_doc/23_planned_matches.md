@@ -53,7 +53,28 @@ the later request. No consumption receipt or result-to-plan link is stored: retr
 after consumption return 404, and later uploads (including queued uploads) may
 recreate the deleted UUID. Preventing recreation is outside this feature.
 
+## Deleting a pending plan
+
+`DELETE /leagues/{league_id}/planned-matches/{planned_match_id}` calls
+`DeletePlannedMatchUseCase` and returns 204 with no body after commit. Both path
+IDs must be UUIDs. Access is public via the league link, with the existing CORS
+configuration and a 60/minute rate limit; no scores or host token are required.
+
+The dedicated `DeletePlannedMatchUnitOfWork` shares one session between the league
+and plan repositories. It acquires the lightweight league lock, issues the existing
+scoped plan deletion, and commits once. Missing league/plan errors return 404;
+storage errors roll back. No roster hydration, participant validation, aggregate
+save, recorded result, standings change, or activity-date update is involved.
+Deletion by ID also permits cleanup of a malformed saved value.
+
+This follows the same league-before-plan lock order as uploads and recording.
+The losing operation in a recording/deletion race gets 404; an already recorded
+result is never deleted here. A later upload can recreate the same UUID. No
+tombstone, time-window constraint, or migration is introduced. Frontend wiring is
+covered by the [deletion guide](../../docs/planned-match-deletion-frontend-guide.md).
+
 ## Nicknames and legacy data
+
 
 The shared pure nickname validator uses the explicit ECMAScript whitespace set.
 `PlannedMatchValue` invokes it without trimming and preserves the complete string.

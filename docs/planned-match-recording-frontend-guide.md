@@ -30,9 +30,11 @@ Both recording routes retain the existing 30 requests/minute limit when rate
 limiting is enabled. Encode the league ID when constructing the URL and use the
 configured base URL, rather than a hardcoded deployment address.
 
-There is no `/planned-matches/{id}/record` route or standalone plan-delete route.
-Do not send a result POST followed by a DELETE, and do not call the frontend's
-`TLCHAT_PLAN.deleteMatch` stub after recording.
+There is no `/planned-matches/{id}/record` route. A separate
+[plan-delete endpoint](planned-match-deletion-frontend-guide.md) discards a pending
+plan without recording a result. Do not send a result POST followed by a DELETE,
+or call `TLCHAT_PLAN.deleteMatch` after recording: the result POST already consumes
+the plan atomically.
 
 ## 2. Build a result from the selected saved plan
 

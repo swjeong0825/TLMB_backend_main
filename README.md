@@ -40,6 +40,7 @@ Base URL: `http://localhost:8000`
 | `POST` | `/leagues/{league_id}/matches` | Submit a confirmed match result (auto-registers new players/pairs) |
 | `POST` | `/leagues/{league_id}/planned-matches` | Atomically upsert proposed matchups by client UUID; no host token required |
 | `GET` | `/leagues/{league_id}/planned-matches` | All shared plans, ordered by UUID; no host token required |
+| `DELETE` | `/leagues/{league_id}/planned-matches/{planned_match_id}` | Hard-delete one pending plan; no host token required; 204 on success |
 | `GET` | `/leagues/{league_id}/standings` | Ranked win/loss standings |
 | `GET` | `/leagues/{league_id}/matches` | Match history (most recent first) |
 | `GET` | `/leagues/{league_id}/roster` | All registered players and pairs |
@@ -95,6 +96,12 @@ option adds no table or migration beyond the existing planned-match migration 01
 
 Frontend wiring, request examples, UI recovery, and stub replacement are covered in
 the [planned-match recording integration guide](docs/planned-match-recording-frontend-guide.md).
+
+To discard a pending plan without recording a result, use
+`DELETE /leagues/{league_id}/planned-matches/{planned_match_id}` with no body.
+Success is 204 with an empty body; missing leagues/plans return 404 and malformed
+UUIDs return 422. It changes no recorded results or league activity. See the
+[frontend deletion guide](docs/planned-match-deletion-frontend-guide.md).
 
 Player and alias writes share the same nickname character rule, trim surrounding
 ECMAScript whitespace, and retain the backend's existing lowercase normalization.
